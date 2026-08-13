@@ -276,18 +276,14 @@ namespace BannerlordHtmlUI
                 var minimized = Win32.IsIconic(hwnd);
                 var windowVisible = Win32.IsWindowVisible(hwnd);
                 var foreground = Win32.GetForegroundWindow() == hwnd;
-                var overlayForeground = _form != null && !_form.IsDisposed && _form.IsHandleCreated
-                    && Win32.GetForegroundWindow() == _form.Handle;
                 var width = Math.Max(0, rect.Right - rect.Left);
                 var height = Math.Max(0, rect.Bottom - rect.Top);
 
-                // Passive mode follows Bannerlord focus so the HUD does not remain over
-                // unrelated applications. Captured mode is different: the overlay itself
-                // is intentionally the foreground window, so using only `foreground` here
-                // creates a hide/show loop and visible flicker.
-                var focusAccepted = foreground ||
-                                    (_inputMode == HtmlUiInputMode.Captured && overlayForeground);
-                var active = !minimized && windowVisible && focusAccepted && _requestedVisible;
+                // Show the overlay whenever a page is requested visible (_requestedVisible)
+                // and the game window exists & is visible. The foreground/focus logic caused
+                // "open after close does not reopen" (the window stayed hidden after a
+                // close-then-open cycle), so we drive visibility purely off _requestedVisible.
+                var active = _requestedVisible && !minimized && windowVisible;
 
                 if (active)
                 {
@@ -566,6 +562,24 @@ namespace BannerlordHtmlUI
             NavigateOnUiThread(page);
         }
 
+        // Per-page WebView2 background. Pages marked Transparent get a fully transparent
+        // background (alpha=0) so the game shows through; all other pages get opaque white.
+        // Always set both directions so leaving a transparent page restores the opaque state.
+        private void ApplyTransparentBackground(HtmlUiPage page)
+        {
+            try
+            {
+                if (_web?.CoreWebView2 == null) return;
+                _web.DefaultBackgroundColor = (page != null && page.Transparent)
+                    ? Color.FromArgb(0, 0, 0, 0)
+                    : Color.FromArgb(255, 255, 255, 255);
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Warn("Could not set WebView2 background: " + ex.Message);
+            }
+        }
+
         private void NavigateOnUiThread(HtmlUiPage page)
         {
             EnsureUiThread(() =>
@@ -582,6 +596,7 @@ namespace BannerlordHtmlUI
                     _currentRelativePath = page.ContentRootId + ":/" + page.RelativePath;
                     EnableWatcherIfNeeded(page);
                     _requestedVisible = true;
+                    ApplyTransparentBackground(page);
                     ApplyInputModeOnUiThread();
                     var host = GetContentHost(page);
                     var encodedPath = Uri.EscapeUriString(page.RelativePath);
@@ -697,11 +712,6 @@ namespace BannerlordHtmlUI
         {
             if (_form == null || _form.IsDisposed) return;
             _form.SetPassThrough(_inputMode == HtmlUiInputMode.Passive);
-            if (_web != null && _web.IsHandleCreated && _web.Handle != IntPtr.Zero)
-            {
-                try { Win32.SetHitTestTransparentTree(_web.Handle, _inputMode == HtmlUiInputMode.Passive); }
-                catch { }
-            }
             if (_inputMode == HtmlUiInputMode.Hidden)
             {
                 _form.Hide();

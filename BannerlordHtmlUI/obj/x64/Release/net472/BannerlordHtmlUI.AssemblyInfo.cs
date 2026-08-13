@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BannerlordHtmlUI")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.44.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.44.0+bebe33400e40446a6271360867ba6d6f32ced389")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.44.0+aacf045532c7aecda537e968a3bf92d56f77f997")]
 [assembly: System.Reflection.AssemblyProductAttribute("BannerlordHtmlUI")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BannerlordHtmlUI")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.44.0.0")]
