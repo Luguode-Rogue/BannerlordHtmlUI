@@ -137,6 +137,9 @@ namespace BannerlordHtmlUI
                 _pages.TryGetValue(openId, out page);
                 _openId = null;
             }
+            // Diagnostic: log who requested the close so we can pinpoint auto-closes.
+            try { HtmlUiLogger.Info("CloseCurrent CALLED from: " + new System.Diagnostics.StackTrace(1, false)); }
+            catch { }
 
             if (page != null)
             {
@@ -197,6 +200,11 @@ namespace BannerlordHtmlUI
             {
                 lock (_sync) return new List<HtmlUiPage>(_pages.Values);
             }
+        }
+
+        public int Count
+        {
+            get { lock (_sync) return _pages.Count; }
         }
     }
 }

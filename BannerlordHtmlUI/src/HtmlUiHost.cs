@@ -63,6 +63,29 @@ namespace BannerlordHtmlUI
         public int ContentRootCount => _contentRoots.Count;
         public bool NavigationInProgress => _navigationInProgress;
         public bool IsHostCreated => _form != null && !_form.IsDisposed;
+
+        public int CommandCount => _bridge?.CommandCount ?? 0;
+        public int RequestCount => _bridge?.RequestCount ?? 0;
+        public int StateCount => State?.Count ?? 0;
+        public int PageCount => Pages?.Count ?? 0;
+
+        public string WebView2Version
+        {
+            get
+            {
+                try { return _web?.CoreWebView2?.Environment?.BrowserVersionString ?? "n/a"; }
+                catch { return "n/a"; }
+            }
+        }
+
+        public string CurrentUrl
+        {
+            get
+            {
+                try { return _web?.Source?.ToString() ?? ""; }
+                catch { return ""; }
+            }
+        }
         public HtmlUiWindowState GetWindowState() => _lastWindowState;
         public event Action Ready;
         public event Action<string> BrowserError;
@@ -113,10 +136,11 @@ namespace BannerlordHtmlUI
                     Dock = DockStyle.Fill
                 };
 
-                // Also catch ESC on the WebView2 control itself (Captured mode focuses it).
-                _web.KeyDown += OnWebKeyDown;
-                _web.PreviewKeyDown += OnWebPreviewKeyDown;
-
+                // NOTE: we deliberately do NOT subscribe WebView2 KeyDown/PreviewKeyDown for
+                // ESC. The WebView2 control fires synthetic key events for internal actions
+                // (scroll, IME, content load) which were mis-detected as Escape and caused
+                // pages to close ~2s after opening. The native overlay WndProc (EscapePressed)
+                // is the single, reliable ESC fallback.
                 _form.Controls.Add(_web);
 
                 _followTimer = new System.Windows.Forms.Timer { Interval = 100 };
@@ -134,16 +158,6 @@ namespace BannerlordHtmlUI
                 HtmlUiLogger.Error("WebView2 UI thread failed.", ex);
                 _ready.TrySetException(ex);
             }
-        }
-
-        private void OnWebKeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.KeyCode == Keys.Escape) HandleEscapeFallback();
-        }
-
-        private void OnWebPreviewKeyDown(object sender, PreviewKeyDownEventArgs e)
-        {
-            if (e.KeyCode == Keys.Escape) HandleEscapeFallback();
         }
 
         private void HandleEscapeFallback()
@@ -211,6 +225,8 @@ namespace BannerlordHtmlUI
             _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             _web.CoreWebView2.Settings.AreDevToolsEnabled = DevToolsEnabled;
             _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            // Transparency is applied per-page on navigation (see NavigateOnUiThread),
+            // never globally, to avoid breaking opaque full-screen pages.
             _web.CoreWebView2.WebResourceRequested += OnWebResourceRequested;
             _web.CoreWebView2.NavigationStarting += OnNavigationStarting;
             _web.CoreWebView2.NavigationCompleted += OnNavigationCompleted;
@@ -681,6 +697,11 @@ namespace BannerlordHtmlUI
         {
             if (_form == null || _form.IsDisposed) return;
             _form.SetPassThrough(_inputMode == HtmlUiInputMode.Passive);
+            if (_web != null && _web.IsHandleCreated && _web.Handle != IntPtr.Zero)
+            {
+                try { Win32.SetHitTestTransparentTree(_web.Handle, _inputMode == HtmlUiInputMode.Passive); }
+                catch { }
+            }
             if (_inputMode == HtmlUiInputMode.Hidden)
             {
                 _form.Hide();

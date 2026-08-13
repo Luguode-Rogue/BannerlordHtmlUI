@@ -1,58 +1,91 @@
-[2026-08-14 04:15:23.504] [3] === BannerlordHtmlUI started ===
-[2026-08-14 04:15:23.673] [7] INFO  WebView2 UI thread starting.
-[2026-08-14 04:15:23.728] [7] INFO  WebView2 UI form created. Starting WinForms message loop.
-[2026-08-14 04:15:23.750] [7] INFO  WebView2 host form loaded. Scheduling asynchronous WebView2 initialization.
-[2026-08-14 04:15:23.761] [7] INFO  WebView2 asynchronous initialization started.
-[2026-08-14 04:15:23.761] [7] INFO  Creating WebView2 environment. Cache=C:\Users\42029\AppData\Local\Temp\BannerlordHtmlUI\WebView2
-[2026-08-14 04:15:23.989] [7] INFO  WebView2 environment created.
-[2026-08-14 04:15:24.066] [7] INFO  Window state changed: foreground=False, visible=False, minimized=False, bounds=0,0 1707x960, requestedVisible=False, inputMode=Hidden
-[2026-08-14 04:15:24.672] [7] INFO  EnsureCoreWebView2Async completed.
-[2026-08-14 04:15:24.709] [5] INFO  Framework runtime injected into all future documents.
-[2026-08-14 04:15:24.746] [7] INFO  WebView2 ready. Host is operational.
-[2026-08-14 04:15:24.753] [9] INFO  Page registered: framework -> framework:/index.html
-[2026-08-14 04:15:24.754] [9] INFO  Page registered: diagnostics -> framework:/diagnostics.html
-[2026-08-14 04:15:24.856] [9] INFO  Page registered: HtmlUiConsumerTestMod.consumer.test -> HtmlUiConsumerTestMod.ui:/Test/index.html
-[2026-08-14 04:15:24.857] [9] INFO  Page registered: HtmlUiConsumerTestMod.consumer.second -> HtmlUiConsumerTestMod.ui:/Second/index.html
-[2026-08-14 04:15:31.640] [7] INFO  Window state changed: foreground=True, visible=False, minimized=False, bounds=0,0 1707x960, requestedVisible=False, inputMode=Hidden
-[2026-08-14 04:15:33.419] [22] INFO  Page open requested: HtmlUiConsumerTestMod.consumer.test, hostReady=True
-[2026-08-14 04:15:33.421] [22] INFO  Navigate requested: page=HtmlUiConsumerTestMod.consumer.test, root=HtmlUiConsumerTestMod.ui, path=Test/index.html, webReady=True
-[2026-08-14 04:15:33.460] [7] INFO  Navigating WebView2 to https://bannerlord-htmlui-htmluiconsumertestmod-ui.local/Test/index.html?__bannerlord_htmlui_owner=HtmlUiConsumerTestMod&__bannerlord_htmlui_page=HtmlUiConsumerTestMod.consumer.test, formVisible=True, requestedVisible=True, inputMode=Captured
-[2026-08-14 04:15:33.525] [7] INFO  Window state changed: foreground=False, visible=True, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Captured
-[2026-08-14 04:15:33.576] [7] INFO  WebView2 source changed: https://bannerlord-htmlui-htmluiconsumertestmod-ui.local/Test/index.html?__bannerlord_htmlui_owner=HtmlUiConsumerTestMod&__bannerlord_htmlui_page=HtmlUiConsumerTestMod.consumer.test
-[2026-08-14 04:15:33.579] [7] INFO  WebView2 content loading: 2
-[2026-08-14 04:15:33.694] [7] INFO  WebView2 navigation completed successfully.
-[2026-08-14 04:15:51.351] [7] INFO  Window state changed: foreground=False, visible=False, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Passive
-[2026-08-14 04:15:51.467] [7] INFO  Window state changed: foreground=True, visible=True, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Passive
-[2026-08-14 04:15:53.082] [7] INFO  Window state changed: foreground=False, visible=True, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Captured
-[2026-08-14 04:15:55.547] [22] INFO  Page open requested: HtmlUiConsumerTestMod.consumer.second, hostReady=True
-[2026-08-14 04:15:55.548] [22] INFO  Page closed: HtmlUiConsumerTestMod.consumer.test
-[2026-08-14 04:15:55.551] [22] INFO  Navigate requested: page=HtmlUiConsumerTestMod.consumer.second, root=HtmlUiConsumerTestMod.ui, path=Second/index.html, webReady=True
-[2026-08-14 04:15:55.588] [7] INFO  Navigating WebView2 to https://bannerlord-htmlui-htmluiconsumertestmod-ui.local/Second/index.html?__bannerlord_htmlui_owner=HtmlUiConsumerTestMod&__bannerlord_htmlui_page=HtmlUiConsumerTestMod.consumer.second, formVisible=True, requestedVisible=True, inputMode=Passive
-[2026-08-14 04:15:55.600] [7] INFO  Window state changed: foreground=True, visible=True, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Passive
-[2026-08-14 04:15:55.616] [7] INFO  WebView2 source changed: https://bannerlord-htmlui-htmluiconsumertestmod-ui.local/Second/index.html?__bannerlord_htmlui_owner=HtmlUiConsumerTestMod&__bannerlord_htmlui_page=HtmlUiConsumerTestMod.consumer.second
-[2026-08-14 04:15:55.617] [7] INFO  WebView2 content loading: 3
-[2026-08-14 04:15:55.638] [7] INFO  WebView2 navigation completed successfully.
-[2026-08-14 04:15:58.167] [22] INFO  Page open requested: HtmlUiConsumerTestMod.consumer.test, hostReady=True
-[2026-08-14 04:15:58.167] [22] INFO  Page closed: HtmlUiConsumerTestMod.consumer.second
-[2026-08-14 04:15:58.169] [22] INFO  Navigate requested: page=HtmlUiConsumerTestMod.consumer.test, root=HtmlUiConsumerTestMod.ui, path=Test/index.html, webReady=True
-[2026-08-14 04:15:58.205] [7] INFO  Navigating WebView2 to https://bannerlord-htmlui-htmluiconsumertestmod-ui.local/Test/index.html?__bannerlord_htmlui_owner=HtmlUiConsumerTestMod&__bannerlord_htmlui_page=HtmlUiConsumerTestMod.consumer.test, formVisible=True, requestedVisible=True, inputMode=Captured
-[2026-08-14 04:15:58.233] [7] INFO  Window state changed: foreground=False, visible=True, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Captured
-[2026-08-14 04:15:58.238] [7] INFO  WebView2 source changed: https://bannerlord-htmlui-htmluiconsumertestmod-ui.local/Test/index.html?__bannerlord_htmlui_owner=HtmlUiConsumerTestMod&__bannerlord_htmlui_page=HtmlUiConsumerTestMod.consumer.test
-[2026-08-14 04:15:58.238] [7] INFO  WebView2 content loading: 4
-[2026-08-14 04:15:58.242] [7] INFO  WebView2 navigation completed successfully.
-[2026-08-14 04:15:59.418] [22] INFO  Page reload requested: HtmlUiConsumerTestMod.consumer.test
-[2026-08-14 04:15:59.438] [7] INFO  WebView2 content loading: 5
-[2026-08-14 04:15:59.449] [7] INFO  WebView2 navigation completed successfully.
-[2026-08-14 04:16:03.172] [22] INFO  Page reload requested: HtmlUiConsumerTestMod.consumer.test
-[2026-08-14 04:16:03.185] [7] INFO  WebView2 content loading: 6
-[2026-08-14 04:16:03.189] [7] INFO  WebView2 navigation completed successfully.
-[2026-08-14 04:16:06.329] [7] INFO  Window state changed: foreground=False, visible=False, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Passive
-[2026-08-14 04:16:06.497] [7] INFO  Window state changed: foreground=True, visible=True, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Passive
-[2026-08-14 04:16:07.701] [22] INFO  Page closed: HtmlUiConsumerTestMod.consumer.test
-[2026-08-14 04:16:07.745] [7] INFO  Window state changed: foreground=True, visible=False, minimized=False, bounds=0,0 1707x960, requestedVisible=False, inputMode=Hidden
-[2026-08-14 04:16:08.830] [7] INFO  Window state changed: foreground=False, visible=False, minimized=False, bounds=0,0 1707x960, requestedVisible=False, inputMode=Hidden
-[2026-08-14 04:16:10.362] [7] INFO  Window state changed: foreground=True, visible=False, minimized=False, bounds=0,0 1707x960, requestedVisible=False, inputMode=Hidden
-[2026-08-14 04:16:11.168] [7] WARN  Bannerlord main window could not be resolved. hwnd=0
-[2026-08-14 04:16:11.168] [7] INFO  Window state changed: foreground=False, visible=False, minimized=False, bounds=0,0 0x0, requestedVisible=False, inputMode=Hidden
-[2026-08-14 04:16:11.357] [22] INFO  Consumer scope disposed after Framework shutdown: HtmlUiConsumerTestMod
-[2026-08-14 04:16:11.359] [7] INFO  WebView2 UI thread message loop exited.
+[2026-08-14 05:31:34.502] [8] INFO  Window state changed: foreground=True, visible=True, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:31:34.915] [5] INFO  Page open requested: HtmlUiConsumerTestMod.consumer.test, hostReady=True
+[2026-08-14 05:31:34.918] [5] INFO  CloseCurrent CALLED from:    at BannerlordHtmlUI.HtmlUiPageManager.Open(String id)
+   at HtmlUiConsumerTestMod.SubModule.Open()
+   at HtmlUiConsumerTestMod.SubModule.OnApplicationTick(Single dt)
+   at TaleWorlds.MountAndBlade.Module.OnApplicationTick(Single dt)
+   at TaleWorlds.DotNet.Managed.ApplicationTick(Single dt)
+
+[2026-08-14 05:31:34.919] [5] INFO  Page closed: HtmlUiConsumerTestMod.consumer.test
+[2026-08-14 05:31:34.922] [5] INFO  Navigate requested: page=HtmlUiConsumerTestMod.consumer.test, root=HtmlUiConsumerTestMod.ui, path=Test/index.html, webReady=True
+[2026-08-14 05:31:34.958] [8] INFO  Navigating WebView2 to https://bannerlord-htmlui-htmluiconsumertestmod-ui.local/Test/index.html?__bannerlord_htmlui_owner=HtmlUiConsumerTestMod&__bannerlord_htmlui_page=HtmlUiConsumerTestMod.consumer.test, formVisible=True, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:31:34.994] [8] INFO  Window state changed: foreground=False, visible=True, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:31:43.143] [8] INFO  Window state changed: foreground=False, visible=False, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:34:38.749] [3] === BannerlordHtmlUI started ===
+[2026-08-14 05:34:38.841] [7] INFO  WebView2 UI thread starting.
+[2026-08-14 05:34:38.889] [7] INFO  WebView2 UI form created. Starting WinForms message loop.
+[2026-08-14 05:34:38.918] [7] INFO  WebView2 host form loaded. Scheduling asynchronous WebView2 initialization.
+[2026-08-14 05:34:38.935] [7] INFO  WebView2 asynchronous initialization started.
+[2026-08-14 05:34:38.935] [7] INFO  Creating WebView2 environment. Cache=C:\Users\42029\AppData\Local\Temp\BannerlordHtmlUI\WebView2
+[2026-08-14 05:34:39.086] [7] INFO  WebView2 environment created.
+[2026-08-14 05:34:39.117] [7] INFO  Window state changed: foreground=False, visible=False, minimized=False, bounds=0,0 1707x960, requestedVisible=False, inputMode=Hidden
+[2026-08-14 05:34:39.683] [7] INFO  EnsureCoreWebView2Async completed.
+[2026-08-14 05:34:39.709] [5] INFO  Framework runtime injected into all future documents.
+[2026-08-14 05:34:39.742] [7] INFO  WebView2 ready. Host is operational.
+[2026-08-14 05:34:39.749] [8] INFO  Page registered: framework -> framework:/index.html
+[2026-08-14 05:34:39.750] [8] INFO  Page registered: diagnostics -> framework:/diagnostics.html
+[2026-08-14 05:34:39.883] [8] INFO  Page registered: HtmlUiConsumerTestMod.consumer.test -> HtmlUiConsumerTestMod.ui:/Test/index.html
+[2026-08-14 05:34:39.883] [8] INFO  Page registered: HtmlUiConsumerTestMod.consumer.second -> HtmlUiConsumerTestMod.ui:/Second/index.html
+[2026-08-14 05:34:39.884] [8] INFO  Page registered: HtmlUiConsumerTestMod.consumer.spell -> HtmlUiConsumerTestMod.ui:/SpellLab/index.html
+[2026-08-14 05:34:41.502] [7] INFO  Window state changed: foreground=True, visible=False, minimized=False, bounds=0,0 1707x960, requestedVisible=False, inputMode=Hidden
+[2026-08-14 05:34:47.884] [22] INFO  Page open requested: HtmlUiConsumerTestMod.consumer.test, hostReady=True
+[2026-08-14 05:34:47.886] [22] INFO  Navigate requested: page=HtmlUiConsumerTestMod.consumer.test, root=HtmlUiConsumerTestMod.ui, path=Test/index.html, webReady=True
+[2026-08-14 05:34:47.917] [7] INFO  Navigating WebView2 to https://bannerlord-htmlui-htmluiconsumertestmod-ui.local/Test/index.html?__bannerlord_htmlui_owner=HtmlUiConsumerTestMod&__bannerlord_htmlui_page=HtmlUiConsumerTestMod.consumer.test, formVisible=True, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:34:47.979] [7] INFO  Window state changed: foreground=False, visible=True, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:34:48.000] [7] INFO  WebView2 source changed: https://bannerlord-htmlui-htmluiconsumertestmod-ui.local/Test/index.html?__bannerlord_htmlui_owner=HtmlUiConsumerTestMod&__bannerlord_htmlui_page=HtmlUiConsumerTestMod.consumer.test
+[2026-08-14 05:34:48.002] [7] INFO  WebView2 content loading: 2
+[2026-08-14 05:34:48.167] [7] INFO  WebView2 navigation completed successfully.
+[2026-08-14 05:34:50.926] [7] INFO  Window state changed: foreground=False, visible=False, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:34:52.264] [7] INFO  Window state changed: foreground=True, visible=True, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:34:53.035] [22] INFO  Page open requested: HtmlUiConsumerTestMod.consumer.test, hostReady=True
+[2026-08-14 05:34:53.038] [22] INFO  CloseCurrent CALLED from:    at BannerlordHtmlUI.HtmlUiPageManager.Open(String id)
+   at HtmlUiConsumerTestMod.SubModule.Open()
+   at HtmlUiConsumerTestMod.SubModule.OnApplicationTick(Single dt)
+   at TaleWorlds.MountAndBlade.Module.OnApplicationTick(Single dt)
+   at TaleWorlds.DotNet.Managed.ApplicationTick(Single dt)
+
+[2026-08-14 05:34:53.038] [22] INFO  Page closed: HtmlUiConsumerTestMod.consumer.test
+[2026-08-14 05:34:53.042] [22] INFO  Navigate requested: page=HtmlUiConsumerTestMod.consumer.test, root=HtmlUiConsumerTestMod.ui, path=Test/index.html, webReady=True
+[2026-08-14 05:34:53.080] [7] INFO  Navigating WebView2 to https://bannerlord-htmlui-htmluiconsumertestmod-ui.local/Test/index.html?__bannerlord_htmlui_owner=HtmlUiConsumerTestMod&__bannerlord_htmlui_page=HtmlUiConsumerTestMod.consumer.test, formVisible=True, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:34:53.110] [7] INFO  Window state changed: foreground=False, visible=True, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:34:54.619] [7] INFO  Window state changed: foreground=False, visible=False, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:35:54.908] [7] INFO  Window state changed: foreground=True, visible=True, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:35:55.577] [22] INFO  Page open requested: HtmlUiConsumerTestMod.consumer.test, hostReady=True
+[2026-08-14 05:35:55.578] [22] INFO  CloseCurrent CALLED from:    at BannerlordHtmlUI.HtmlUiPageManager.Open(String id)
+   at HtmlUiConsumerTestMod.SubModule.Open()
+   at HtmlUiConsumerTestMod.SubModule.OnApplicationTick(Single dt)
+   at TaleWorlds.MountAndBlade.Module.OnApplicationTick(Single dt)
+   at TaleWorlds.DotNet.Managed.ApplicationTick(Single dt)
+
+[2026-08-14 05:35:55.578] [22] INFO  Page closed: HtmlUiConsumerTestMod.consumer.test
+[2026-08-14 05:35:55.579] [22] INFO  Navigate requested: page=HtmlUiConsumerTestMod.consumer.test, root=HtmlUiConsumerTestMod.ui, path=Test/index.html, webReady=True
+[2026-08-14 05:35:55.623] [7] INFO  Navigating WebView2 to https://bannerlord-htmlui-htmluiconsumertestmod-ui.local/Test/index.html?__bannerlord_htmlui_owner=HtmlUiConsumerTestMod&__bannerlord_htmlui_page=HtmlUiConsumerTestMod.consumer.test, formVisible=True, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:35:55.658] [7] INFO  Window state changed: foreground=False, visible=True, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:35:59.519] [22] INFO  CloseCurrent CALLED from:    at BannerlordHtmlUI.HtmlUiService.<>c.<RegisterBuiltinHandlers>b__28_16(JToken payload)
+   at BannerlordHtmlUI.HtmlUiBridge.<>c__DisplayClass20_2.<OnWebMessageReceived>b__0()
+   at BannerlordHtmlUI.GameThreadDispatcher.Drain(Int32 maxItems)
+   at BannerlordHtmlUI.HtmlUiService.Tick(Int32 maxGameThreadWork)
+   at BannerlordHtmlUI.SubModule.OnApplicationTick(Single dt)
+   at TaleWorlds.MountAndBlade.Module.OnApplicationTick(Single dt)
+   at TaleWorlds.DotNet.Managed.ApplicationTick(Single dt)
+
+[2026-08-14 05:35:59.520] [22] INFO  Page closed: HtmlUiConsumerTestMod.consumer.test
+[2026-08-14 05:35:59.607] [7] INFO  Window state changed: foreground=True, visible=False, minimized=False, bounds=0,0 1707x960, requestedVisible=False, inputMode=Hidden
+[2026-08-14 05:36:00.189] [22] INFO  Page open requested: HtmlUiConsumerTestMod.consumer.test, hostReady=True
+[2026-08-14 05:36:00.189] [22] INFO  Navigate requested: page=HtmlUiConsumerTestMod.consumer.test, root=HtmlUiConsumerTestMod.ui, path=Test/index.html, webReady=True
+[2026-08-14 05:36:00.228] [7] INFO  Navigating WebView2 to https://bannerlord-htmlui-htmluiconsumertestmod-ui.local/Test/index.html?__bannerlord_htmlui_owner=HtmlUiConsumerTestMod&__bannerlord_htmlui_page=HtmlUiConsumerTestMod.consumer.test, formVisible=True, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:36:00.257] [7] INFO  Window state changed: foreground=False, visible=True, minimized=False, bounds=0,0 1707x960, requestedVisible=True, inputMode=Captured
+[2026-08-14 05:36:00.668] [22] INFO  CloseCurrent CALLED from:    at BannerlordHtmlUI.HtmlUiService.<>c.<RegisterBuiltinHandlers>b__28_16(JToken payload)
+   at BannerlordHtmlUI.HtmlUiBridge.<>c__DisplayClass20_2.<OnWebMessageReceived>b__0()
+   at BannerlordHtmlUI.GameThreadDispatcher.Drain(Int32 maxItems)
+   at BannerlordHtmlUI.HtmlUiService.Tick(Int32 maxGameThreadWork)
+   at BannerlordHtmlUI.SubModule.OnApplicationTick(Single dt)
+   at TaleWorlds.MountAndBlade.Module.OnApplicationTick(Single dt)
+   at TaleWorlds.DotNet.Managed.ApplicationTick(Single dt)
+
+[2026-08-14 05:36:00.669] [22] INFO  Page closed: HtmlUiConsumerTestMod.consumer.test
+[2026-08-14 05:36:00.691] [7] INFO  Window state changed: foreground=True, visible=False, minimized=False, bounds=0,0 1707x960, requestedVisible=False, inputMode=Hidden
+[2026-08-14 05:36:02.359] [7] WARN  Bannerlord main window could not be resolved. hwnd=0
+[2026-08-14 05:36:02.359] [7] INFO  Window state changed: foreground=False, visible=False, minimized=False, bounds=0,0 0x0, requestedVisible=False, inputMode=Hidden
+[2026-08-14 05:36:02.527] [22] INFO  Consumer scope disposed after Framework shutdown: HtmlUiConsumerTestMod
+[2026-08-14 05:36:02.528] [7] INFO  WebView2 UI thread message loop exited.
