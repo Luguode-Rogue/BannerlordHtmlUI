@@ -28,6 +28,13 @@ pre{background:#0d0f12;padding:12px;min-height:80px;white-space:pre-wrap}
   <button id="close" data-bhui-i18n="HtmlUiConsumer_Close"></button>
   <div class="muted" data-bhui-i18n="HtmlUiConsumer_EscHint"></div>
 </div>
+<div class="card">
+  <strong>M2 Bridge 验收</strong><br>
+  <button id="eventTest">Event</button>
+  <button id="delayTest">异步 Request</button>
+  <button id="commandErrorTest">Command 异常</button>
+  <button id="requestErrorTest">Request 异常</button>
+</div>
 <pre id="log">加载中...</pre>
 <pre id="err"></pre>
 <script>
@@ -43,9 +50,16 @@ app.state.subscribe('counter',renderCounter);
 app.bind.twoWayValue('#name','name',v=>app.call('setName',{value:v}),{event:'input',debounce:120});
 app.bind.twoWayChecked('#enabled','enabled',v=>app.call('setEnabled',{value:v}));
 app.on('counterChanged',d=>log({event:d}));
+app.on('testEvent',d=>log({event:d}));
 app.errors.on(e=>errEl.textContent=JSON.stringify(e,null,2));
+app.page.onLifecycle(state=>log({pageLifecycle:state}));
+
 document.getElementById('inc').onclick=async()=>{try{log({command:await app.call('increment',{})})}catch(e){log({error:String(e)})}};
 document.getElementById('get').onclick=async()=>{try{log({request:await app.request('getData',{echo:'hello'})})}catch(e){log({error:String(e)})}};
+document.getElementById('eventTest').onclick=async()=>{try{log({eventRequest:await app.call('emitTestEvent',{message:'Event round-trip'})})}catch(e){log({error:String(e)})}};
+document.getElementById('delayTest').onclick=async()=>{try{log({delayedRequest:await app.request('getDataDelayed',{echo:'50ms'})})}catch(e){log({error:String(e)})}};
+document.getElementById('commandErrorTest').onclick=async()=>{try{await app.call('throwCommand');log({unexpected:'command did not fail'})}catch(e){log({expectedCommandError:String(e)})}};
+document.getElementById('requestErrorTest').onclick=async()=>{try{await app.request('throwRequest');log({unexpected:'request did not fail'})}catch(e){log({expectedRequestError:String(e)})}};
 document.getElementById('release').onclick=()=>app.input.release();
 document.getElementById('capture').onclick=()=>app.input.capture();
 document.getElementById('close').onclick=()=>app.pages.close();
