@@ -42,6 +42,7 @@ namespace BannerlordHtmlUI
       let generation = 0;
       let localeOff = null;
       let pageHideHandler = null;
+      let translationCache = new Map();
 
       const alive = (binding) => {
         if (!active) return false;
@@ -50,9 +51,14 @@ namespace BannerlordHtmlUI
         return true;
       };
 
+      const getTranslation = (key) => {
+        if (!translationCache.has(key)) translationCache.set(key, Promise.resolve(i18n.t(key)));
+        return translationCache.get(key);
+      };
+
       const apply = async (currentGeneration) => {
         const jobs = bindings.map(binding =>
-          Promise.resolve(i18n.t(binding.key))
+          getTranslation(binding.key)
             .then(value => {
               if (!active || currentGeneration !== generation || !alive(binding)) return;
               binding.element[binding.property] = value;
@@ -78,10 +84,13 @@ namespace BannerlordHtmlUI
           try { window.removeEventListener('pagehide', pageHideHandler); } catch (_) {}
           pageHideHandler = null;
         }
+        translationCache.clear();
+        bindings.length = 0;
       };
 
       localeOff = i18n.onLocaleChanged(() => {
         if (!active) return;
+        translationCache.clear();
         const currentGeneration = ++generation;
         apply(currentGeneration).catch(error => {
           if (active && currentGeneration === generation) console.error('BannerlordHtmlUI i18n locale refresh failed:', error);
