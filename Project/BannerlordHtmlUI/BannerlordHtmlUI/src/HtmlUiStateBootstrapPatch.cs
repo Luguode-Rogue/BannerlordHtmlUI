@@ -7,8 +7,6 @@ namespace BannerlordHtmlUI
 {
     internal static class HtmlUiStateBootstrapPatch
     {
-        private const string Marker = "__bannerlordHtmlUiStateBootstrapInstalled";
-
         private const string Script = @"
 (() => {
   const install = () => {
