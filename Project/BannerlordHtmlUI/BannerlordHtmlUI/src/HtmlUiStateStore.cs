@@ -13,6 +13,14 @@ namespace BannerlordHtmlUI
 
         internal HtmlUiStateStore(HtmlUiHost host) => _host = host;
 
+        public int Count
+        {
+            get
+            {
+                lock (_sync) return _values.Count;
+            }
+        }
+
         public void Set(string key, object value)
         {
             if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("State key is required.", nameof(key));
