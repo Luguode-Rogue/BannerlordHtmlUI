@@ -63,6 +63,29 @@ namespace BannerlordHtmlUI
         public int ContentRootCount => _contentRoots.Count;
         public bool NavigationInProgress => _navigationInProgress;
         public bool IsHostCreated => _form != null && !_form.IsDisposed;
+
+        public int CommandCount => _bridge?.CommandCount ?? 0;
+        public int RequestCount => _bridge?.RequestCount ?? 0;
+        public int StateCount => State?.Count ?? 0;
+        public int PageCount => Pages?.Count ?? 0;
+
+        public string WebView2Version
+        {
+            get
+            {
+                try { return _web?.CoreWebView2?.Environment?.BrowserVersionString ?? "n/a"; }
+                catch { return "n/a"; }
+            }
+        }
+
+        public string CurrentUrl
+        {
+            get
+            {
+                try { return _web?.Source?.ToString() ?? ""; }
+                catch { return ""; }
+            }
+        }
         public HtmlUiWindowState GetWindowState() => _lastWindowState;
         public event Action Ready;
         public event Action<string> BrowserError;
@@ -104,11 +127,20 @@ namespace BannerlordHtmlUI
                     Opacity = 1.0
                 };
 
+                // Native ESC fallback: close the current page even if the WebView2 DOM
+                // never receives the key (e.g. input focus is not delivered into the page).
+                _form.EscapePressed += () => HandleEscapeFallback();
+
                 _web = new WebView2
                 {
                     Dock = DockStyle.Fill
                 };
 
+                // NOTE: we deliberately do NOT subscribe WebView2 KeyDown/PreviewKeyDown for
+                // ESC. The WebView2 control fires synthetic key events for internal actions
+                // (scroll, IME, content load) which were mis-detected as Escape and caused
+                // pages to close ~2s after opening. The native overlay WndProc (EscapePressed)
+                // is the single, reliable ESC fallback.
                 _form.Controls.Add(_web);
 
                 _followTimer = new System.Windows.Forms.Timer { Interval = 100 };
@@ -125,6 +157,25 @@ namespace BannerlordHtmlUI
             {
                 HtmlUiLogger.Error("WebView2 UI thread failed.", ex);
                 _ready.TrySetException(ex);
+            }
+        }
+
+        private void HandleEscapeFallback()
+        {
+            try
+            {
+                if (_inputMode == HtmlUiInputMode.Hidden) return;
+                if (HtmlUiService.Pages.Current == null) return;
+                HtmlUiLogger.Info("ESC fallback: closing current page from native layer.");
+                EnsureUiThread(() =>
+                {
+                    try { HtmlUiService.Pages.CloseCurrent(); }
+                    catch (Exception ex) { HtmlUiLogger.Error("ESC fallback close failed.", ex); }
+                });
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Error("ESC fallback handling failed.", ex);
             }
         }
 
@@ -150,7 +201,7 @@ namespace BannerlordHtmlUI
                 await _web.EnsureCoreWebView2Async(_environment);
                 HtmlUiLogger.Info("EnsureCoreWebView2Async completed.");
 
-                ConfigureAfterWebViewReady();
+                await ConfigureAfterWebViewReady();
             }
             catch (Exception ex)
             {
@@ -161,7 +212,7 @@ namespace BannerlordHtmlUI
             }
         }
 
-        private void ConfigureAfterWebViewReady()
+        private async Task ConfigureAfterWebViewReady()
         {
             if (_web?.CoreWebView2 == null)
             {
@@ -174,6 +225,8 @@ namespace BannerlordHtmlUI
             _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             _web.CoreWebView2.Settings.AreDevToolsEnabled = DevToolsEnabled;
             _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            // Transparency is applied per-page on navigation (see NavigateOnUiThread),
+            // never globally, to avoid breaking opaque full-screen pages.
             _web.CoreWebView2.WebResourceRequested += OnWebResourceRequested;
             _web.CoreWebView2.NavigationStarting += OnNavigationStarting;
             _web.CoreWebView2.NavigationCompleted += OnNavigationCompleted;
@@ -190,8 +243,8 @@ namespace BannerlordHtmlUI
             _bridge = new HtmlUiBridge(this);
             _bridge.Attach(_web.CoreWebView2);
             ConfigureLocalHost();
-            InstallFrameworkRuntime();
-            InstallRuntimeErrorForwarder();
+            await InstallFrameworkRuntimeAsync();
+            await InstallRuntimeErrorForwarderAsync();
 
             _webViewReady = true;
 
@@ -223,18 +276,14 @@ namespace BannerlordHtmlUI
                 var minimized = Win32.IsIconic(hwnd);
                 var windowVisible = Win32.IsWindowVisible(hwnd);
                 var foreground = Win32.GetForegroundWindow() == hwnd;
-                var overlayForeground = _form != null && !_form.IsDisposed && _form.IsHandleCreated
-                    && Win32.GetForegroundWindow() == _form.Handle;
                 var width = Math.Max(0, rect.Right - rect.Left);
                 var height = Math.Max(0, rect.Bottom - rect.Top);
 
-                // Passive mode follows Bannerlord focus so the HUD does not remain over
-                // unrelated applications. Captured mode is different: the overlay itself
-                // is intentionally the foreground window, so using only `foreground` here
-                // creates a hide/show loop and visible flicker.
-                var focusAccepted = foreground ||
-                                    (_inputMode == HtmlUiInputMode.Captured && overlayForeground);
-                var active = !minimized && windowVisible && focusAccepted && _requestedVisible;
+                // Show the overlay whenever a page is requested visible (_requestedVisible)
+                // and the game window exists & is visible. The foreground/focus logic caused
+                // "open after close does not reopen" (the window stayed hidden after a
+                // close-then-open cycle), so we drive visibility purely off _requestedVisible.
+                var active = _requestedVisible && !minimized && windowVisible;
 
                 if (active)
                 {
@@ -361,7 +410,7 @@ namespace BannerlordHtmlUI
             return root;
         }
 
-        private void InstallFrameworkRuntime()
+        private async Task InstallFrameworkRuntimeAsync()
         {
             var runtimePath = Path.Combine(_webRoot, "runtime.js");
             if (!File.Exists(runtimePath))
@@ -371,20 +420,34 @@ namespace BannerlordHtmlUI
             }
 
             var script = File.ReadAllText(runtimePath);
-            _web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
+            await _web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script).ConfigureAwait(false);
+            HtmlUiLogger.Info("Framework runtime injected into all future documents.");
         }
 
-        private void InstallRuntimeErrorForwarder()
+        private async Task InstallRuntimeErrorForwarderAsync()
         {
+            // Injected into ALL future documents (including consumer pages) so that
+            // any JS error there is forwarded back to the C# bridge and logged.
             var js = @"
                 (() => {
-                    const send = (kind, error) => {
-                        try { chrome.webview.postMessage({version:1,type:'command',id:null,name:'runtime.error',payload:{kind, message:String(error)}}); } catch (_) {}
-                    };
-                    window.addEventListener('error', e => send('error', e.error || e.message));
-                    window.addEventListener('unhandledrejection', e => send('unhandledrejection', e.reason));
+                    try {
+                        const send = (kind, error) => {
+                            try { chrome.webview.postMessage({version:1,type:'command',id:null,name:'runtime.error',payload:{kind, message:String(error)}}); } catch (_) {}
+                        };
+                        window.addEventListener('error', e => send('error', e.error || e.message));
+                        window.addEventListener('unhandledrejection', e => send('unhandledrejection', e.reason));
+                    } catch (err) {
+                        try { chrome.webview.postMessage({version:1,type:'command',id:null,name:'runtime.error',payload:{kind:'inject', message:String(err)}}); } catch (_) {}
+                    }
                 })();";
-            _web.ExecuteScriptAsync(js);
+            try
+            {
+                await _web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(js).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Error("Failed to inject runtime error forwarder.", ex);
+            }
         }
 
         private void OnWebResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs e)
@@ -499,6 +562,24 @@ namespace BannerlordHtmlUI
             NavigateOnUiThread(page);
         }
 
+        // Per-page WebView2 background. Pages marked Transparent get a fully transparent
+        // background (alpha=0) so the game shows through; all other pages get opaque white.
+        // Always set both directions so leaving a transparent page restores the opaque state.
+        private void ApplyTransparentBackground(HtmlUiPage page)
+        {
+            try
+            {
+                if (_web?.CoreWebView2 == null) return;
+                _web.DefaultBackgroundColor = (page != null && page.Transparent)
+                    ? Color.FromArgb(0, 0, 0, 0)
+                    : Color.FromArgb(255, 255, 255, 255);
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Warn("Could not set WebView2 background: " + ex.Message);
+            }
+        }
+
         private void NavigateOnUiThread(HtmlUiPage page)
         {
             EnsureUiThread(() =>
@@ -515,6 +596,7 @@ namespace BannerlordHtmlUI
                     _currentRelativePath = page.ContentRootId + ":/" + page.RelativePath;
                     EnableWatcherIfNeeded(page);
                     _requestedVisible = true;
+                    ApplyTransparentBackground(page);
                     ApplyInputModeOnUiThread();
                     var host = GetContentHost(page);
                     var encodedPath = Uri.EscapeUriString(page.RelativePath);
@@ -753,11 +835,7 @@ namespace BannerlordHtmlUI
             catch (InvalidOperationException ex)
             {
                 HtmlUiLogger.Warn("UI thread callback could not be scheduled: " + ex.Message);
-            }
-            catch (ObjectDisposedException ex)
-            {
-                HtmlUiLogger.Warn("UI thread host was disposed before callback scheduling: " + ex.Message);
-            }
+            } 
         }
 
         public void Dispose()

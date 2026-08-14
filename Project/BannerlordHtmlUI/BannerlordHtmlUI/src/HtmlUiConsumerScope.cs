@@ -88,6 +88,14 @@ namespace BannerlordHtmlUI
             if (!_stateKeys.Exists(x => string.Equals(x, fullKey, StringComparison.OrdinalIgnoreCase))) _stateKeys.Add(fullKey);
         }
 
+        /// <summary>Read back a value previously set via SetState within this scope.</summary>
+        public object GetState(string key)
+        {
+            ThrowIfDisposed();
+            var fullKey = HtmlUiService.MakeScopedName(OwnerId, key);
+            return HtmlUiService.State.TryGet(fullKey, out var value) ? value : null;
+        }
+
         public void SendEvent(string name, object payload)
         {
             ThrowIfDisposed();

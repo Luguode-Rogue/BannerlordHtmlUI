@@ -31,9 +31,25 @@ new HtmlUiPage("id", "relative/path/index.html")
 {
     HotReload = true,
     Opened = () => { },
-    Closed = () => { }
+    Closed = () => { },
+    DefaultInputMode = HtmlUiInputMode.Passive,
+    // Optional: non-fullscreen transparent overlay (see OVERLAY.md)
+    OverlayWidth = 320,
+    OverlayHeight = 320,
+    Transparent = true
 };
 ```
+
+Members:
+
+- `Id` / `RelativePath` / `ContentRootId` / `OwnerId` — page identity and content root.
+- `HotReload` — reload page file on change.
+- `DefaultInputMode` — `Hidden`, `Passive`, or `Captured`.
+- `Opened` / `Closed` — lifecycle callbacks (run on the game thread).
+- `OverlayWidth` / `OverlayHeight` (`int?`) — non-null makes the window a fixed-size overlay
+  (bottom-right by default) instead of full-screen.
+- `Transparent` — sets WebView2 background to fully transparent (alpha=0) so the game shows through.
+- `IsOverlay` — `true` when both dimensions are positive.
 
 ## HtmlUiPageManager
 

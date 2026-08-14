@@ -1,0 +1,19 @@
+# IDE 缓存目录（不提交）
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# 构建产物（不提交）
+bin/
+obj/
+*.pdb
+*.Up2Date
+*.log

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<base type="string">
+<base xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" type="string">
   <tags>
-    <tag language="Chinese" />
+    <tag language="简体中文" />
   </tags>
   <strings>
     <string id="HtmlUiConsumer_Title" text="HTML UI 框架测试" />
@@ -14,5 +14,8 @@
     <string id="HtmlUiConsumer_Close" text="关闭界面" />
     <string id="HtmlUiConsumer_EscHint" text="按 ESC 也可以关闭界面。" />
     <string id="HtmlUiConsumer_Counter" text="计数：{COUNT}" />
+    <string id="HtmlUiSecond_Title" text="战场资源 HUD" />
+    <string id="HtmlUiSecond_Back" text="返回第一页" />
+    <string id="HtmlUiSecond_Hint" text="Overlay · 半透明 · 游戏画面透过 · Passive" />
   </strings>
 </base>

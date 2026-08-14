@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <Version>0.44.0</Version>
-    <TargetFrameworks>net472;net6</TargetFrameworks>
+    <TargetFrameworks>net472</TargetFrameworks>
     <Platforms>x64</Platforms>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <LangVersion>10.0</LangVersion>
@@ -12,17 +12,14 @@
     <ModuleId>$(MSBuildProjectName)</ModuleId>
     <ModuleName>$(MSBuildProjectName)</ModuleName>
     <ModuleUrl></ModuleUrl>
-    <GameFolder>$(BANNERLORD_GAME_DIR)</GameFolder>
+    <GameFolder>E:\SteamLibrary\steamapps\common\Mount &amp; Blade II Bannerlord</GameFolder>
     <GameBinariesFolder Condition="Exists('$(GameFolder)\bin\Win64_Shipping_Client\Bannerlord.exe')">Win64_Shipping_Client</GameBinariesFolder>
     <GameBinariesFolder Condition="Exists('$(GameFolder)\bin\Gaming.Desktop.x64_Shipping_Client\Bannerlord.exe')">Gaming.Desktop.x64_Shipping_Client</GameBinariesFolder>
+    <Configurations>Debug;Release;_RGL_KEEP_ASSERTS</Configurations>
   </PropertyGroup>
 
   <PropertyGroup Condition="$(TargetFramework) == 'net472'">
     <BuildForWindows>true</BuildForWindows>
-  </PropertyGroup>
-  <PropertyGroup Condition="$(TargetFramework) == 'net6'">
-    <BuildForWindowsStore>true</BuildForWindowsStore>
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
   <ItemGroup>
@@ -60,7 +57,6 @@
     </Reference>
     <Reference Include="BannerlordHtmlUI">
       <HintPath>$(GameFolder)\Modules\BannerlordHtmlUI\bin\Win64_Shipping_Client\BannerlordHtmlUI.dll</HintPath>
-      <Private>False</Private>
     </Reference>
   </ItemGroup>
 

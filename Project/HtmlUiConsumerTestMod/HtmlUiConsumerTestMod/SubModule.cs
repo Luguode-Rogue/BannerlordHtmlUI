@@ -12,11 +12,17 @@ namespace HtmlUiConsumerTestMod
     {
         private const string OwnerId = "HtmlUiConsumerTestMod";
         private const string PageName = "consumer.test";
+        private const string SecondPageName = "consumer.second";
+        private const string SpellPageName = "consumer.spell";
         private HtmlUiConsumerScope _scope;
         private string _pageId;
+        private string _secondPageId;
+        private string _spellPageId;
         private bool _registered;
         private string _logPath;
         private int _counter;
+        private int _secondCounter;
+        private int _pushCount;
         private string _name = "BannerlordHtmlUI";
         private bool _enabled = true;
 
@@ -59,9 +65,71 @@ namespace HtmlUiConsumerTestMod
                     {
                         ContentRootId = rootId,
                         HotReload = true,
-                        DefaultInputMode = HtmlUiInputMode.Captured
+                        DefaultInputMode = HtmlUiInputMode.Captured,
+                        Opened = () => { Log("PAGE CALLBACK Opened: " + PageName); _scope.SendEvent("pageOpened", new { pageId = _pageId }); },
+                        Closed = () => { Log("PAGE CALLBACK Closed: " + PageName); _scope.SendEvent("pageClosed", new { pageId = _pageId }); }
                     });
                 Log("Page registered: " + _pageId);
+
+                // Second page: non-fullscreen transparent overlay HUD (bottom-right).
+                // Transparent=true makes the WebView2 background fully transparent so the
+                // game shows through the semi-transparent HUD panel.
+                _secondPageId = _scope.RegisterPage(
+                    new HtmlUiPage(SecondPageName, "Second/index.html")
+                    {
+                        ContentRootId = rootId,
+                        HotReload = true,
+                        DefaultInputMode = HtmlUiInputMode.Passive,
+                        OverlayWidth = 360,
+                        OverlayHeight = 260,
+                        Transparent = true,
+                        Opened = () => { Log("PAGE CALLBACK Opened: " + SecondPageName); },
+                        Closed = () => { Log("PAGE CALLBACK Closed: " + SecondPageName); }
+                    });
+                Log("Second page registered: " + _secondPageId);
+
+                // Third page: full-screen interactive Spell VM Lab (Captured input).
+                // NOTE: WebView2 transparent background (Transparent=true) is NOT supported
+                // in this environment — setting it corrupts rendering for ALL pages (including
+                // ones opened later). Kept opaque for stability. Transparent overlay requires
+                // a reliable WebView2 transparent pipeline (e.g. Composition Controller).
+                _spellPageId = _scope.RegisterPage(
+                    new HtmlUiPage(SpellPageName, "SpellLab/index.html")
+                    {
+                        ContentRootId = rootId,
+                        HotReload = true,
+                        DefaultInputMode = HtmlUiInputMode.Captured,
+                        Opened = () => { Log("PAGE CALLBACK Opened: " + SpellPageName); },
+                        Closed = () => { Log("PAGE CALLBACK Closed: " + SpellPageName); }
+                    });
+                Log("Spell page registered: " + _spellPageId);
+
+                _scope.RegisterCommand("openFirst", _ =>
+                {
+                    Log("Command openFirst: switching back to first page.");
+                    HtmlUiService.Pages.Open(_pageId);
+                });
+                _scope.RegisterCommand("openSecond", _ =>
+                {
+                    Log("Command openSecond: switching to second page.");
+                    HtmlUiService.Pages.Open(_secondPageId);
+                });
+                _scope.RegisterCommand("openSpell", _ =>
+                {
+                    Log("Command openSpell: switching to spell lab page.");
+                    HtmlUiService.Pages.Open(_spellPageId);
+                });
+                _scope.RegisterCommand("reload", _ =>
+                {
+                    Log("Command reload: reloading current page.");
+                    HtmlUiService.ReloadPage();
+                });
+                _scope.RegisterCommand("secondIncrement", _ =>
+                {
+                    _secondCounter++;
+                    _scope.SetState("secondCount", _secondCounter);
+                    Log("Command secondIncrement: secondCount=" + _secondCounter);
+                });
 
                 _scope.RegisterCommand("increment", _ =>
                 {
@@ -95,8 +163,20 @@ namespace HtmlUiConsumerTestMod
                         echo,
                         counter = _counter,
                         name = _name,
-                        enabled = _enabled
+                        enabled = _enabled,
+                        // Read back a scoped state key using only the public scope API.
+                        loaded = _scope.GetState("loaded")
                     });
+                });
+
+                // C# -> JS reverse link: JS calls this command, C# does work and
+                // actively pushes a result back to JS via SendEvent.
+                _scope.RegisterCommand("pushEvent", payload =>
+                {
+                    var msg = payload?["message"]?.Value<string>() ?? "push";
+                    var n = _pushCount++;
+                    Log("pushEvent command: " + msg + " #" + n);
+                    _scope.SendEvent("serverPush", new { count = n, message = msg });
                 });
 
                 PublishState();
@@ -164,9 +244,12 @@ namespace HtmlUiConsumerTestMod
                     return;
                 }
 
-                var result = HtmlUiService.Pages.Close(_pageId);
-                Log("Pages.Close result=" + result);
-                HtmlUiService.ReleaseInput();
+                HtmlUiService.Pages.Close(_pageId);
+                Log("Pages.Close result=");
+                // Do NOT call ReleaseInput() here: CloseCurrent() -> Hide() already sets the
+                // window to Hidden. Calling ReleaseInput() afterwards switches to Passive and
+                // re-flags _requestedVisible = true, which makes FollowBannerlordWindow show the
+                // window again -> "F12 closes but the page stays visible".
             }
             catch (Exception ex)
             {

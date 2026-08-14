@@ -102,7 +102,6 @@
       await Promise.all(jobs);
       return () => {};
     };
-    window.game.on('framework.i18n.localeChanged', emitLocale);
     return {
       get locale() { return locale; },
       getLocale,
@@ -111,10 +110,13 @@
       bind,
       formatDate,
       formatTime,
-      onLocaleChanged(handler) { localeListeners.add(handler); return () => localeListeners.delete(handler); }
+      onLocaleChanged(handler) { localeListeners.add(handler); return () => localeListeners.delete(handler); },
+      // Called once after window.game has been established, so we never touch
+      // window.game before it exists (this was the root cause of the runtime crash).
+      connectGame(game) { game.on('framework.i18n.localeChanged', emitLocale); }
     };
   };
-  const i18n = createI18n();
+  let i18n = null;
 
   const createScope = (ownerId) => {
     if (!ownerId) throw new Error('Owner id is required.');
@@ -713,7 +715,7 @@
         return () => errorListeners.delete(handler);
       }
     },
-    i18n,
+    i18n: null,
     app: null,
     __receive(messageJson) {
       const msg = typeof messageJson === 'string' ? JSON.parse(messageJson) : messageJson;
@@ -742,6 +744,12 @@
       }
     }
   };
+
+  // window.game is now fully established; only now create the i18n object and
+  // wire its locale listener (it must never touch window.game before it exists).
+  i18n = createI18n();
+  i18n.connectGame(window.game);
+  window.game.i18n = i18n;
 
   window.game.app = currentOwnerId ? createScope(currentOwnerId) : {
     ownerId: null,

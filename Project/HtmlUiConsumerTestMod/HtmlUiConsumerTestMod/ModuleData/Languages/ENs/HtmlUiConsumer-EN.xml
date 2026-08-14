@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<base type="string">
+<base xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" type="string">
   <tags>
     <tag language="English" />
   </tags>
@@ -14,5 +14,8 @@
     <string id="HtmlUiConsumer_Close" text="Close UI" />
     <string id="HtmlUiConsumer_EscHint" text="Press ESC to close the UI too." />
     <string id="HtmlUiConsumer_Counter" text="Counter: {COUNT}" />
+    <string id="HtmlUiSecond_Title" text="Battlefield Resource HUD" />
+    <string id="HtmlUiSecond_Back" text="Back to first page" />
+    <string id="HtmlUiSecond_Hint" text="Overlay · Translucent · Game visible through · Passive" />
   </strings>
 </base>

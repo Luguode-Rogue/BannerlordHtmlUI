@@ -11,8 +11,11 @@ namespace BannerlordHtmlUI
         public string InputMode { get; set; }
         public bool HostInitialized { get; set; }
         public bool WebViewReady { get; set; }
+        public string WebView2Version { get; set; }
         public bool PageOpen { get; set; }
         public string CurrentPage { get; set; }
+        public string CurrentOwner { get; set; }
+        public string CurrentUrl { get; set; }
         public bool HotReloadEnabled { get; set; }
         public bool DevToolsEnabled { get; set; }
         public bool WindowVisible { get; set; }
@@ -20,12 +23,16 @@ namespace BannerlordHtmlUI
         public bool WindowMinimized { get; set; }
         public string LastBrowserError { get; set; }
         public int ContentRootCount { get; set; }
+        public int PageCount { get; set; }
+        public int StateCount { get; set; }
+        public int CommandCount { get; set; }
+        public int RequestCount { get; set; }
         public bool NavigationInProgress { get; set; }
     }
 
     public static class HtmlUiDiagnostics
     {
-        public const string FrameworkVersion = "0.43.0";
+        public const string FrameworkVersion = "0.44.0";
         public const int ProtocolVersion = 1;
 
         private static readonly object Sync = new object();
@@ -51,8 +58,11 @@ namespace BannerlordHtmlUI
                 InputMode = host?.InputMode.ToString() ?? HtmlUiInputMode.Hidden.ToString(),
                 HostInitialized = host != null,
                 WebViewReady = host?.IsWebViewReady ?? false,
+                WebView2Version = host?.WebView2Version ?? "n/a",
                 PageOpen = !string.IsNullOrEmpty(host?.Pages.CurrentId),
                 CurrentPage = host?.Pages.CurrentId,
+                CurrentOwner = host?.Pages.Current?.OwnerId,
+                CurrentUrl = host?.CurrentUrl ?? "",
                 HotReloadEnabled = host?.HotReloadEnabled ?? false,
                 DevToolsEnabled = host?.DevToolsEnabled ?? false,
                 WindowVisible = window.IsVisible,
@@ -60,6 +70,10 @@ namespace BannerlordHtmlUI
                 WindowMinimized = window.IsMinimized,
                 LastBrowserError = lastError,
                 ContentRootCount = host?.ContentRootCount ?? 0,
+                PageCount = host?.PageCount ?? 0,
+                StateCount = host?.StateCount ?? 0,
+                CommandCount = host?.CommandCount ?? 0,
+                RequestCount = host?.RequestCount ?? 0,
                 NavigationInProgress = host?.NavigationInProgress ?? false
             };
         }

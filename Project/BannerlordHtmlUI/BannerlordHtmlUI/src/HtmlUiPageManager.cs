@@ -138,6 +138,7 @@ namespace BannerlordHtmlUI
                 _openId = null;
             }
 
+
             if (page != null)
             {
                 try { page.Closed?.Invoke(); }
@@ -164,6 +165,17 @@ namespace BannerlordHtmlUI
             _host.Hide();
         }
 
+        /// <summary>Reload the currently open page's WebView content.</summary>
+        public bool Reload()
+        {
+            string openId;
+            lock (_sync) openId = _openId;
+            if (openId == null) return false;
+            HtmlUiLogger.Info("Page reload requested: " + openId);
+            _host.Reload();
+            return true;
+        }
+
         public string CurrentId
         {
             get
@@ -186,6 +198,11 @@ namespace BannerlordHtmlUI
             {
                 lock (_sync) return new List<HtmlUiPage>(_pages.Values);
             }
+        }
+
+        public int Count
+        {
+            get { lock (_sync) return _pages.Count; }
         }
     }
 }

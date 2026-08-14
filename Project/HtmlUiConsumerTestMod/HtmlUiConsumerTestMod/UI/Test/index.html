@@ -4,54 +4,278 @@
 <meta charset="utf-8">
 <title>HTML UI 框架测试</title>
 <style>
-body{font-family:sans-serif;background:#16181d;color:#eee;margin:24px}
-button,input{padding:8px;margin:4px}
-.card{background:#222831;padding:16px;border-radius:8px;margin-bottom:12px}
-pre{background:#0d0f12;padding:12px;min-height:80px;white-space:pre-wrap}
-.muted{opacity:.7;font-size:12px}
+*{box-sizing:border-box}
+body{
+  font-family:'Segoe UI',sans-serif;color:#e8ecf3;margin:0;min-height:100vh;
+  background:radial-gradient(1200px 800px at 20% 10%, #1b2740 0%, #0f1420 55%, #0a0e16 100%);
+  padding:32px;overflow-x:hidden;
+}
+/* 动态粒子背景 */
+#fx-particles{position:fixed;inset:0;pointer-events:none;z-index:0}
+body>*{position:relative;z-index:1}
+
+/* 标题霓虹渐变 + 流光 */
+h1{
+  font-size:30px;font-weight:800;margin:0 0 24px;letter-spacing:2px;
+  background:linear-gradient(90deg,#4fd1ff,#7c6bff,#ff6bd6,#4fd1ff);
+  background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:flow 6s linear infinite;filter:drop-shadow(0 0 14px rgba(124,107,255,.45));
+}
+@keyframes flow{to{background-position:300% 0}}
+
+h3{margin:0 0 12px;font-size:13px;color:#8fa9cf;text-transform:uppercase;letter-spacing:1px}
+
+/* 卡片：毛玻璃 + 悬浮 + 描边流光 */
+.card{
+  position:relative;background:rgba(24,32,50,.55);backdrop-filter:blur(14px);
+  border:1px solid rgba(120,150,220,.18);border-radius:16px;padding:18px 20px;margin-bottom:16px;
+  box-shadow:0 8px 30px rgba(0,0,0,.35);overflow:hidden;
+  transition:transform .35s cubic-bezier(.2,.8,.2,1),box-shadow .35s;
+}
+.card::before{
+  content:'';position:absolute;inset:0;border-radius:16px;padding:1px;
+  background:linear-gradient(120deg,rgba(79,209,255,.5),rgba(124,107,255,.5),rgba(255,107,214,.5));
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;opacity:0;transition:opacity .4s;pointer-events:none;
+}
+.card:hover{transform:translateY(-3px);box-shadow:0 16px 45px rgba(0,0,0,.5)}
+.card:hover::before{opacity:1}
+
+/* 按钮：渐变 + 光晕 + 按下弹跳 */
+button{
+  background:linear-gradient(135deg,#2b3f66,#1e2a44);
+  color:#eaf0fb;border:1px solid rgba(120,150,220,.35);border-radius:10px;
+  padding:9px 18px;margin:4px;font-size:14px;cursor:pointer;
+  box-shadow:0 4px 14px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.08);
+  transition:all .18s ease;position:relative;overflow:hidden;
+}
+button:hover{
+  background:linear-gradient(135deg,#3a5690,#27406e);
+  transform:translateY(-2px);box-shadow:0 8px 22px rgba(79,150,255,.35);
+}
+button:active{transform:translateY(1px) scale(.96)}
+button::after{
+  content:'';position:absolute;top:0;left:-120%;width:60%;height:100%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.35),transparent);
+  transition:left .5s;
+}
+button:hover::after{left:130%}
+
+input[type=text],input:not([type]){border-radius:8px}
+input{
+  background:#0f1624;color:#eaf0fb;border:1px solid rgba(120,150,220,.3);
+  padding:8px 12px;border-radius:8px;outline:none;transition:box-shadow .2s,border-color .2s;
+}
+input:focus{border-color:#4fd1ff;box-shadow:0 0 0 3px rgba(79,209,255,.18)}
+
+label{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:14px}
+label input{margin:0}
+
+pre{
+  background:rgba(8,12,20,.75);border:1px solid rgba(120,150,220,.15);border-radius:10px;
+  padding:12px;min-height:100px;max-height:260px;overflow:auto;
+  white-space:pre-wrap;font-size:12px;line-height:1.5;font-family:'Cascadia Code',Consolas,monospace;
+}
+.muted{opacity:.72;font-size:12px}
+.badge{display:inline-block;background:#39445c;padding:2px 8px;border-radius:4px;font-size:11px;margin:2px}
+
+/* 计数器：大号 + 数字跳动 */
+#counterText{font-size:34px;font-weight:800;color:#7ff3b0;text-shadow:0 0 18px rgba(127,243,176,.5);margin:6px 0}
+#counterText.bump{animation:bump .3s ease}
+@keyframes bump{0%{transform:scale(1)}40%{transform:scale(1.25)}100%{transform:scale(1)}}
+
+/* 生命周期状态：脉冲徽章 */
+#lifecycle{
+  display:inline-block;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:700;
+  background:rgba(79,209,255,.12);border:1px solid rgba(79,209,255,.4);color:#7fd6ff;
+  animation:pulse 2s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(79,209,255,.35)}50%{box-shadow:0 0 0 8px rgba(79,209,255,0)}}
+
+/* 事件推送：滚动提示 */
+#pushText{color:#ffd76b;transition:all .3s}
+#pushText.pop{transform:translateX(4px);color:#7ff3b0}
+
+/* 玻璃滚动条 */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:rgba(120,150,220,.35);border-radius:4px}
+::-webkit-scrollbar-track{background:transparent}
 </style>
 </head>
 <body>
+<canvas id="fx-particles"></canvas>
+
 <h1 data-bhui-i18n="HtmlUiConsumer_Title"></h1>
+
 <div class="card">
-  <div id="counterText"></div>
+  <h3>Command / State / Request</h3>
+  <div id="counterText">0</div>
   <button id="inc" data-bhui-i18n="HtmlUiConsumer_Increment"></button>
   <button id="get" data-bhui-i18n="HtmlUiConsumer_GetData"></button>
+  <span id="stateText" class="muted"></span>
 </div>
+
 <div class="card">
+  <h3>Binding（HTML → C# State）</h3>
   <label><span data-bhui-i18n="HtmlUiConsumer_Name"></span> <input id="name"></label><br>
   <label><input id="enabled" type="checkbox"> <span data-bhui-i18n="HtmlUiConsumer_Enabled"></span></label>
 </div>
+
 <div class="card">
+  <h3>Reverse Link（C# → JS Event）</h3>
+  <button id="push">⚡ C# 主动推送事件</button>
+  <div id="pushText" class="muted">尚未收到 serverPush</div>
+</div>
+
+<div class="card">
+  <h3>Input / Pages</h3>
   <button id="release" data-bhui-i18n="HtmlUiConsumer_Release"></button>
   <button id="capture" data-bhui-i18n="HtmlUiConsumer_Capture"></button>
   <button id="close" data-bhui-i18n="HtmlUiConsumer_Close"></button>
+  <button id="second">打开第二页</button>
+  <button id="spell">✨ Spell Lab</button>
+  <button id="reload">↻ 重载本页</button>
+  <button id="throwErr">⚠ 触发 JS 错误</button>
   <div class="muted" data-bhui-i18n="HtmlUiConsumer_EscHint"></div>
 </div>
-<pre id="log">加载中...</pre>
-<pre id="err"></pre>
+
+<div class="card">
+  <h3>Lifecycle</h3>
+  <div id="lifecycle">-</div>
+</div>
+
+<div class="card">
+  <h3>Errors</h3>
+  <pre id="err">无</pre>
+</div>
+
+<div class="card">
+  <h3>Log</h3>
+  <pre id="log">加载中...</pre>
+</div>
+
 <script>
-const app=window.game.app;
-const logEl=document.getElementById('log');
-const errEl=document.getElementById('err');
-const log=v=>logEl.textContent=JSON.stringify(v,null,2);
-const renderCounter=async value=>{
-  document.getElementById('counterText').textContent=
-    await app.i18n.t('HtmlUiConsumer_Counter',{COUNT:value??0});
+const app = window.game.app;
+const logEl = document.getElementById('log');
+const errEl = document.getElementById('err');
+
+// ---- 粒子背景特效 ----
+(function particles(){
+  const cv = document.getElementById('fx-particles');const ctx = cv.getContext('2d');
+  let W,H;const pts=[];
+  const init=()=>{W=cv.width=innerWidth;H=cv.height=innerHeight;pts.length=0;
+    for(let i=0;i<70;i++)pts.push({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.8+.6,vx:(Math.random()-.5)*.4,vy:(Math.random()-.5)*.4,h:Math.floor(Math.random()*3)*70});};
+  init();addEventListener('resize',init);
+  (function loop(){
+    ctx.clearRect(0,0,W,H);
+    for(const p of pts){
+      p.x+=p.vx;p.y+=p.vy;
+      if(p.x<0||p.x>W)p.vx*=-1;if(p.y<0||p.y>H)p.vy*=-1;
+      ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);
+      ctx.fillStyle=`hsla(${180+p.h},100%,70%,${.35+Math.sin(p.y*.01)*.2})`;
+      ctx.fill();
+    }
+    requestAnimationFrame(loop);
+  })();
+})();
+
+// Cumulative log.
+const log = (v) => {
+  const line = '[' + new Date().toLocaleTimeString('en-GB', { hour12:false }) + '] ' +
+    (typeof v === 'string' ? v : JSON.stringify(v));
+  logEl.textContent = (logEl.textContent === '加载中...' ? '' : logEl.textContent + '\n') + line;
+  logEl.scrollTop = logEl.scrollHeight;
 };
-app.state.subscribe('counter',renderCounter);
-app.bind.twoWayValue('#name','name',v=>app.call('setName',{value:v}),{event:'input',debounce:120});
-app.bind.twoWayChecked('#enabled','enabled',v=>app.call('setEnabled',{value:v}));
-app.on('counterChanged',d=>log({event:d}));
-app.errors.on(e=>errEl.textContent=JSON.stringify(e,null,2));
-document.getElementById('inc').onclick=async()=>{try{log({command:await app.call('increment',{})})}catch(e){log({error:String(e)})}};
-document.getElementById('get').onclick=async()=>{try{log({request:await app.request('getData',{echo:'hello'})})}catch(e){log({error:String(e)})}};
-document.getElementById('release').onclick=()=>app.input.release();
-document.getElementById('capture').onclick=()=>app.input.capture();
-document.getElementById('close').onclick=()=>app.pages.close();
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();app.pages.close();}});
-async function applyLocalization(){ await app.i18n.bind(); await renderCounter(app.state.get('counter')||0); }
-app.i18n.onLocaleChanged(()=>applyLocalization());
+
+const counterEl = document.getElementById('counterText');
+const renderCounter = async (value) => {
+  counterEl.textContent = await app.i18n.t('HtmlUiConsumer_Counter', { COUNT: value ?? 0 });
+  counterEl.classList.remove('bump');void counterEl.offsetWidth;counterEl.classList.add('bump');
+};
+
+// ---- State: C# -> JS ----
+app.state.subscribe('counter', (v) => { renderCounter(v); log({ state: 'counter', value: v }); });
+app.state.subscribe('name', (v) => log({ state: 'name', value: v }));
+app.state.subscribe('enabled', (v) => log({ state: 'enabled', value: v }));
+
+// ---- Binding ----
+app.bind.twoWayValue('#name', 'name', (v) => app.call('setName', { value: v }), { event: 'input', debounce: 120 });
+app.bind.twoWayChecked('#enabled', 'enabled', (v) => app.call('setEnabled', { value: v }));
+
+// ---- Event ----
+app.on('counterChanged', (d) => log({ event: 'counterChanged', d }));
+app.on('serverPush', (d) => {
+  log({ event: 'serverPush', d });
+  const t = document.getElementById('pushText');
+  t.textContent = '收到 serverPush: ' + JSON.stringify(d);
+  t.classList.remove('pop');void t.offsetWidth;t.classList.add('pop');
+});
+
+// ---- Lifecycle ----
+const renderLifecycle = (p) => {
+  const el = document.getElementById('lifecycle');
+  const s = (typeof p === 'object' && p) ? (p.state || 'unknown') : String(p);
+  el.textContent = s;
+};
+app.pageLifecycle.on((p) => { log({ lifecycle: p }); renderLifecycle(p); });
+
+// ---- Errors ----
+app.errors.on((e) => { errEl.textContent = JSON.stringify(e, null, 2); log({ error: e }); });
+
+// ---- Commands ----
+document.getElementById('inc').onclick = async () => {
+  try { log({ command: 'increment', result: await app.call('increment', {}) }); }
+  catch (e) { log({ error: String(e) }); }
+};
+document.getElementById('get').onclick = async () => {
+  try { log({ request: await app.request('getData', { echo: 'hello' }) }); }
+  catch (e) { log({ error: String(e) }); }
+};
+
+// ---- Reverse link ----
+document.getElementById('push').onclick = async () => {
+  try { log({ command: 'pushEvent', result: await app.call('pushEvent', { message: 'hello-from-js' }) }); }
+  catch (e) { log({ error: String(e) }); }
+};
+
+// ---- Input / Pages ----
+document.getElementById('release').onclick = () => app.input.release();
+document.getElementById('capture').onclick = () => app.input.capture();
+document.getElementById('close').onclick = () => app.pages.close();
+document.getElementById('second').onclick = async () => {
+  try { log({ command: 'openSecond', result: await app.call('openSecond', {}) }); }
+  catch (e) { log({ error: String(e) }); }
+};
+document.getElementById('spell').onclick = async () => {
+  try { log({ command: 'openSpell', result: await app.call('openSpell', {}) }); }
+  catch (e) { log({ error: String(e) }); }
+};
+document.getElementById('reload').onclick = async () => {
+  try { log({ command: 'reload', result: await app.call('reload', {}) }); }
+  catch (e) { log({ error: String(e) }); }
+};
+document.getElementById('throwErr').onclick = () => { throw new Error('test-js-error'); };
+
+// ESC 关闭
+document.addEventListener('keydown', (e) => {
+  const isEsc = e.key === 'Escape' || e.code === 'Escape' || e.keyCode === 27;
+  if (!isEsc) return;
+  e.preventDefault();e.stopPropagation();
+  if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur();
+  log({ esc: true });
+  app.pages.close();
+}, true);
+
+async function applyLocalization() {
+  try {
+    const locale = await app.i18n.getLocale();
+    log({ i18n: 'bind', locale });
+    await app.i18n.bind();
+    log({ i18n: 'bind-done' });
+    await renderCounter(app.state.get('counter') || 0);
+  } catch (e) { log({ i18n: 'bind-error', error: String(e) }); }
+}
+app.i18n.onLocaleChanged(() => applyLocalization());
 applyLocalization();
 </script>
 </body>

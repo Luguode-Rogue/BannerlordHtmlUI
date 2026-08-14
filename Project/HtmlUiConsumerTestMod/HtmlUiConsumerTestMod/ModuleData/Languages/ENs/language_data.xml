@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData id="English" name="English" subtitle_extension="en-GB" supported_iso="en-GB,en-US,en,eng,en-us,en-gb" under_development="false">
+  <LanguageFile xml_path="ENs/HtmlUiConsumer-EN.xml" />
+</LanguageData>

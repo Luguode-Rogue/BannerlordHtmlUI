@@ -32,6 +32,20 @@ namespace BannerlordHtmlUI
             else Ready += callback;
         }
 
+        // Invoke each consumer's OnReady callback in isolation so that a single
+        // failing consumer (e.g. bad content-root path) cannot put the whole
+        // Framework into the Faulted state and break every other consumer.
+        private static void InvokeReadyCallbacks()
+        {
+            var handlers = Ready?.GetInvocationList();
+            if (handlers == null || handlers.Length == 0) return;
+            foreach (var handler in handlers)
+            {
+                try { ((Action)handler)(); }
+                catch (Exception ex) { HtmlUiLogger.Error("Consumer OnReady callback failed: " + ex); }
+            }
+        }
+
         public static async Task InitializeAsync(string moduleDirectory, string webRoot)
         {
             if (_initialized) return;
@@ -50,7 +64,7 @@ namespace BannerlordHtmlUI
                 HtmlUiLocalization.InitializeState();
                 State.Set("framework.lifecycle", _lifecycleState.ToString());
                 State.Set("framework.i18n.locale", HtmlUiLocalization.CurrentLanguage);
-                Ready?.Invoke();
+                InvokeReadyCallbacks();
             }
             catch
             {
@@ -167,6 +181,7 @@ namespace BannerlordHtmlUI
         }
         public static void OpenDevTools() => Host.OpenDevTools();
         public static void Reload() => Host.Reload();
+        public static bool ReloadPage() => Pages.Reload();
         public static void RegisterCommand(string name, Action<JToken> handler) => Host.RegisterCommand(name, handler);
         internal static void RegisterCommand(string name, Action<JToken> handler, string ownerId) => Host.RegisterCommand(name, handler, ownerId);
         public static void RegisterRequest(string name, Func<JToken, Task<object>> handler) => Host.RegisterRequest(name, handler);

@@ -11,6 +11,17 @@ export interface BannerlordHtmlUiScopePages {
   close(): Promise<unknown>;
 }
 
+export interface BannerlordHtmlUiI18n {
+  readonly locale: string | null;
+  getLocale(): Promise<string | null>;
+  getLanguages(): Promise<unknown>;
+  t(key: string, variables?: Record<string, unknown> | null, options?: { fallbackLanguage?: string | null }): Promise<string>;
+  bind(root?: Document | ParentNode): Promise<() => void>;
+  formatDate(value: string | number | Date): Promise<string>;
+  formatTime(value: string | number | Date): Promise<string>;
+  onLocaleChanged(handler: (locale: string | null) => void): () => void;
+}
+
 declare namespace BannerlordHtmlUI {
   interface BindingApi {
     text(target: string | Element, key: string): () => void;
@@ -25,6 +36,8 @@ declare namespace BannerlordHtmlUI {
     list<T = unknown>(target: string | Element, key: string, render: (item: T, index: number, generation: number) => Element | { element: Element; dispose?: () => void } | null, options?: { clearOnDispose?: boolean; diff?: boolean; key?: (item: T, index: number) => string | number }): () => void;
     component(target: string | Element, factory: (props: Record<string, unknown>, root: Element) => Element | { element: Element; update?: (props: Record<string, unknown>) => void; dispose?: () => void } | null, props?: Record<string, unknown>): { element: Element | null; update(props?: Record<string, unknown>): void; dispose(): void };
     template<T = unknown>(target: string | Element, key: string, render: (item: T, index: number) => Element | { element: Element; update?: (item: T, index: number) => void; dispose?: () => void } | null, options?: { key?: (item: T, index: number) => string | number }): () => void;
+    twoWayValue(target: string | Element, key: string, onChange?: (value: string) => void, options?: { event?: string; debounce?: number }): () => void;
+    twoWayChecked(target: string | Element, key: string, onChange?: (value: boolean) => void): () => void;
     delegate(root: string | Element | Document, eventName: string, selector: string, handler: (event: Event, target: Element) => void, options?: AddEventListenerOptions): () => void;
     events(root: string | Element | Document, definitions: Record<string, { selector: string; handler: (event: Event, target: Element) => void; options?: AddEventListenerOptions } | Array<{ selector: string; handler: (event: Event, target: Element) => void; options?: AddEventListenerOptions }>>): () => void;
     apply(root?: ParentNode): () => void;
@@ -38,6 +51,23 @@ declare namespace BannerlordHtmlUI {
     snapshot(): Record<string, unknown>;
   }
 
+  interface LifecycleApi {
+    readonly state: string | undefined;
+    on(handler: (info: unknown) => void): () => void;
+  }
+
+  interface ErrorApi {
+    readonly last: unknown;
+    on(handler: (error: unknown) => void): () => void;
+  }
+
+  interface InputApi {
+    capture(): Promise<unknown>;
+    release(): Promise<unknown>;
+    passive(): Promise<unknown>;
+    setMode(mode: string): Promise<unknown>;
+  }
+
   interface GameApp {
     readonly ownerId: string | null;
     call<T = unknown>(name: string, payload?: unknown, timeoutMs?: number): Promise<T>;
@@ -46,12 +76,14 @@ declare namespace BannerlordHtmlUI {
     readonly state: GameState;
     readonly events: { on<T = unknown>(name: string, handler: (payload: T) => void): () => void };
     readonly page: BannerlordHtmlUiPageContext | null;
-    readonly lifecycle: { readonly state: string | undefined; on(handler: (info: unknown) => void): () => void };
-    readonly errors: { readonly last: unknown; on(handler: (error: unknown) => void): () => void };
-    readonly input: WindowApi['input'];
+    readonly lifecycle: LifecycleApi;
+    readonly pageLifecycle: { on(handler: (info: unknown) => void): () => void };
+    readonly errors: ErrorApi;
+    readonly input: InputApi;
     readonly pages: BannerlordHtmlUiScopePages;
     readonly app: GameApp;
     readonly bind: BindingApi;
+    readonly i18n: BannerlordHtmlUiI18n;
   }
 
   interface GameScope extends GameApp {
@@ -61,6 +93,7 @@ declare namespace BannerlordHtmlUI {
     on<T = unknown>(name: string, handler: (payload: T) => void): () => void;
     readonly state: GameState;
     readonly bind: BindingApi;
+    readonly i18n: BannerlordHtmlUiI18n;
   }
 
   interface WindowApi {
@@ -72,15 +105,11 @@ declare namespace BannerlordHtmlUI {
     readonly state: GameState;
     readonly app: GameApp;
     readonly page: BannerlordHtmlUiPageContext | null;
-    readonly lifecycle: { readonly state: string | undefined; on(handler: (info: unknown) => void): () => void };
-    readonly errors: { readonly last: unknown; on(handler: (error: unknown) => void): () => void };
+    readonly lifecycle: LifecycleApi;
+    readonly errors: ErrorApi;
     readonly pages: BannerlordHtmlUiScopePages;
-    readonly input: {
-      capture(): Promise<unknown>;
-      release(): Promise<unknown>;
-      passive(): Promise<unknown>;
-      setMode(mode: string): Promise<unknown>;
-    };
+    readonly input: InputApi;
+    readonly i18n: BannerlordHtmlUiI18n;
     ready(): Promise<Record<string, unknown>>;
   }
 }
