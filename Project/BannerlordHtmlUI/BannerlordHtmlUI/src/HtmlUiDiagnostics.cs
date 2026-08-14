@@ -20,12 +20,14 @@ namespace BannerlordHtmlUI
         public bool WindowMinimized { get; set; }
         public string LastBrowserError { get; set; }
         public int ContentRootCount { get; set; }
+        public int PageCount { get; set; }
+        public int StateCount { get; set; }
         public bool NavigationInProgress { get; set; }
     }
 
     public static class HtmlUiDiagnostics
     {
-        public const string FrameworkVersion = "0.43.0";
+        public const string FrameworkVersion = "0.44.0";
         public const int ProtocolVersion = 1;
 
         private static readonly object Sync = new object();
@@ -60,6 +62,8 @@ namespace BannerlordHtmlUI
                 WindowMinimized = window.IsMinimized,
                 LastBrowserError = lastError,
                 ContentRootCount = host?.ContentRootCount ?? 0,
+                PageCount = host?.Pages.Count ?? 0,
+                StateCount = host?.State.Count ?? 0,
                 NavigationInProgress = host?.NavigationInProgress ?? false
             };
         }
