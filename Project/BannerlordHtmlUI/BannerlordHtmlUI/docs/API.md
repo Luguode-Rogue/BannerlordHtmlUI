@@ -75,6 +75,8 @@ Consumer 推荐通过 `HtmlUiConsumerScope` 注册资源。Scope 会为 Page、C
 
 Scope 的 `Opened` / `Closed` Page 回调在 `Dispose()` 期间仍处于 scope 的清理阶段；scope 只有在全部所属资源清理完成后才进入 `IsDisposed == true`。重复调用 `Dispose()` 会直接返回。
 
+Scope 的 ownership bookkeeping 与生命周期状态现在是线程安全的：`RegisterPage`、`RegisterCommand`、`RegisterRequest`、`RegisterContentRoot`、`SetState`、`RemoveState` 和 `Dispose` 不会因为交错执行而遗漏 ownership。Dispose 一旦进入 disposing 阶段，Scope 不再接受新的注册或状态写入，并会先拍摄完整 ownership 快照，再释放外部资源。
+
 Framework 内置 `framework.getStateSnapshot` Request 返回当前 C# StateStore 快照。页面每次导航都会重新创建 JS Runtime，因此 Framework 会在 document bootstrap 阶段恢复该快照，使页面切换/Reload 后 `game.state` 与 C# StateStore 保持一致。
 
 ## JS Runtime API
@@ -188,7 +190,7 @@ HtmlUiService.OnReady(() =>
 
 `InitializeAsync` belongs to the framework module itself. A consumer Mod must not call it.
 
-### Runtime self-test
+## Runtime self-test
 
 The bundled framework page exposes `framework.ping` and `framework.incrementTestState`. These are framework diagnostics only and are not intended as application API.
 
