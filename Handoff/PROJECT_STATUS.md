@@ -21,7 +21,15 @@
 
 ## 当前工作
 ### M2 Bridge
-Bridge 已具备 Command / Request / Response / Event / State 的基础实现，正在进行完整实机绿灯验收与边界错误传播验证。
+Bridge 已具备 Command / Request / Response / Event / State 的基础实现。
+
+已完成的静态边界修正：
+- State 删除通过 `state:<key>` 同通道发送 `null`，订阅与 binding 可以感知删除。
+- 删除不存在的 State Key 不广播事件。
+- State 设置相同值时不再重复广播，降低高频状态事件噪声。
+- ConsumerScope 页面 ContentRoot 解析对空值安全，默认使用 consumer `ui` root。
+
+当前重点是完整实机绿灯验收与边界错误传播验证。
 
 ### M3 Localization
 Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
@@ -31,6 +39,7 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - Request / Response
 - Event
 - State
+- State remove / redundant-set 行为
 - Two-way binding
 - Input Capture / Release 完整验收
 - Localization
