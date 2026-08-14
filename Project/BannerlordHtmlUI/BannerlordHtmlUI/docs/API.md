@@ -89,6 +89,8 @@ Command 如果由普通应用代码调用，会得到成功或错误结果；框
 await game.request(name, payload, timeoutMs)
 ```
 
+已注销或在执行期间被注销的 Command/Request 不再无声丢弃。若仍有对应请求 ID，Bridge 会立即返回明确错误，使 JS 不必等待默认超时。
+
 ### Event
 
 ```javascript
