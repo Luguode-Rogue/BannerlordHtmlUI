@@ -16,10 +16,18 @@ namespace BannerlordHtmlUI
         {
             if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("State key is required.", nameof(key));
 
-            lock (_sync) _values[key] = value;
+            bool changed;
+            lock (_sync)
+            {
+                if (_values.TryGetValue(key, out var existing) && Equals(existing, value))
+                    return;
 
-            // Publish outside the state lock so event dispatch cannot call back into the store while held.
-            _host.SendEvent("state:" + key, value);
+                _values[key] = value;
+                changed = true;
+            }
+
+            if (changed)
+                _host.SendEvent("state:" + key, value);
         }
 
         public bool TryGet(string key, out object value)
