@@ -71,6 +71,8 @@ Consumer 推荐通过 `HtmlUiConsumerScope` 注册资源。Scope 会为 Page、C
 
 Scope 的 `Opened` / `Closed` Page 回调在 `Dispose()` 期间仍处于 scope 的清理阶段；scope 只有在全部所属资源清理完成后才进入 `IsDisposed == true`。重复调用 `Dispose()` 会直接返回。
 
+Framework 内置 `framework.getStateSnapshot` Request 返回当前 C# StateStore 快照。页面每次导航都会重新创建 JS Runtime，因此 Framework 会在 document bootstrap 阶段恢复该快照，使页面切换/Reload 后 `game.state` 与 C# StateStore 保持一致。
+
 ## JS Runtime API
 
 ### Command
