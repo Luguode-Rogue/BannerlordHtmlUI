@@ -78,6 +78,11 @@ namespace HtmlUiConsumerTestMod
                     PublishState();
                 });
 
+                _scope.RegisterCommand("removeNameState", _ =>
+                {
+                    _scope.RemoveState("name");
+                });
+
                 _scope.RegisterCommand("setEnabled", payload =>
                 {
                     var value = payload?["value"]?.Value<bool>();
@@ -137,7 +142,7 @@ namespace HtmlUiConsumerTestMod
                 _scope.SetState("loaded", true);
                 _registered = true;
                 Log("Consumer UI registration completed successfully.");
-                Log("M2 bridge diagnostics registered: getDataDelayed, emitTestEvent, throwCommand, throwRequest.");
+                Log("M2 bridge diagnostics registered: getDataDelayed, emitTestEvent, throwCommand, throwRequest, removeNameState.");
             }
             catch (Exception ex)
             {
@@ -199,8 +204,7 @@ namespace HtmlUiConsumerTestMod
                     return;
                 }
 
-                var result = HtmlUiService.Pages.Close(_pageId);
-                Log("Pages.Close result=" + result);
+                HtmlUiService.Pages.Close(_pageId);
                 HtmlUiService.ReleaseInput();
             }
             catch (Exception ex)
