@@ -31,6 +31,7 @@ namespace BannerlordHtmlUI
             try
             {
                 HtmlUiI18nBindingPatch.Install(HtmlUiService.Host);
+                HtmlUiStateBootstrapPatch.Install(HtmlUiService.Host);
                 HtmlUiService.NotifyGameContext("application", true);
                 if (!HtmlUiService.Pages.Contains("framework"))
                     HtmlUiService.Pages.Register(new HtmlUiPage("framework", "index.html") { HotReload = true });
@@ -38,6 +39,9 @@ namespace BannerlordHtmlUI
                     HtmlUiService.Pages.Register(new HtmlUiPage("diagnostics", "diagnostics.html") { HotReload = true });
                 if (!HtmlUiCommands.CommandExists("framework.openDiagnostics"))
                     HtmlUiService.RegisterCommand("framework.openDiagnostics", _ => HtmlUiService.Pages.Open("diagnostics"));
+                if (!HtmlUiService.CommandExists("framework.stateSnapshot"))
+                    HtmlUiService.RegisterRequest("framework.stateSnapshot", _ =>
+                        Task.FromResult<object>(HtmlUiService.State.GetSnapshot()));
             }
             catch (Exception ex)
             {
