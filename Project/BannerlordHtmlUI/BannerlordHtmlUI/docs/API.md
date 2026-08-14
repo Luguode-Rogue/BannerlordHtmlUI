@@ -188,6 +188,7 @@ HtmlUiService.OnReady(() =>
         HotReload = true
     });
 });
+```
 
 `InitializeAsync` belongs to the framework module itself. A consumer Mod must not call it.
 
