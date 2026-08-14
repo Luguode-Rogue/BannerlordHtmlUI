@@ -15,7 +15,15 @@ namespace BannerlordHtmlUI
         public void Register(HtmlUiPage page)
         {
             if (page == null) throw new ArgumentNullException(nameof(page));
-            lock (_sync) _pages[page.Id] = page;
+
+            lock (_sync)
+            {
+                if (_pages.ContainsKey(page.Id))
+                    throw new InvalidOperationException("Page already registered: " + page.Id);
+
+                _pages.Add(page.Id, page);
+            }
+
             HtmlUiLogger.Info("Page registered: " + page.Id + " -> " + page.ContentRootId + ":/" + page.RelativePath);
         }
 
@@ -47,7 +55,6 @@ namespace BannerlordHtmlUI
             HtmlUiLogger.Info("Page unregistered: " + id);
             return true;
         }
-
 
         public int UnregisterByOwner(string ownerId)
         {
@@ -175,8 +182,11 @@ namespace BannerlordHtmlUI
         {
             get
             {
-                if (_openId == null) return null;
-                lock (_sync) return _pages.TryGetValue(_openId, out var page) ? page : null;
+                lock (_sync)
+                {
+                    if (_openId == null) return null;
+                    return _pages.TryGetValue(_openId, out var page) ? page : null;
+                }
             }
         }
 
