@@ -39,9 +39,6 @@ namespace BannerlordHtmlUI
                     HtmlUiService.Pages.Register(new HtmlUiPage("diagnostics", "diagnostics.html") { HotReload = true });
                 if (!HtmlUiCommands.CommandExists("framework.openDiagnostics"))
                     HtmlUiService.RegisterCommand("framework.openDiagnostics", _ => HtmlUiService.Pages.Open("diagnostics"));
-                if (!HtmlUiService.CommandExists("framework.stateSnapshot"))
-                    HtmlUiService.RegisterRequest("framework.stateSnapshot", _ =>
-                        Task.FromResult<object>(HtmlUiService.State.GetSnapshot()));
             }
             catch (Exception ex)
             {
