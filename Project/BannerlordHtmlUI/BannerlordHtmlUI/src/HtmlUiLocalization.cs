@@ -9,6 +9,7 @@ namespace BannerlordHtmlUI
     public static class HtmlUiLocalization
     {
         private static readonly object Sync = new object();
+        private static readonly HashSet<string> MissingWarningKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private static string _lastLanguage;
 
         public static string CurrentLanguage
@@ -65,7 +66,7 @@ namespace BannerlordHtmlUI
             text = ApplyVariables(text, variables);
 
             if (!found)
-                HtmlUiLogger.Warn("Localization key not found: " + key + " (language=" + active + ")");
+                WarnMissingOnce(active, key);
 
             return new
             {
@@ -107,13 +108,18 @@ namespace BannerlordHtmlUI
             {
                 if (string.Equals(_lastLanguage, language, StringComparison.OrdinalIgnoreCase)) return false;
                 _lastLanguage = language;
+                ClearMissingWarningsForLanguage(language);
                 return true;
             }
         }
 
         public static void InitializeState()
         {
-            lock (Sync) _lastLanguage = CurrentLanguage;
+            lock (Sync)
+            {
+                _lastLanguage = CurrentLanguage;
+                MissingWarningKeys.Clear();
+            }
         }
 
         public static string FormatDate(DateTime value)
@@ -139,6 +145,31 @@ namespace BannerlordHtmlUI
         private static bool IsMissing(string text)
         {
             return string.IsNullOrWhiteSpace(text) || string.Equals(text, "<MISSING>", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void WarnMissingOnce(string language, string key)
+        {
+            var warningKey = (language ?? "") + "\n" + key;
+            lock (Sync)
+            {
+                if (!MissingWarningKeys.Add(warningKey)) return;
+            }
+
+            HtmlUiLogger.Warn("Localization key not found: " + key + " (language=" + language + ")");
+        }
+
+        private static void ClearMissingWarningsForLanguage(string language)
+        {
+            var prefix = (language ?? "") + "\n";
+            var stale = new List<string>();
+            foreach (var warningKey in MissingWarningKeys)
+            {
+                if (warningKey.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    stale.Add(warningKey);
+            }
+
+            foreach (var warningKey in stale)
+                MissingWarningKeys.Remove(warningKey);
         }
 
         private static string ApplyVariables(string text, JObject variables)
