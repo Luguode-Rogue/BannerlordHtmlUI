@@ -21,7 +21,7 @@ namespace BannerlordHtmlUI
         public bool WindowVisible { get; set; }
         public bool WindowForeground { get; set; }
         public bool WindowMinimized { get; set; }
-        public LastBrowserError { get; set; }
+        public string LastBrowserError { get; set; }
         public int ContentRootCount { get; set; }
         public int PageCount { get; set; }
         public int StateCount { get; set; }
