@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 
 namespace BannerlordHtmlUI
 {
@@ -17,10 +18,20 @@ namespace BannerlordHtmlUI
         {
             if (string.IsNullOrWhiteSpace(id)) throw new ArgumentException("Page id is required.", nameof(id));
             if (string.IsNullOrWhiteSpace(relativePath)) throw new ArgumentException("Relative path is required.", nameof(relativePath));
-            Id = id;
-            RelativePath = relativePath.Replace('\\', '/').TrimStart('/');
-            if (RelativePath == ".." || RelativePath.StartsWith("../", StringComparison.Ordinal) || RelativePath.IndexOf("/../", StringComparison.Ordinal) >= 0)
+
+            var normalizedPath = relativePath.Replace('\\', '/').TrimStart('/');
+            if (Path.IsPathRooted(relativePath) || normalizedPath.StartsWith("/", StringComparison.Ordinal) || IsAbsoluteUri(relativePath))
+                throw new ArgumentException("RelativePath must be a relative resource path.", nameof(relativePath));
+
+            if (normalizedPath == ".." || normalizedPath.StartsWith("../", StringComparison.Ordinal) || normalizedPath.IndexOf("/../", StringComparison.Ordinal) >= 0)
                 throw new ArgumentException("RelativePath must stay inside its content root.", nameof(relativePath));
+
+            RelativePath = normalizedPath;
+        }
+
+        private static bool IsAbsoluteUri(string value)
+        {
+            return Uri.TryCreate(value, UriKind.Absolute, out _);
         }
     }
 }
