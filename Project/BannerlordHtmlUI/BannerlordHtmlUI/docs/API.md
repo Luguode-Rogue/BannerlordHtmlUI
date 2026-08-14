@@ -146,7 +146,7 @@ game.bind.twoWayValue('#name', 'player.name', (value) => {
 }, { debounce: 150 });
 ```
 
-List/template/component helpers return disposers and should be disposed when their owning page/component is destroyed. `game.bind.dispose()` removes bindings registered by that binder instance.
+List/template/component helpers return disposers and should be disposed when their owning page/component is destroyed. `game.bind.dispose()` removes bindings registered by that binder instance. Individual disposer functions are currently idempotent but may remain referenced internally until the parent binder is disposed; avoid creating unbounded numbers of short-lived binder instances in a long-lived page. This is a runtime implementation optimization target, not a public API semantic requirement.
 
 ## 协议
 
