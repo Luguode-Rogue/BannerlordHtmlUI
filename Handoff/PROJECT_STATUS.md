@@ -63,6 +63,7 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - Framework version 已与 v0.44 文档对齐为 `0.44.0`。
 - F10 Diagnostics 可报告 PageCount / StateCount，避免诊断页面只显示部分运行态。
 - F10 Diagnostics 页面已改为 500ms 轻量自动刷新，并带 in-flight 防重入与 unload disposer，方便观察窗口、输入模式、Page 生命周期变化而不产生框架级高频日志。
+- Diagnostics snapshot 新增 `SnapshotUtc`、`CurrentPageOwner`、`CurrentPagePath`，便于多 Page / 多 Consumer 生命周期排查。
 
 ### Overlay / WebView2
 - 当前已有经过实机验证的正常基线：`debug/test-root-transparent`。
