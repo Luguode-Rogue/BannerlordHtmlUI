@@ -19,13 +19,16 @@
   <h2>Raw snapshot</h2>
   <pre id="raw"></pre>
   <script>
-    (async () => {
+    (() => {
       const status = document.getElementById('status');
-      try {
-        const data = await game.request('framework.getDiagnostics');
-        status.textContent = 'Diagnostics request succeeded.';
-        const grid = document.getElementById('grid');
-        for (const [key, value] of Object.entries(data)) {
+      const grid = document.getElementById('grid');
+      const raw = document.getElementById('raw');
+      let disposed = false;
+      let refreshInFlight = false;
+
+      const render = data => {
+        while (grid.firstChild) grid.removeChild(grid.firstChild);
+        for (const [key, value] of Object.entries(data || {})) {
           const card = document.createElement('div');
           card.className = 'card';
           card.innerHTML = '<div class="key"></div><div class="value"></div>';
@@ -33,10 +36,30 @@
           card.children[1].textContent = typeof value === 'object' ? JSON.stringify(value) : String(value);
           grid.appendChild(card);
         }
-        document.getElementById('raw').textContent = JSON.stringify(data, null, 2);
-      } catch (e) {
-        status.textContent = 'Diagnostics request failed: ' + e.message;
-      }
+        raw.textContent = JSON.stringify(data || {}, null, 2);
+      };
+
+      const refresh = async () => {
+        if (disposed || refreshInFlight) return;
+        refreshInFlight = true;
+        try {
+          const data = await game.request('framework.getDiagnostics');
+          if (disposed) return;
+          status.textContent = 'Diagnostics request succeeded. Auto-refresh: 500 ms.';
+          render(data);
+        } catch (e) {
+          if (!disposed) status.textContent = 'Diagnostics request failed: ' + e.message;
+        } finally {
+          refreshInFlight = false;
+        }
+      };
+
+      refresh();
+      const timer = setInterval(refresh, 500);
+      window.addEventListener('beforeunload', () => {
+        disposed = true;
+        clearInterval(timer);
+      }, { once: true });
     })();
   </script>
 </body>
