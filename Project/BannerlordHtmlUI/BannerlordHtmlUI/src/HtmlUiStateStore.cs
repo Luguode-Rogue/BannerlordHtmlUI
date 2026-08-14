@@ -64,6 +64,16 @@ namespace BannerlordHtmlUI
             if (ReferenceEquals(left, right)) return true;
             if (left == null || right == null) return false;
 
+            // Avoid JSON conversion for the common scalar-state case.
+            // These are the values most likely to be updated frequently by bindings.
+            if (left is string || left is bool || left is char || left is decimal || left is double || left is float ||
+                left is byte || left is sbyte || left is short || left is ushort || left is int || left is uint ||
+                left is long || left is ulong || left is DateTime || left is DateTimeOffset || left is Guid ||
+                left is TimeSpan)
+            {
+                return left.GetType() == right.GetType() && left.Equals(right);
+            }
+
             try
             {
                 return JToken.DeepEquals(JToken.FromObject(left), JToken.FromObject(right));
