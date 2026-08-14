@@ -37,7 +37,7 @@ new HtmlUiPage("id", "relative/path/index.html")
 
 ## HtmlUiPageManager
 
-```csharp
+```text
 Register(page)
 Open(id)
 Close(id)
@@ -51,7 +51,7 @@ All
 
 ## HtmlUiStateStore
 
-```csharp
+```text
 Set(key, value)
 TryGet(key, out value)
 Remove(key)
@@ -59,6 +59,8 @@ SnapshotJson()
 ```
 
 State 更新通过 `state:<key>` 事件广播。`Remove(key)` 会从 Store 删除键，并在同一个 `state:<key>` 通道发送 `null`，因此 `game.state.subscribe(key, ...)` 和 binding 会同时感知删除；不存在的键不会产生删除事件。
+
+对于字符串、数字、布尔值、日期、GUID 等高频标量状态，Store 使用轻量比较路径避免不必要的 JSON 转换；复杂对象仍使用 JSON deep-equality 保持原有变更判断语义。
 
 Consumer 推荐通过 `HtmlUiConsumerScope` 注册资源。Scope 会为 Page、Command、Request、State 和 ContentRoot 自动加 Owner 前缀，并在 `Dispose()` 时按拥有关系清理。
 
@@ -92,6 +94,52 @@ game.state.get(key)
 game.state.subscribe(key, handler)
 game.state.snapshot()
 ```
+
+### I18n
+
+```javascript
+await game.i18n.t('my.key')
+await game.i18n.t('my.key', { count: 3 })
+await game.i18n.getLocale()
+game.i18n.getLanguages()
+game.i18n.formatDate(value)
+game.i18n.formatTime(value)
+```
+
+Pages can also use attribute-based binding:
+
+```html
+<span data-bhui-i18n="my.key"></span>
+<input data-bhui-i18n-placeholder="my.placeholder">
+<div data-bhui-i18n-title="my.title"></div>
+<img data-bhui-i18n-alt="my.alt">
+```
+
+`game.i18n.bind(root)` applies the current translations and returns a disposer. Locale-change handling is part of the framework runtime; consumers should dispose the binding together with the page/component that owns it.
+
+### Binding
+
+The runtime exposes state binders through `game.bind` (or `game.app.bind` for consumers):
+
+```javascript
+game.bind.text('#title', 'ui.title')
+game.bind.value('#name', 'player.name')
+game.bind.checked('#enabled', 'settings.enabled')
+game.bind.disabled('#submit', 'ui.submitDisabled')
+game.bind.hidden('#panel', 'ui.panelHidden')
+game.bind.visible('#panel', 'ui.panelVisible')
+game.bind.attr('#link', 'href', 'ui.url')
+```
+
+Two-way binding supports optional debounce/throttle scheduling:
+
+```javascript
+game.bind.twoWayValue('#name', 'player.name', (value) => {
+  // Persist or forward value to the game.
+}, { debounce: 150 });
+```
+
+List/template/component helpers return disposers and should be disposed when their owning page/component is destroyed. `game.bind.dispose()` removes bindings registered by that binder instance.
 
 ## 协议
 
