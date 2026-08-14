@@ -12,19 +12,18 @@ namespace BannerlordHtmlUI
         private const string Script = @"
 (() => {
   const install = () => {
-    if (!window.game || window.game[""__bannerlordHtmlUiStateBootstrapInstalled""]) return;
+    if (!window.game || window.game[""__bannerlordHtmlUiStateBootstrapInstalled""] || typeof window.game.request !== 'function') return;
 
     const hydrate = async () => {
       try {
-        if (!window.game || !window.game.state || typeof window.game.request !== 'function') return;
-        const snapshot = await window.game.request('framework.stateSnapshot', {});
-        if (!snapshot || typeof snapshot !== 'object') return;
+        const snapshot = await window.game.request('framework.getStateSnapshot', {});
+        if (!snapshot || typeof snapshot !== 'object' || typeof window.game.__receive !== 'function') return;
         for (const [key, value] of Object.entries(snapshot)) {
           window.game.__receive({
+            version: 1,
             type: 'event',
             name: `state:${key}`,
-            payload: value,
-            version: 1
+            payload: value
           });
         }
       } catch (error) {
