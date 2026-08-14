@@ -56,8 +56,30 @@ namespace BannerlordHtmlUI
 
             if (wasOpen)
             {
-                try { page.Closed?.Invoke(); } catch (Exception ex) { HtmlUiLogger.Error("Page close callback failed: " + id, ex); }
-                _host?.Hide();
+                try { page.Closed?.Invoke(); }
+                catch (Exception ex) { HtmlUiLogger.Error("Page close callback failed: " + id, ex); }
+
+                try
+                {
+                    _host.State.Set("framework.page.lifecycle", new
+                    {
+                        state = "closed",
+                        pageId = page.Id,
+                        ownerId = page.OwnerId ?? ""
+                    });
+                    _host.SendEvent("framework.page.lifecycle", new
+                    {
+                        state = "closed",
+                        pageId = page.Id,
+                        ownerId = page.OwnerId ?? ""
+                    });
+                }
+                catch (Exception ex)
+                {
+                    HtmlUiLogger.Error("Failed to publish page closed lifecycle: " + id, ex);
+                }
+
+                _host.Hide();
             }
 
             HtmlUiLogger.Info("Page unregistered: " + id);
@@ -199,6 +221,7 @@ namespace BannerlordHtmlUI
                 lock (_sync) return _openId;
             }
         }
+
         public HtmlUiPage Current
         {
             get
