@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Threading.Tasks;
 
@@ -43,11 +42,12 @@ namespace BannerlordHtmlUI
             if (page == null) throw new ArgumentNullException(nameof(page));
 
             var pageId = HtmlUiService.MakeScopedName(OwnerId, page.Id);
-            var contentRootId = string.Equals(page.ContentRootId, "framework", StringComparison.OrdinalIgnoreCase)
+            var requestedContentRoot = string.IsNullOrWhiteSpace(page.ContentRootId) ? "ui" : page.ContentRootId;
+            var contentRootId = string.Equals(requestedContentRoot, "framework", StringComparison.OrdinalIgnoreCase)
                 ? HtmlUiService.MakeScopedName(OwnerId, "ui")
-                : (page.ContentRootId.StartsWith(OwnerId + ".", StringComparison.OrdinalIgnoreCase)
-                    ? page.ContentRootId
-                    : HtmlUiService.MakeScopedName(OwnerId, page.ContentRootId));
+                : (requestedContentRoot.StartsWith(OwnerId + ".", StringComparison.OrdinalIgnoreCase)
+                    ? requestedContentRoot
+                    : HtmlUiService.MakeScopedName(OwnerId, requestedContentRoot));
 
             var scopedPage = new HtmlUiPage(pageId, page.RelativePath)
             {
