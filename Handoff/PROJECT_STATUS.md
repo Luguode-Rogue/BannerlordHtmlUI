@@ -27,6 +27,7 @@ Bridge 已具备 Command / Request / Response / Event / State 的基础实现。
 - State 删除通过 `state:<key>` 同通道发送 `null`，订阅与 binding 可以感知删除。
 - 删除不存在的 State Key 不广播事件。
 - State 设置相同值时不再重复广播，降低高频状态事件噪声。
+- State 对 JSON-like 数组、字典、匿名对象改用内容比较；内容相同但引用不同的值不再误触发 state 事件。
 - ConsumerScope 页面 ContentRoot 解析对空值安全，默认使用 consumer `ui` root。
 - Bridge 重复注册保护：重复 Command / Request / Page 不再静默覆盖。
 - `runtime.error` 等无 id 的 fire-and-forget 消息可以正常诊断，而普通无 id Command 会被拒绝。
@@ -42,6 +43,11 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - `TranslateMany` 对每个 key 的变量对象显式解析。
 - JavaScript Runtime 的 i18n API 已有对应的 TypeScript `.d.ts` 声明，包含 `i18n.t/getLocale/getLanguages/bind/formatDate/formatTime/onLocaleChanged`。
 
+当前继续处理：
+- `i18n.bind()` 生命周期与 disposer
+- Language Switch 后 DOM 自动刷新
+- 异步翻译结果在页面销毁后的防回写
+
 ## 待验收
 - Command
 - Request / Response
@@ -54,7 +60,7 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - Input Capture / Release 完整验收
 - Localization
 - Language Switch
-- i18n DOM bind 在语言切换后的自动刷新
+- i18n DOM bind 生命周期与语言切换自动刷新
 
 ## 已解决的历史问题
 ### WebView2 跨线程
