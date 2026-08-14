@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Concurrent;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Threading.Tasks;
 using Microsoft.Web.WebView2.Core;
@@ -32,26 +31,22 @@ namespace BannerlordHtmlUI
 
         public void RegisterRequest(string name, Func<JToken, Task<object>> handler)
         {
-            if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Request name is required.", nameof(name));
-            _requests[name] = new RequestEntry { OwnerId = "framework", Handler = handler ?? throw new ArgumentNullException(nameof(handler)) };
+            RegisterRequestCore(name, handler, "framework");
         }
 
         public bool CommandExists(string name) => _commands.ContainsKey(name);
 
         public bool UnregisterCommand(string name) => _commands.TryRemove(name, out _);
         public bool UnregisterRequest(string name) => _requests.TryRemove(name, out _);
+
         public void RegisterCommand(string name, Action<JToken> handler, string ownerId)
         {
-            if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Command name is required.", nameof(name));
-            if (string.IsNullOrWhiteSpace(ownerId)) ownerId = "framework";
-            _commands[name] = new CommandEntry { OwnerId = ownerId, Handler = handler ?? throw new ArgumentNullException(nameof(handler)) };
+            RegisterCommandCore(name, handler, ownerId);
         }
 
         public void RegisterRequest(string name, Func<JToken, Task<object>> handler, string ownerId)
         {
-            if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Request name is required.", nameof(name));
-            if (string.IsNullOrWhiteSpace(ownerId)) ownerId = "framework";
-            _requests[name] = new RequestEntry { OwnerId = ownerId, Handler = handler ?? throw new ArgumentNullException(nameof(handler)) };
+            RegisterRequestCore(name, handler, ownerId);
         }
 
         public int UnregisterByOwner(string ownerId)
@@ -67,8 +62,37 @@ namespace BannerlordHtmlUI
 
         public void RegisterCommand(string name, Action<JToken> handler)
         {
+            RegisterCommandCore(name, handler, "framework");
+        }
+
+        private void RegisterCommandCore(string name, Action<JToken> handler, string ownerId)
+        {
             if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Command name is required.", nameof(name));
-            _commands[name] = new CommandEntry { OwnerId = "framework", Handler = handler ?? throw new ArgumentNullException(nameof(handler)) };
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            if (string.IsNullOrWhiteSpace(ownerId)) ownerId = "framework";
+
+            var entry = new CommandEntry { OwnerId = ownerId, Handler = handler };
+            if (_commands.TryAdd(name, entry)) return;
+
+            if (_commands.TryGetValue(name, out var existing))
+                throw new InvalidOperationException("Command already registered: " + name + " (owner=" + existing.OwnerId + ")");
+
+            throw new InvalidOperationException("Command registration race: " + name);
+        }
+
+        private void RegisterRequestCore(string name, Func<JToken, Task<object>> handler, string ownerId)
+        {
+            if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Request name is required.", nameof(name));
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            if (string.IsNullOrWhiteSpace(ownerId)) ownerId = "framework";
+
+            var entry = new RequestEntry { OwnerId = ownerId, Handler = handler };
+            if (_requests.TryAdd(name, entry)) return;
+
+            if (_requests.TryGetValue(name, out var existing))
+                throw new InvalidOperationException("Request already registered: " + name + " (owner=" + existing.OwnerId + ")");
+
+            throw new InvalidOperationException("Request registration race: " + name);
         }
 
         public void Attach(CoreWebView2 web) => web.WebMessageReceived += OnWebMessageReceived;
@@ -89,10 +113,14 @@ namespace BannerlordHtmlUI
 
                 if (type == "command")
                 {
-                    if (string.IsNullOrWhiteSpace(id)) return;
+                    // Runtime diagnostics are fire-and-forget and legitimately have no request id.
+                    if (string.IsNullOrWhiteSpace(id) && !string.Equals(name, "runtime.error", StringComparison.OrdinalIgnoreCase))
+                        return;
+
                     if (!_commands.TryGetValue(name, out var commandEntry))
                     {
-                        await _host.SendResponseAsync(id, null, "Unknown command: " + name).ConfigureAwait(false);
+                        if (!string.IsNullOrWhiteSpace(id))
+                            await _host.SendResponseAsync(id, null, "Unknown command: " + name).ConfigureAwait(false);
                         return;
                     }
 
@@ -101,12 +129,14 @@ namespace BannerlordHtmlUI
                         try
                         {
                             commandEntry.Handler(payload);
-                            _ = _host.SendResponseAsync(id, true, null);
+                            if (!string.IsNullOrWhiteSpace(id))
+                                _ = _host.SendResponseAsync(id, true, null);
                         }
                         catch (Exception ex)
                         {
                             HtmlUiLogger.Error("Command failed: " + name, ex);
-                            _ = _host.SendResponseAsync(id, null, ex.GetBaseException().Message);
+                            if (!string.IsNullOrWhiteSpace(id))
+                                _ = _host.SendResponseAsync(id, null, ex.GetBaseException().Message);
                         }
                     });
                     return;
