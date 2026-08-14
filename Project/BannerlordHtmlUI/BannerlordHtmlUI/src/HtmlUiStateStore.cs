@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace BannerlordHtmlUI
 {
@@ -16,7 +15,10 @@ namespace BannerlordHtmlUI
         public void Set(string key, object value)
         {
             if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("State key is required.", nameof(key));
+
             lock (_sync) _values[key] = value;
+
+            // Publish outside the state lock so event dispatch cannot call back into the store while held.
             _host.SendEvent("state:" + key, value);
         }
 
@@ -27,8 +29,15 @@ namespace BannerlordHtmlUI
 
         public void Remove(string key)
         {
-            lock (_sync) _values.Remove(key);
-            _host.SendEvent("state:removed", new { key });
+            if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("State key is required.", nameof(key));
+
+            bool removed;
+            lock (_sync) removed = _values.Remove(key);
+            if (!removed) return;
+
+            // Runtime state subscriptions are keyed by `state:<key>`.
+            // Publish null on the same channel so subscribers and binders see the removal.
+            _host.SendEvent("state:" + key, null);
         }
 
         public IReadOnlyDictionary<string, object> GetSnapshot()
