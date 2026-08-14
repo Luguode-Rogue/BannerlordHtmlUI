@@ -86,6 +86,22 @@ namespace HtmlUiConsumerTestMod
                     PublishState();
                 });
 
+                _scope.RegisterCommand("emitTestEvent", payload =>
+                {
+                    var message = payload?["message"]?.Value<string>() ?? "bridge event";
+                    _scope.SendEvent("testEvent", new
+                    {
+                        message,
+                        counter = _counter,
+                        utc = DateTime.UtcNow
+                    });
+                });
+
+                _scope.RegisterCommand("throwCommand", _ =>
+                {
+                    throw new InvalidOperationException("Intentional consumer command failure.");
+                });
+
                 _scope.RegisterRequest("getData", payload =>
                 {
                     var echo = payload?["echo"]?.Value<string>() ?? string.Empty;
@@ -99,10 +115,29 @@ namespace HtmlUiConsumerTestMod
                     });
                 });
 
+                _scope.RegisterRequest("getDataDelayed", async payload =>
+                {
+                    var echo = payload?["echo"]?.Value<string>() ?? string.Empty;
+                    await Task.Delay(50).ConfigureAwait(false);
+                    return new
+                    {
+                        mod = OwnerId,
+                        echo,
+                        counter = _counter,
+                        delayed = true
+                    };
+                });
+
+                _scope.RegisterRequest("throwRequest", payload =>
+                {
+                    throw new InvalidOperationException("Intentional consumer request failure.");
+                });
+
                 PublishState();
                 _scope.SetState("loaded", true);
                 _registered = true;
                 Log("Consumer UI registration completed successfully.");
+                Log("M2 bridge diagnostics registered: getDataDelayed, emitTestEvent, throwCommand, throwRequest.");
             }
             catch (Exception ex)
             {
