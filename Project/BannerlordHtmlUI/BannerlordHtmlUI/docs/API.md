@@ -43,6 +43,8 @@ Open(id)
 Close(id)
 CloseCurrent()
 Contains(id)
+Unregister(id)
+UnregisterByOwner(ownerId)
 CurrentId
 Current
 All
@@ -51,6 +53,8 @@ Reload()
 ```
 
 页面、Command、Request 都要求唯一的完整注册名。重复注册不会静默覆盖已有对象，而是抛出异常，并保留原注册者。
+
+`Unregister(id)` 如果注销的是当前打开页面，会执行该页面的 `Closed` 回调，并同时发布 `framework.page.lifecycle` 的 `closed` 状态、更新 State、隐藏 Host，保证与 `CloseCurrent()` 的生命周期语义一致。`UnregisterByOwner(ownerId)` 使用相同规则清理所属页面。
 
 ## HtmlUiStateStore
 
