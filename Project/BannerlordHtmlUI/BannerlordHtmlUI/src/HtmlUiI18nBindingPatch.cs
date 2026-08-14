@@ -1,7 +1,5 @@
 using System;
 using System.Reflection;
-using System.Threading.Tasks;
-using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
 namespace BannerlordHtmlUI
@@ -26,7 +24,12 @@ namespace BannerlordHtmlUI
 
     i18n.bind = async (root = document) => {
       const target = root || document;
-      const elements = target.querySelectorAll ? Array.from(target.querySelectorAll(selector)) : [];
+      const elements = [];
+      if (target && typeof target.matches === 'function' && target.matches(selector)) elements.push(target);
+      if (target && typeof target.querySelectorAll === 'function') {
+        for (const element of target.querySelectorAll(selector)) elements.push(element);
+      }
+
       const bindings = [];
       for (const element of elements) {
         for (const [attribute, property] of mappings) {
