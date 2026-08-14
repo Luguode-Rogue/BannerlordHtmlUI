@@ -95,6 +95,16 @@ namespace BannerlordHtmlUI
             throw new InvalidOperationException("Request registration race: " + name);
         }
 
+        private bool IsCurrentCommand(string name, CommandEntry expected)
+        {
+            return _commands.TryGetValue(name, out var current) && ReferenceEquals(current, expected);
+        }
+
+        private bool IsCurrentRequest(string name, RequestEntry expected)
+        {
+            return _requests.TryGetValue(name, out var current) && ReferenceEquals(current, expected);
+        }
+
         public void Attach(CoreWebView2 web) => web.WebMessageReceived += OnWebMessageReceived;
 
         private async void OnWebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -121,7 +131,6 @@ namespace BannerlordHtmlUI
 
                 if (type == "command")
                 {
-                    // Runtime diagnostics are fire-and-forget and legitimately have no request id.
                     if (string.IsNullOrWhiteSpace(id) && !string.Equals(name, "runtime.error", StringComparison.OrdinalIgnoreCase))
                     {
                         HtmlUiLogger.Warn("Bridge command missing id: " + name);
@@ -139,16 +148,22 @@ namespace BannerlordHtmlUI
 
                     _host.DispatchToGameThread(() =>
                     {
+                        if (!IsCurrentCommand(name, commandEntry))
+                        {
+                            HtmlUiLogger.Debug("Skipped stale command callback: " + name);
+                            return;
+                        }
+
                         try
                         {
                             commandEntry.Handler(payload);
-                            if (!string.IsNullOrWhiteSpace(id))
+                            if (!string.IsNullOrWhiteSpace(id) && IsCurrentCommand(name, commandEntry))
                                 _ = _host.SendResponseAsync(id, true, null);
                         }
                         catch (Exception ex)
                         {
                             HtmlUiLogger.Error("Command failed: " + name, ex);
-                            if (!string.IsNullOrWhiteSpace(id))
+                            if (!string.IsNullOrWhiteSpace(id) && IsCurrentCommand(name, commandEntry))
                                 _ = _host.SendResponseAsync(id, null, ex.GetBaseException().Message);
                         }
                     });
@@ -171,15 +186,27 @@ namespace BannerlordHtmlUI
 
                     _host.DispatchToGameThread(async () =>
                     {
+                        if (!IsCurrentRequest(name, requestEntry))
+                        {
+                            HtmlUiLogger.Debug("Skipped stale request callback: " + name);
+                            return;
+                        }
+
                         try
                         {
                             var result = await requestEntry.Handler(payload).ConfigureAwait(false);
+                            if (!IsCurrentRequest(name, requestEntry))
+                            {
+                                HtmlUiLogger.Debug("Dropped response from unregistered request: " + name);
+                                return;
+                            }
                             await _host.SendResponseAsync(id, result, null).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
                             HtmlUiLogger.Error("Request failed: " + name, ex);
-                            await _host.SendResponseAsync(id, null, ex.GetBaseException().Message).ConfigureAwait(false);
+                            if (IsCurrentRequest(name, requestEntry))
+                                await _host.SendResponseAsync(id, null, ex.GetBaseException().Message).ConfigureAwait(false);
                         }
                     });
                     return;
