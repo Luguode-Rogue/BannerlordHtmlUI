@@ -105,6 +105,19 @@ namespace BannerlordHtmlUI
             return _requests.TryGetValue(name, out var current) && ReferenceEquals(current, expected);
         }
 
+        private async Task SendResponseSafelyAsync(string id, object result, string error, string context)
+        {
+            if (string.IsNullOrWhiteSpace(id)) return;
+            try
+            {
+                await _host.SendResponseAsync(id, result, error).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Debug("Bridge response send failed: " + context + " | " + ex.GetBaseException().Message);
+            }
+        }
+
         public void Attach(CoreWebView2 web) => web.WebMessageReceived += OnWebMessageReceived;
 
         private async void OnWebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -120,8 +133,7 @@ namespace BannerlordHtmlUI
                 if (version != ProtocolVersion)
                 {
                     HtmlUiLogger.Warn("Bridge protocol mismatch: received=" + version + ", expected=" + ProtocolVersion + ", id=" + (id ?? "<null>"));
-                    if (!string.IsNullOrWhiteSpace(id))
-                        await _host.SendResponseAsync(id, null, "Unsupported protocol version: " + version).ConfigureAwait(false);
+                    await SendResponseSafelyAsync(id, null, "Unsupported protocol version: " + version, "protocol mismatch").ConfigureAwait(false);
                     return;
                 }
 
@@ -140,7 +152,7 @@ namespace BannerlordHtmlUI
                     if (!_commands.TryGetValue(name, out var commandEntry))
                     {
                         if (!string.IsNullOrWhiteSpace(id))
-                            await _host.SendResponseAsync(id, null, "Unknown command: " + name).ConfigureAwait(false);
+                            await SendResponseSafelyAsync(id, null, "Unknown command: " + name, "unknown command").ConfigureAwait(false);
                         else
                             HtmlUiLogger.Warn("Unknown fire-and-forget command: " + name);
                         return;
@@ -158,13 +170,13 @@ namespace BannerlordHtmlUI
                         {
                             commandEntry.Handler(payload);
                             if (!string.IsNullOrWhiteSpace(id) && IsCurrentCommand(name, commandEntry))
-                                _ = _host.SendResponseAsync(id, true, null);
+                                _ = SendResponseSafelyAsync(id, true, null, "command success: " + name);
                         }
                         catch (Exception ex)
                         {
                             HtmlUiLogger.Error("Command failed: " + name, ex);
                             if (!string.IsNullOrWhiteSpace(id) && IsCurrentCommand(name, commandEntry))
-                                _ = _host.SendResponseAsync(id, null, ex.GetBaseException().Message);
+                                _ = SendResponseSafelyAsync(id, null, ex.GetBaseException().Message, "command failure: " + name);
                         }
                     });
                     return;
@@ -180,7 +192,7 @@ namespace BannerlordHtmlUI
 
                     if (!_requests.TryGetValue(name, out var requestEntry))
                     {
-                        await _host.SendResponseAsync(id, null, "Unknown request: " + name).ConfigureAwait(true);
+                        await SendResponseSafelyAsync(id, null, "Unknown request: " + name, "unknown request").ConfigureAwait(false);
                         return;
                     }
 
@@ -200,27 +212,25 @@ namespace BannerlordHtmlUI
                                 HtmlUiLogger.Debug("Dropped response from unregistered request: " + name);
                                 return;
                             }
-                            await _host.SendResponseAsync(id, result, null).ConfigureAwait(false);
+                            await SendResponseSafelyAsync(id, result, null, "request success: " + name).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
                             HtmlUiLogger.Error("Request failed: " + name, ex);
                             if (IsCurrentRequest(name, requestEntry))
-                                await _host.SendResponseAsync(id, null, ex.GetBaseException().Message).ConfigureAwait(false);
+                                await SendResponseSafelyAsync(id, null, ex.GetBaseException().Message, "request failure: " + name).ConfigureAwait(false);
                         }
                     });
                     return;
                 }
 
                 HtmlUiLogger.Warn("Bridge message has unknown type: " + type + ", name=" + name + ", id=" + (id ?? "<null>"));
-                if (!string.IsNullOrWhiteSpace(id))
-                    await _host.SendResponseAsync(id, null, "Unknown message type: " + type).ConfigureAwait(false);
+                await SendResponseSafelyAsync(id, null, "Unknown message type: " + type, "unknown type").ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 HtmlUiLogger.Error("Bridge message failed.", ex);
-                if (!string.IsNullOrWhiteSpace(id))
-                    await _host.SendResponseAsync(id, null, ex.GetBaseException().Message).ConfigureAwait(false);
+                await SendResponseSafelyAsync(id, null, ex.GetBaseException().Message, "message handler failure").ConfigureAwait(false);
             }
         }
     }
