@@ -47,6 +47,8 @@ CurrentId
 All
 ```
 
+页面、Command、Request 都要求唯一的完整注册名。重复注册不会静默覆盖已有对象，而是抛出异常，并保留原注册者。
+
 ## HtmlUiStateStore
 
 ```csharp
@@ -56,6 +58,8 @@ Remove(key)
 SnapshotJson()
 ```
 
+Consumer 推荐通过 `HtmlUiConsumerScope` 注册资源。Scope 会为 Page、Command、Request、State 和 ContentRoot 自动加 Owner 前缀，并在 `Dispose()` 时按拥有关系清理。
+
 ## JS Runtime API
 
 ### Command
@@ -63,6 +67,8 @@ SnapshotJson()
 ```javascript
 game.call(name, payload)
 ```
+
+Command 如果由普通应用代码调用，会得到成功或错误结果；框架内部的 `runtime.error` 诊断消息为 fire-and-forget。
 
 ### Request
 
@@ -103,12 +109,13 @@ Consumer Mods should use `HtmlUiService`, `HtmlUiCommands`, `HtmlUiPage`, `HtmlU
 ```csharp
 HtmlUiService.OnReady(() =>
 {
+    var scope = HtmlUiService.CreateScope("MyMod");
     var moduleDirectory = Path.GetDirectoryName(typeof(MySubModule).Assembly.Location);
-    HtmlUiService.RegisterContentRoot("MyMod", Path.Combine(moduleDirectory, "UI"));
+    var rootId = scope.RegisterContentRoot("ui", Path.Combine(moduleDirectory, "UI"));
 
-    HtmlUiService.Pages.Register(new HtmlUiPage("settings", "Settings/index.html")
+    scope.RegisterPage(new HtmlUiPage("settings", "Settings/index.html")
     {
-        ContentRootId = "MyMod",
+        ContentRootId = rootId,
         HotReload = true
     });
 });
@@ -119,7 +126,6 @@ HtmlUiService.OnReady(() =>
 ### Runtime self-test
 
 The bundled framework page exposes `framework.ping` and `framework.incrementTestState`. These are framework diagnostics only and are not intended as application API.
-
 
 ## Request handler threading
 
