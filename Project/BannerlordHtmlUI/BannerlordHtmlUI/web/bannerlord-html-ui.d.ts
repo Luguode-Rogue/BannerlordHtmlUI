@@ -11,6 +11,17 @@ export interface BannerlordHtmlUiScopePages {
   close(): Promise<unknown>;
 }
 
+export interface BannerlordHtmlUiI18n {
+  readonly locale: string | null;
+  getLocale(): Promise<string | null>;
+  getLanguages(): Promise<unknown>;
+  t(key: string, variables?: Record<string, unknown> | null, options?: { fallbackLanguage?: string | null }): Promise<string>;
+  bind(root?: ParentNode): Promise<() => void>;
+  formatDate(value: string | number | Date): Promise<string | undefined>;
+  formatTime(value: string | number | Date): Promise<string | undefined>;
+  onLocaleChanged(handler: (language: string | null) => void): () => void;
+}
+
 declare namespace BannerlordHtmlUI {
   interface BindingApi {
     text(target: string | Element, key: string): () => void;
@@ -50,6 +61,7 @@ declare namespace BannerlordHtmlUI {
     readonly errors: { readonly last: unknown; on(handler: (error: unknown) => void): () => void };
     readonly input: WindowApi['input'];
     readonly pages: BannerlordHtmlUiScopePages;
+    readonly i18n: BannerlordHtmlUiI18n;
     readonly app: GameApp;
     readonly bind: BindingApi;
   }
@@ -61,6 +73,7 @@ declare namespace BannerlordHtmlUI {
     on<T = unknown>(name: string, handler: (payload: T) => void): () => void;
     readonly state: GameState;
     readonly bind: BindingApi;
+    readonly i18n: BannerlordHtmlUiI18n;
   }
 
   interface WindowApi {
@@ -75,6 +88,7 @@ declare namespace BannerlordHtmlUI {
     readonly lifecycle: { readonly state: string | undefined; on(handler: (info: unknown) => void): () => void };
     readonly errors: { readonly last: unknown; on(handler: (error: unknown) => void): () => void };
     readonly pages: BannerlordHtmlUiScopePages;
+    readonly i18n: BannerlordHtmlUiI18n;
     readonly input: {
       capture(): Promise<unknown>;
       release(): Promise<unknown>;
