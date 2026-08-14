@@ -44,7 +44,10 @@ Close(id)
 CloseCurrent()
 Contains(id)
 CurrentId
+Current
 All
+Count
+Reload()
 ```
 
 页面、Command、Request 都要求唯一的完整注册名。重复注册不会静默覆盖已有对象，而是抛出异常，并保留原注册者。
@@ -56,13 +59,15 @@ Set(key, value)
 TryGet(key, out value)
 Remove(key)
 SnapshotJson()
+GetSnapshot()
+Count
 ```
 
 State 更新通过 `state:<key>` 事件广播。`Remove(key)` 会从 Store 删除键，并在同一个 `state:<key>` 通道发送 `null`，因此 `game.state.subscribe(key, ...)` 和 binding 会同时感知删除；不存在的键不会产生删除事件。
 
 对于字符串、数字、布尔值、日期、GUID 等高频标量状态，Store 使用轻量比较路径避免不必要的 JSON 转换；复杂对象仍使用 JSON deep-equality 保持原有变更判断语义。
 
-Consumer 推荐通过 `HtmlUiConsumerScope` 注册资源。Scope 会为 Page、Command、Request、State 和 ContentRoot 自动加 Owner 前缀，并在 `Dispose()` 时按拥有关系清理。
+Consumer 推荐通过 `HtmlUiConsumerScope` 注册资源。Scope 会为 Page、Command、Request、State 和 ContentRoot 自动加 Owner 前缀，并在 `Dispose()` 时按拥有关系清理。需要主动删除自己拥有的状态键时，可以调用 `scope.RemoveState(key)`。
 
 ## JS Runtime API
 
