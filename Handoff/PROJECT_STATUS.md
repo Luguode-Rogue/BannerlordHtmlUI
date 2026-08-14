@@ -54,6 +54,12 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 ### API 边界
 - `HtmlUiPage.RelativePath` 已明确拒绝 rooted/absolute path，并继续拒绝 `..` 越界路径，保持 Page 资源只能落在声明的 ContentRoot 内。
 
+### Overlay / WebView2
+- 当前已有经过实机验证的正常基线：`debug/test-root-transparent`。
+- 该基线不是冻结状态；后续允许继续优化 Overlay、窗口层级、透明度、输入与 WebView2 渲染行为。
+- 已知“画面不可见但点击区域存在”的复现与修复已经记录，不需要作为后续每轮普通开发的阻塞条件。
+- 只有再次修改 Overlay/WebView2 渲染、窗口样式、D3D/Chromium 子窗口层级等相关代码时，才重新执行对应的已知回归测试。
+
 ## 待验收
 - Command
 - Request / Response
