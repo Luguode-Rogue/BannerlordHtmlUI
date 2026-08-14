@@ -21,6 +21,7 @@ pre{background:#0d0f12;padding:12px;min-height:80px;white-space:pre-wrap}
 <div class="card">
   <label><span data-bhui-i18n="HtmlUiConsumer_Name"></span> <input id="name"></label><br>
   <label><input id="enabled" type="checkbox"> <span data-bhui-i18n="HtmlUiConsumer_Enabled"></span></label>
+  <button id="removeNameState">Remove name State</button>
 </div>
 <div class="card">
   <button id="release" data-bhui-i18n="HtmlUiConsumer_Release"></button>
@@ -47,6 +48,9 @@ const renderCounter=async value=>{
     await app.i18n.t('HtmlUiConsumer_Counter',{COUNT:value??0});
 };
 app.state.subscribe('counter',renderCounter);
+app.state.subscribe('name',value=>{
+  document.getElementById('name').value=value==null?'':String(value);
+});
 app.bind.twoWayValue('#name','name',v=>app.call('setName',{value:v}),{event:'input',debounce:120});
 app.bind.twoWayChecked('#enabled','enabled',v=>app.call('setEnabled',{value:v}));
 app.on('counterChanged',d=>log({event:d}));
@@ -56,6 +60,7 @@ app.page.onLifecycle(state=>log({pageLifecycle:state}));
 
 document.getElementById('inc').onclick=async()=>{try{log({command:await app.call('increment',{})})}catch(e){log({error:String(e)})}};
 document.getElementById('get').onclick=async()=>{try{log({request:await app.request('getData',{echo:'hello'})})}catch(e){log({error:String(e)})}};
+document.getElementById('removeNameState').onclick=async()=>{try{log({removeState:await app.call('removeNameState',{})})}catch(e){log({error:String(e)})}};
 document.getElementById('eventTest').onclick=async()=>{try{log({eventRequest:await app.call('emitTestEvent',{message:'Event round-trip'})})}catch(e){log({error:String(e)})}};
 document.getElementById('delayTest').onclick=async()=>{try{log({delayedRequest:await app.request('getDataDelayed',{echo:'50ms'})})}catch(e){log({error:String(e)})}};
 document.getElementById('commandErrorTest').onclick=async()=>{try{await app.call('throwCommand');log({unexpected:'command did not fail'})}catch(e){log({expectedCommandError:String(e)})}};
@@ -65,8 +70,9 @@ document.getElementById('capture').onclick=()=>app.input.capture();
 document.getElementById('close').onclick=()=>app.pages.close();
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();app.pages.close();}});
 async function applyLocalization(){ await app.i18n.bind(); await renderCounter(app.state.get('counter')||0); }
-app.i18n.onLocaleChanged(()=>applyLocalization());
+const offLocale=app.i18n.onLocaleChanged(()=>applyLocalization());
 applyLocalization();
+window.addEventListener('beforeunload',()=>{try{offLocale();}catch(_){}}, {once:true});
 </script>
 </body>
 </html>
