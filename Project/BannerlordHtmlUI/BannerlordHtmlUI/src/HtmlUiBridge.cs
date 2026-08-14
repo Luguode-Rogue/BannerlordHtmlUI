@@ -103,11 +103,19 @@ namespace BannerlordHtmlUI
             try
             {
                 var root = JObject.Parse(e.WebMessageAsJson);
-                if (root["version"]?.Value<int>() != ProtocolVersion)
+                var versionToken = root["version"];
+                var version = versionToken?.Type == JTokenType.Integer ? versionToken.Value<int>() : 0;
+                id = root["id"]?.Value<string>();
+
+                if (version != ProtocolVersion)
+                {
+                    HtmlUiLogger.Warn("Bridge protocol mismatch: received=" + version + ", expected=" + ProtocolVersion + ", id=" + (id ?? "<null>"));
+                    if (!string.IsNullOrWhiteSpace(id))
+                        await _host.SendResponseAsync(id, null, "Unsupported protocol version: " + version).ConfigureAwait(false);
                     return;
+                }
 
                 var type = root["type"]?.Value<string>() ?? string.Empty;
-                id = root["id"]?.Value<string>();
                 var name = root["name"]?.Value<string>() ?? string.Empty;
                 var payload = root["payload"] ?? JValue.CreateNull();
 
@@ -115,12 +123,17 @@ namespace BannerlordHtmlUI
                 {
                     // Runtime diagnostics are fire-and-forget and legitimately have no request id.
                     if (string.IsNullOrWhiteSpace(id) && !string.Equals(name, "runtime.error", StringComparison.OrdinalIgnoreCase))
+                    {
+                        HtmlUiLogger.Warn("Bridge command missing id: " + name);
                         return;
+                    }
 
                     if (!_commands.TryGetValue(name, out var commandEntry))
                     {
                         if (!string.IsNullOrWhiteSpace(id))
                             await _host.SendResponseAsync(id, null, "Unknown command: " + name).ConfigureAwait(false);
+                        else
+                            HtmlUiLogger.Warn("Unknown fire-and-forget command: " + name);
                         return;
                     }
 
@@ -144,7 +157,12 @@ namespace BannerlordHtmlUI
 
                 if (type == "request")
                 {
-                    if (string.IsNullOrWhiteSpace(id)) return;
+                    if (string.IsNullOrWhiteSpace(id))
+                    {
+                        HtmlUiLogger.Warn("Bridge request missing id: " + name);
+                        return;
+                    }
+
                     if (!_requests.TryGetValue(name, out var requestEntry))
                     {
                         await _host.SendResponseAsync(id, null, "Unknown request: " + name).ConfigureAwait(true);
@@ -164,7 +182,12 @@ namespace BannerlordHtmlUI
                             await _host.SendResponseAsync(id, null, ex.GetBaseException().Message).ConfigureAwait(false);
                         }
                     });
+                    return;
                 }
+
+                HtmlUiLogger.Warn("Bridge message has unknown type: " + type + ", name=" + name + ", id=" + (id ?? "<null>"));
+                if (!string.IsNullOrWhiteSpace(id))
+                    await _host.SendResponseAsync(id, null, "Unknown message type: " + type).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
