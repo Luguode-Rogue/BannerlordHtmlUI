@@ -69,6 +69,8 @@ State 更新通过 `state:<key>` 事件广播。`Remove(key)` 会从 Store 删�
 
 Consumer 推荐通过 `HtmlUiConsumerScope` 注册资源。Scope 会为 Page、Command、Request、State 和 ContentRoot 自动加 Owner 前缀，并在 `Dispose()` 时按拥有关系清理。需要主动删除自己拥有的状态键时，可以调用 `scope.RemoveState(key)`。
 
+Scope 的 `Opened` / `Closed` Page 回调在 `Dispose()` 期间仍处于 scope 的清理阶段；scope 只有在全部所属资源清理完成后才进入 `IsDisposed == true`。重复调用 `Dispose()` 会直接返回。
+
 ## JS Runtime API
 
 ### Command
@@ -120,7 +122,7 @@ Pages can also use attribute-based binding:
 <img data-bhui-i18n-alt="my.alt">
 ```
 
-`game.i18n.bind(root)` applies the current translations and returns a disposer. Locale-change handling is part of the framework runtime; consumers should dispose the binding together with the page/component that owns it.
+`game.i18n.bind(root)` applies the current translations and returns a disposer. Locale-change handling is part of the framework runtime; the binding automatically reapplies translations for the elements captured by that binding. If the binding root or its elements are destroyed, dispose it from the owning page/component; the runtime also releases the binding on `pagehide`. Asynchronous translation results from an older generation are ignored after a newer refresh or disposal.
 
 ### Binding
 
