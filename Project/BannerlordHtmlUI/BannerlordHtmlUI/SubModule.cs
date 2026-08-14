@@ -30,6 +30,7 @@ namespace BannerlordHtmlUI
         {
             try
             {
+                HtmlUiI18nBindingPatch.Install(HtmlUiService.Host);
                 HtmlUiService.NotifyGameContext("application", true);
                 if (!HtmlUiService.Pages.Contains("framework"))
                     HtmlUiService.Pages.Register(new HtmlUiPage("framework", "index.html") { HotReload = true });
