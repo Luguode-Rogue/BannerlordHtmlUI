@@ -108,7 +108,10 @@ namespace BannerlordHtmlUI
             {
                 if (string.Equals(_lastLanguage, language, StringComparison.OrdinalIgnoreCase)) return false;
                 _lastLanguage = language;
-                ClearMissingWarningsForLanguage(language);
+                // The warning cache is language-specific. Reset it on every
+                // language transition so diagnostics for the new locale are
+                // accurate and the set cannot grow indefinitely as languages change.
+                MissingWarningKeys.Clear();
                 return true;
             }
         }
