@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace BannerlordHtmlUI
 {
@@ -19,7 +20,7 @@ namespace BannerlordHtmlUI
             bool changed;
             lock (_sync)
             {
-                if (_values.TryGetValue(key, out var existing) && Equals(existing, value))
+                if (_values.TryGetValue(key, out var existing) && AreEqual(existing, value))
                     return;
 
                 _values[key] = value;
@@ -56,6 +57,21 @@ namespace BannerlordHtmlUI
         public string SnapshotJson()
         {
             lock (_sync) return JsonConvert.SerializeObject(_values);
+        }
+
+        private static bool AreEqual(object left, object right)
+        {
+            if (ReferenceEquals(left, right)) return true;
+            if (left == null || right == null) return false;
+
+            try
+            {
+                return JToken.DeepEquals(JToken.FromObject(left), JToken.FromObject(right));
+            }
+            catch
+            {
+                return Equals(left, right);
+            }
         }
     }
 }
