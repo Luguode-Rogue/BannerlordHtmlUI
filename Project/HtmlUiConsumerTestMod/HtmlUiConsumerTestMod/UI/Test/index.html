@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>HTML UI 框架测试</title>
+<style>
+body{font-family:sans-serif;background:#16181d;color:#eee;margin:24px}
+button,input{padding:8px;margin:4px}
+.card{background:#222831;padding:16px;border-radius:8px;margin-bottom:12px}
+pre{background:#0d0f12;padding:12px;min-height:80px;white-space:pre-wrap}
+.muted{opacity:.7;font-size:12px}
+</style>
+</head>
+<body>
+<h1 data-bhui-i18n="HtmlUiConsumer_Title"></h1>
+<div class="card">
+  <div id="counterText"></div>
+  <button id="inc" data-bhui-i18n="HtmlUiConsumer_Increment"></button>
+  <button id="get" data-bhui-i18n="HtmlUiConsumer_GetData"></button>
+</div>
+<div class="card">
+  <label><span data-bhui-i18n="HtmlUiConsumer_Name"></span> <input id="name"></label><br>
+  <label><input id="enabled" type="checkbox"> <span data-bhui-i18n="HtmlUiConsumer_Enabled"></span></label>
+</div>
+<div class="card">
+  <button id="release" data-bhui-i18n="HtmlUiConsumer_Release"></button>
+  <button id="capture" data-bhui-i18n="HtmlUiConsumer_Capture"></button>
+  <button id="close" data-bhui-i18n="HtmlUiConsumer_Close"></button>
+  <div class="muted" data-bhui-i18n="HtmlUiConsumer_EscHint"></div>
+</div>
+<pre id="log">加载中...</pre>
+<pre id="err"></pre>
+<script>
+const app=window.game.app;
+const logEl=document.getElementById('log');
+const errEl=document.getElementById('err');
+const log=v=>logEl.textContent=JSON.stringify(v,null,2);
+const renderCounter=async value=>{
+  document.getElementById('counterText').textContent=
+    await app.i18n.t('HtmlUiConsumer_Counter',{COUNT:value??0});
+};
+app.state.subscribe('counter',renderCounter);
+app.bind.twoWayValue('#name','name',v=>app.call('setName',{value:v}),{event:'input',debounce:120});
+app.bind.twoWayChecked('#enabled','enabled',v=>app.call('setEnabled',{value:v}));
+app.on('counterChanged',d=>log({event:d}));
+app.errors.on(e=>errEl.textContent=JSON.stringify(e,null,2));
+document.getElementById('inc').onclick=async()=>{try{log({command:await app.call('increment',{})})}catch(e){log({error:String(e)})}};
+document.getElementById('get').onclick=async()=>{try{log({request:await app.request('getData',{echo:'hello'})})}catch(e){log({error:String(e)})}};
+document.getElementById('release').onclick=()=>app.input.release();
+document.getElementById('capture').onclick=()=>app.input.capture();
+document.getElementById('close').onclick=()=>app.pages.close();
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();app.pages.close();}});
+async function applyLocalization(){ await app.i18n.bind(); await renderCounter(app.state.get('counter')||0); }
+app.i18n.onLocaleChanged(()=>applyLocalization());
+applyLocalization();
+</script>
+</body>
+</html>

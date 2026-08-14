@@ -1,0 +1,9 @@
+{
+  "baseline": "v0.46",
+  "framework": "BannerlordHtmlUI",
+  "consumer": "HtmlUiConsumerTestMod",
+  "engine": "Mount & Blade II: Bannerlord",
+  "template": "BUTR Team Bannerlord Module",
+  "runtime_target": "net472",
+  "status": "Host/Overlay/F11/Close/Reopen/Captured lifecycle verified; Bridge and Localization full acceptance pending."
+}

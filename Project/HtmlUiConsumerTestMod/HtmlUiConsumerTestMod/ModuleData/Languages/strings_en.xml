@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<base type="string">
+  <tags>
+    <tag language="English" />
+  </tags>
+  <strings>
+    <string id="HtmlUiConsumer_Title" text="HTML UI Framework Test" />
+    <string id="HtmlUiConsumer_Increment" text="Increment" />
+    <string id="HtmlUiConsumer_GetData" text="Get Data" />
+    <string id="HtmlUiConsumer_Name" text="Name" />
+    <string id="HtmlUiConsumer_Enabled" text="Enabled" />
+    <string id="HtmlUiConsumer_Release" text="Release Input" />
+    <string id="HtmlUiConsumer_Capture" text="Capture Input" />
+    <string id="HtmlUiConsumer_Close" text="Close UI" />
+    <string id="HtmlUiConsumer_EscHint" text="Press ESC to close the UI too." />
+    <string id="HtmlUiConsumer_Counter" text="Counter: {COUNT}" />
+  </strings>
+</base>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<base type="string">
+  <tags>
+    <tag language="Chinese" />
+  </tags>
+  <strings>
+    <string id="HtmlUiConsumer_Title" text="HTML UI 框架测试" />
+    <string id="HtmlUiConsumer_Increment" text="增加计数" />
+    <string id="HtmlUiConsumer_GetData" text="获取数据" />
+    <string id="HtmlUiConsumer_Name" text="名称" />
+    <string id="HtmlUiConsumer_Enabled" text="启用" />
+    <string id="HtmlUiConsumer_Release" text="释放输入" />
+    <string id="HtmlUiConsumer_Capture" text="捕获输入" />
+    <string id="HtmlUiConsumer_Close" text="关闭界面" />
+    <string id="HtmlUiConsumer_EscHint" text="按 ESC 也可以关闭界面。" />
+    <string id="HtmlUiConsumer_Counter" text="计数：{COUNT}" />
+  </strings>
+</base>

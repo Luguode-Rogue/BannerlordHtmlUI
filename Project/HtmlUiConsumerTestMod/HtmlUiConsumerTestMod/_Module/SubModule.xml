@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Module>
+  <Name value="HtmlUiConsumerTestMod" />
+  <Id value="HtmlUiConsumerTestMod" />
+  <Version value="v0.2.0" />
+  <SingleplayerModule value="true" />
+  <MultiplayerModule value="false" />
+  <DependedModules>
+    <DependedModule Id="BannerlordHtmlUI" />
+  </DependedModules>
+  <SubModules>
+    <SubModule>
+      <Name value="HtmlUiConsumerTestMod" />
+      <DLLName value="HtmlUiConsumerTestMod.dll" />
+      <SubModuleClassType value="HtmlUiConsumerTestMod.SubModule" />
+    </SubModule>
+  </SubModules>
+</Module>

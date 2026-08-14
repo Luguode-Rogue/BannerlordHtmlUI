@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/BUTR/Bannerlord.XmlSchemas/master/SubModule.xsd">
+  <Id value="BannerlordHtmlUI" />
+  <Name value="BannerlordHtmlUI" />
+  <Version value="v0.44.0" />
+  <DefaultModule value="false" />
+  <ModuleCategory value="Singleplayer" />
+  <ModuleType value="Community" />
+  <Url value="$moduleurl$" />
+  <DependedModules>
+    <DependedModule Id="Native" />
+  </DependedModules>
+  <DependedModuleMetadatas>
+    <DependedModuleMetadata id="Native" order="LoadBeforeThis" />
+  </DependedModuleMetadatas>
+  <SubModules>
+    <SubModule>
+      <Name value="BannerlordHtmlUI" />
+      <DLLName value="BannerlordHtmlUI.dll" />
+      <SubModuleClassType value="BannerlordHtmlUI.SubModule" />
+      <Tags />
+    </SubModule>
+  </SubModules>
+</Module>
