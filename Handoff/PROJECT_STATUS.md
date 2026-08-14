@@ -36,6 +36,8 @@ Bridge 已具备 Command / Request / Response / Event / State 的基础实现。
 - Handler 返回结果时的 Response 发送失败已隔离；WebView 已关闭等情况下不会把二次发送异常继续逸出到回调线程。
 - `HtmlUiPageManager.Count` / `Reload()` 已与文档 API 对齐。
 - `HtmlUiStateStore.Count` 已开放给诊断层。
+- `HtmlUiConsumerScope.RemoveState(key)` 已提供 Consumer 自有 State 的主动删除路径，并同步移除 Scope 的拥有记录。
+- Consumer 测试页已加入 State 删除回归入口，并监听 `name` State 变化验证 `null` 删除传播。
 
 当前重点是完整实机绿灯验收与边界错误传播验证。
 
@@ -55,6 +57,7 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 
 ### API 边界
 - `HtmlUiPage.RelativePath` 已明确拒绝 rooted/absolute path，并继续拒绝 `..` 越界路径，保持 Page 资源只能落在声明的 ContentRoot 内。
+- Public API 文档已同步 `PageManager.Count/Current/Reload`、`StateStore.Count/GetSnapshot`、`ConsumerScope.RemoveState`。
 
 ### Diagnostics
 - Framework version 已与 v0.44 文档对齐为 `0.44.0`。
