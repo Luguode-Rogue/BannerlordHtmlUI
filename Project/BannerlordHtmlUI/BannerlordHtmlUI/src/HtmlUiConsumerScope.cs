@@ -88,6 +88,14 @@ namespace BannerlordHtmlUI
             if (!_stateKeys.Exists(x => string.Equals(x, fullKey, StringComparison.OrdinalIgnoreCase))) _stateKeys.Add(fullKey);
         }
 
+        public void RemoveState(string key)
+        {
+            ThrowIfDisposed();
+            var fullKey = HtmlUiService.MakeScopedName(OwnerId, key);
+            HtmlUiService.State.Remove(fullKey);
+            _stateKeys.RemoveAll(x => string.Equals(x, fullKey, StringComparison.OrdinalIgnoreCase));
+        }
+
         public void SendEvent(string name, object payload)
         {
             ThrowIfDisposed();
