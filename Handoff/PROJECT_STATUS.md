@@ -34,12 +34,16 @@ Bridge 已具备 Command / Request / Response / Event / State 的基础实现。
 - `runtime.error` 等无 id 的 fire-and-forget 消息可以正常诊断，而普通无 id Command 会被拒绝。
 - Bridge 协议异常与未知消息类型进入明确的错误路径，不再静默丢弃。
 - Handler 返回结果时的 Response 发送失败已隔离；WebView 已关闭等情况下不会把二次发送异常继续逸出到回调线程。
+- 页面切换、ConsumerScope Dispose 与 Request/Command 注销发生竞态时，旧 handler 不再静默丢弃请求；有效注册消失后会尽早返回明确错误，过期异步结果不会覆盖后续注册。
 - `HtmlUiPageManager.Count` / `Reload()` 已与文档 API 对齐。
 - `HtmlUiStateStore.Count` 已开放给诊断层。
 - `HtmlUiConsumerScope.RemoveState(key)` 已提供 Consumer 自有 State 的主动删除路径，并同步移除 Scope 的拥有记录。
 - Consumer 测试页已加入 State 删除回归入口，并监听 `name` State 变化验证 `null` 删除传播。
 
 当前重点是完整实机绿灯验收与边界错误传播验证。
+
+已知技术债：
+- StateStore 当前按“对象引用 + 内容比较”的混合语义工作。如果 Consumer 原地修改同一个复杂对象实例后再次 `Set`，由于 Store 保留的是同一引用，可能无法观察到这类原地突变。是否改为完全 value-semantics 需要单独定义并评估序列化/性能影响，当前不作为普通修复顺手修改。
 
 ### M3 Localization
 Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
@@ -84,6 +88,7 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - Localization
 - Language Switch
 - i18n DOM bind 生命周期与语言切换自动刷新
+- Bridge 竞态下的旧 handler / 过期 response 行为
 
 ## 已解决的历史问题
 ### WebView2 跨线程
