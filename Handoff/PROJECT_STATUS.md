@@ -28,10 +28,12 @@ Bridge 已具备 Command / Request / Response / Event / State 的基础实现。
 - 删除不存在的 State Key 不广播事件。
 - State 设置相同值时不再重复广播，降低高频状态事件噪声。
 - State 对 JSON-like 数组、字典、匿名对象改用内容比较；内容相同但引用不同的值不再误触发 state 事件。
+- 高频 scalar State（字符串、数字、bool、日期、GUID 等）使用轻量比较路径，避免不必要的 JSON 转换。
 - ConsumerScope 页面 ContentRoot 解析对空值安全，默认使用 consumer `ui` root。
 - Bridge 重复注册保护：重复 Command / Request / Page 不再静默覆盖。
 - `runtime.error` 等无 id 的 fire-and-forget 消息可以正常诊断，而普通无 id Command 会被拒绝。
 - Bridge 协议异常与未知消息类型进入明确的错误路径，不再静默丢弃。
+- Handler 返回结果时的 Response 发送失败已隔离；WebView 已关闭等情况下不会把二次发送异常继续逸出到回调线程。
 
 当前重点是完整实机绿灯验收与边界错误传播验证。
 
@@ -42,11 +44,15 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - Localization 变量替换支持 primitive、日期、对象与数组，不再对复杂 JSON 输入做危险的 `JValue` 强转。
 - `TranslateMany` 对每个 key 的变量对象显式解析。
 - JavaScript Runtime 的 i18n API 已有对应的 TypeScript `.d.ts` 声明，包含 `i18n.t/getLocale/getLanguages/bind/formatDate/formatTime/onLocaleChanged`。
+- 缺失 Localization key 的 WARN 按“语言 + key”去重，避免页面重复渲染刷屏。
 
 当前继续处理：
 - `i18n.bind()` 生命周期与 disposer
 - Language Switch 后 DOM 自动刷新
 - 异步翻译结果在页面销毁后的防回写
+
+### API 边界
+- `HtmlUiPage.RelativePath` 已明确拒绝 rooted/absolute path，并继续拒绝 `..` 越界路径，保持 Page 资源只能落在声明的 ContentRoot 内。
 
 ## 待验收
 - Command
