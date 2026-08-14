@@ -6,6 +6,7 @@
   const errorListeners = new Set();
   let nextId = 1;
   let lastError = null;
+  let runtimeDisposed = false;
 
   const emit = (name, payload) => {
     const set = listeners.get(name);
@@ -16,22 +17,49 @@
   };
 
   const send = (type, name, payload, id = null) => {
+    if (runtimeDisposed) throw new Error('BannerlordHtmlUI runtime is disposed.');
     chrome.webview.postMessage({ version: 1, type, id, name, payload });
   };
 
   const requestInternal = (type, name, payload, timeoutMs) => new Promise((resolve, reject) => {
+    if (runtimeDisposed) {
+      reject(new Error('BannerlordHtmlUI runtime is disposed.'));
+      return;
+    }
+
     const id = `${type[0]}${Date.now()}_${nextId++}`;
-    pending.set(id, { resolve, reject });
-    send(type, name, payload, id);
-    const timer = setTimeout(() => {
-      const item = pending.get(id);
-      if (!item) return;
+    const item = { resolve, reject, timer: null };
+    pending.set(id, item);
+
+    try {
+      send(type, name, payload, id);
+    } catch (e) {
+      pending.delete(id);
+      reject(e);
+      return;
+    }
+
+    item.timer = setTimeout(() => {
+      const current = pending.get(id);
+      if (!current) return;
       pending.delete(id);
       reject(new Error(`${type} timeout: ${name}`));
-    }, timeoutMs);
-    const current = pending.get(id);
-    if (current) current.timer = timer;
+    }, Math.max(1, Number(timeoutMs) || 10000));
   });
+
+  const disposeRuntime = (reason = 'Page unloaded') => {
+    if (runtimeDisposed) return;
+    runtimeDisposed = true;
+    const error = new Error(reason);
+    for (const [id, item] of pending.entries()) {
+      pending.delete(id);
+      if (item.timer) clearTimeout(item.timer);
+      try { item.reject(error); } catch (_) {}
+    }
+    listeners.clear();
+    lifecycleListeners.clear();
+    errorListeners.clear();
+  };
 
   const emitPageLifecycle = (payload) => {
     try { state.set('framework.page.lifecycle', payload); } catch (_) {}
@@ -102,7 +130,7 @@
       await Promise.all(jobs);
       return () => {};
     };
-    window.game.on('framework.i18n.localeChanged', emitLocale);
+    const localeOff = window.game.on('framework.i18n.localeChanged', emitLocale);
     return {
       get locale() { return locale; },
       getLocale,
@@ -111,7 +139,12 @@
       bind,
       formatDate,
       formatTime,
-      onLocaleChanged(handler) { localeListeners.add(handler); return () => localeListeners.delete(handler); }
+      onLocaleChanged(handler) { localeListeners.add(handler); return () => localeListeners.delete(handler); },
+      dispose() {
+        try { localeOff(); } catch (_) {}
+        localeListeners.clear();
+        cache.clear();
+      }
     };
   };
   const i18n = createI18n();
@@ -716,6 +749,7 @@
     i18n,
     app: null,
     __receive(messageJson) {
+      if (runtimeDisposed) return;
       const msg = typeof messageJson === 'string' ? JSON.parse(messageJson) : messageJson;
       if (msg.type === 'response') {
         const item = pending.get(msg.id);
@@ -770,6 +804,7 @@
   window.game.ready = async () => {
     try {
       const snapshot = await window.game.request('framework.getStateSnapshot');
+      if (runtimeDisposed) throw new Error('BannerlordHtmlUI runtime was disposed during initialization.');
       for (const [key, value] of Object.entries(snapshot || {})) state.set(key, value);
       if (snapshot && snapshot['framework.page.lifecycle']) {
         const lifecycle = snapshot['framework.page.lifecycle'];
@@ -781,10 +816,15 @@
       emit('ready', snapshot || {});
       return snapshot || {};
     } catch (e) {
-      console.error('BannerlordHtmlUI runtime initialization failed:', e);
+      if (!runtimeDisposed) console.error('BannerlordHtmlUI runtime initialization failed:', e);
       throw e;
     }
   };
+
+  window.addEventListener('pagehide', () => {
+    try { i18n.dispose?.(); } catch (_) {}
+    disposeRuntime('BannerlordHtmlUI page unloaded');
+  }, { once: true });
 
   window.addEventListener('error', e => {
     const payload = { kind: 'error', message: String(e.error || e.message || 'Unknown error'), source: e.filename || null, line: e.lineno || 0, column: e.colno || 0 };
