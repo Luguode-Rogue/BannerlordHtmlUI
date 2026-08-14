@@ -34,6 +34,8 @@ Bridge 已具备 Command / Request / Response / Event / State 的基础实现。
 - `runtime.error` 等无 id 的 fire-and-forget 消息可以正常诊断，而普通无 id Command 会被拒绝。
 - Bridge 协议异常与未知消息类型进入明确的错误路径，不再静默丢弃。
 - Handler 返回结果时的 Response 发送失败已隔离；WebView 已关闭等情况下不会把二次发送异常继续逸出到回调线程。
+- `HtmlUiPageManager.Count` / `Reload()` 已与文档 API 对齐。
+- `HtmlUiStateStore.Count` 已开放给诊断层。
 
 当前重点是完整实机绿灯验收与边界错误传播验证。
 
@@ -53,6 +55,10 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 
 ### API 边界
 - `HtmlUiPage.RelativePath` 已明确拒绝 rooted/absolute path，并继续拒绝 `..` 越界路径，保持 Page 资源只能落在声明的 ContentRoot 内。
+
+### Diagnostics
+- Framework version 已与 v0.44 文档对齐为 `0.44.0`。
+- F10 Diagnostics 当前可报告 PageCount / StateCount，避免诊断页面只显示部分运行态。
 
 ### Overlay / WebView2
 - 当前已有经过实机验证的正常基线：`debug/test-root-transparent`。
