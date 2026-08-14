@@ -12,6 +12,14 @@ namespace BannerlordHtmlUI
 
         internal void Attach(HtmlUiHost host) => _host = host;
 
+        public int Count
+        {
+            get
+            {
+                lock (_sync) return _pages.Count;
+            }
+        }
+
         public void Register(HtmlUiPage page)
         {
             if (page == null) throw new ArgumentNullException(nameof(page));
@@ -49,7 +57,7 @@ namespace BannerlordHtmlUI
             if (wasOpen)
             {
                 try { page.Closed?.Invoke(); } catch (Exception ex) { HtmlUiLogger.Error("Page close callback failed: " + id, ex); }
-                _host.Hide();
+                _host?.Hide();
             }
 
             HtmlUiLogger.Info("Page unregistered: " + id);
@@ -169,6 +177,19 @@ namespace BannerlordHtmlUI
             catch (Exception ex) { HtmlUiLogger.Error("Failed to publish page closed lifecycle: " + openId, ex); }
             HtmlUiLogger.Info("Page closed: " + openId);
             _host.Hide();
+        }
+
+        public bool Reload()
+        {
+            HtmlUiPage current;
+            lock (_sync)
+            {
+                if (_openId == null || !_pages.TryGetValue(_openId, out current)) return false;
+            }
+
+            if (_host == null || !_host.IsHostCreated) return false;
+            _host.Reload();
+            return true;
         }
 
         public string CurrentId
