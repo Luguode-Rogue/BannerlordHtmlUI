@@ -97,6 +97,8 @@ await game.request(name, payload, timeoutMs)
 
 已注销或在执行期间被注销的 Command/Request 不再无声丢弃。若仍有对应请求 ID，Bridge 会立即返回明确错误，使 JS 不必等待默认超时。
 
+页面卸载时，当前 Runtime 会主动拒绝尚未完成的 `call()` / `request()` Promise，并取消其 timeout；因此页面切换、Reload 或 WebView navigation 不会留下永久 pending Promise。消费者若需要跨页面持久任务，应自行将任务提升到 C# 或其他长期存活的应用层。
+
 ### Event
 
 ```javascript
@@ -186,7 +188,6 @@ HtmlUiService.OnReady(() =>
         HotReload = true
     });
 });
-```
 
 `InitializeAsync` belongs to the framework module itself. A consumer Mod must not call it.
 
