@@ -88,7 +88,8 @@ namespace BannerlordHtmlUI
             {
                 var key = token?.Value<string>();
                 if (string.IsNullOrWhiteSpace(key)) continue;
-                var translated = (JObject)JToken.FromObject(Translate(key, variables?[key] as JObject, fallbackLanguage));
+                var keyVariables = variables?[key] as JObject;
+                var translated = (JObject)JToken.FromObject(Translate(key, keyVariables, fallbackLanguage));
                 result[key] = translated;
             }
 
@@ -145,12 +146,28 @@ namespace BannerlordHtmlUI
             if (string.IsNullOrEmpty(text) || variables == null) return text;
             foreach (var property in variables.Properties())
             {
-                var value = property.Value == null || property.Value.Type == JTokenType.Null
-                    ? string.Empty
-                    : Convert.ToString(((JValue)property.Value).Value, CultureInfo.InvariantCulture);
+                var value = ToVariableString(property.Value);
                 text = text.Replace("{" + property.Name + "}", value);
             }
             return text;
+        }
+
+        private static string ToVariableString(JToken value)
+        {
+            if (value == null || value.Type == JTokenType.Null) return string.Empty;
+            if (value is JValue primitive)
+            {
+                if (primitive.Type == JTokenType.Date)
+                {
+                    return Convert.ToDateTime(primitive.Value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
+                }
+
+                return Convert.ToString(primitive.Value, CultureInfo.InvariantCulture) ?? string.Empty;
+            }
+
+            // Objects/arrays are valid JSON inputs too; serialize them instead of
+            // throwing an InvalidCastException from a hard JValue cast.
+            return value.ToString(Newtonsoft.Json.Formatting.None);
         }
     }
 }
