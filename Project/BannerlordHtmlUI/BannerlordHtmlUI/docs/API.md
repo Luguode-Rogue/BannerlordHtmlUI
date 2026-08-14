@@ -58,6 +58,8 @@ Remove(key)
 SnapshotJson()
 ```
 
+State 更新通过 `state:<key>` 事件广播。`Remove(key)` 会从 Store 删除键，并在同一个 `state:<key>` 通道发送 `null`，因此 `game.state.subscribe(key, ...)` 和 binding 会同时感知删除；不存在的键不会产生删除事件。
+
 Consumer 推荐通过 `HtmlUiConsumerScope` 注册资源。Scope 会为 Page、Command、Request、State 和 ContentRoot 自动加 Owner 前缀，并在 `Dispose()` 时按拥有关系清理。
 
 ## JS Runtime API
