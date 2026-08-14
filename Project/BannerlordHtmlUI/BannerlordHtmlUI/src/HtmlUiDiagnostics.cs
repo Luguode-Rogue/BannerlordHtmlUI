@@ -5,6 +5,7 @@ namespace BannerlordHtmlUI
 {
     public sealed class HtmlUiDiagnosticsSnapshot
     {
+        public string SnapshotUtc { get; set; }
         public string FrameworkVersion { get; set; }
         public int ProtocolVersion { get; set; }
         public string Lifecycle { get; set; }
@@ -13,12 +14,14 @@ namespace BannerlordHtmlUI
         public bool WebViewReady { get; set; }
         public bool PageOpen { get; set; }
         public string CurrentPage { get; set; }
+        public string CurrentPageOwner { get; set; }
+        public string CurrentPagePath { get; set; }
         public bool HotReloadEnabled { get; set; }
         public bool DevToolsEnabled { get; set; }
         public bool WindowVisible { get; set; }
         public bool WindowForeground { get; set; }
         public bool WindowMinimized { get; set; }
-        public string LastBrowserError { get; set; }
+        public LastBrowserError { get; set; }
         public int ContentRootCount { get; set; }
         public int PageCount { get; set; }
         public int StateCount { get; set; }
@@ -42,11 +45,13 @@ namespace BannerlordHtmlUI
         {
             var host = HtmlUiService.IsInitialized ? HtmlUiService.Host : null;
             var window = host?.GetWindowState() ?? default(HtmlUiWindowState);
+            var page = host?.Pages.Current;
             string lastError;
             lock (Sync) lastError = _lastBrowserError;
 
             return new HtmlUiDiagnosticsSnapshot
             {
+                SnapshotUtc = DateTime.UtcNow.ToString("o"),
                 FrameworkVersion = FrameworkVersion,
                 ProtocolVersion = ProtocolVersion,
                 Lifecycle = HtmlUiService.LifecycleState.ToString(),
@@ -54,7 +59,9 @@ namespace BannerlordHtmlUI
                 HostInitialized = host != null,
                 WebViewReady = host?.IsWebViewReady ?? false,
                 PageOpen = !string.IsNullOrEmpty(host?.Pages.CurrentId),
-                CurrentPage = host?.Pages.CurrentId,
+                CurrentPage = page?.Id,
+                CurrentPageOwner = page?.OwnerId,
+                CurrentPagePath = page?.RelativePath,
                 HotReloadEnabled = host?.HotReloadEnabled ?? false,
                 DevToolsEnabled = host?.DevToolsEnabled ?? false,
                 WindowVisible = window.IsVisible,
