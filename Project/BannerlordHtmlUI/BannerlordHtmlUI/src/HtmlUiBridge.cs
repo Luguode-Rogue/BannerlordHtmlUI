@@ -163,6 +163,8 @@ namespace BannerlordHtmlUI
                         if (!IsCurrentCommand(name, commandEntry))
                         {
                             HtmlUiLogger.Debug("Skipped stale command callback: " + name);
+                            if (!string.IsNullOrWhiteSpace(id))
+                                _ = SendResponseSafelyAsync(id, null, "Command was unregistered before execution: " + name, "stale command");
                             return;
                         }
 
@@ -201,6 +203,7 @@ namespace BannerlordHtmlUI
                         if (!IsCurrentRequest(name, requestEntry))
                         {
                             HtmlUiLogger.Debug("Skipped stale request callback: " + name);
+                            await SendResponseSafelyAsync(id, null, "Request was unregistered before execution: " + name, "stale request").ConfigureAwait(false);
                             return;
                         }
 
@@ -210,6 +213,7 @@ namespace BannerlordHtmlUI
                             if (!IsCurrentRequest(name, requestEntry))
                             {
                                 HtmlUiLogger.Debug("Dropped response from unregistered request: " + name);
+                                await SendResponseSafelyAsync(id, null, "Request was unregistered while executing: " + name, "request unregistered").ConfigureAwait(false);
                                 return;
                             }
                             await SendResponseSafelyAsync(id, result, null, "request success: " + name).ConfigureAwait(false);
