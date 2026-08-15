@@ -51,9 +51,11 @@ namespace BannerlordHtmlUI
         let settled = false;
         let timeoutHandle = null;
         let abortHandler = null;
+        let cancelSent = false;
 
         const sendCancel = () => {
-          if (settled || !requestId) return;
+          if (cancelSent || !requestId) return;
+          cancelSent = true;
           try {
             originalPostMessage.call(webview, {
               version: 1,
@@ -78,14 +80,16 @@ namespace BannerlordHtmlUI
           if (signal) {
             abortHandler = () => {
               sendCancel();
-              reject(makeAbortError('Request aborted: ' + name));
+              if (!settled) reject(makeAbortError('Request aborted: ' + name));
             };
             signal.addEventListener('abort', abortHandler, { once: true });
           }
         });
 
         const safeTimeout = Math.max(1, Number(timeoutMs) || 10000);
-        timeoutHandle = setTimeout(sendCancel, safeTimeout + 25);
+        timeoutHandle = setTimeout(() => {
+          sendCancel();
+        }, Math.max(0, safeTimeout - 25));
         return result;
       };
     };
