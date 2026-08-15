@@ -134,7 +134,17 @@ namespace BannerlordHtmlUI
             try { originalComponentDispose(); } catch (e) { console.error(e); }
           };
           componentDisposers.add(dispose);
-          return { ...component, dispose };
+
+          // Preserve the original component object so prototype methods,
+          // symbols, and non-enumerable properties are not lost.
+          try {
+            component.dispose = dispose;
+            return component;
+          } catch (_) {
+            return Object.create(component, {
+              dispose: { value: dispose, configurable: true, writable: true }
+            });
+          }
         };
       }
 
