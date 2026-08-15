@@ -63,7 +63,6 @@ namespace BannerlordHtmlUI
                 {
                     _harmony = null;
                     _installed = false;
-                    States.Clear();
                 }
 
                 HtmlUiLogger.Info("Hot reload lifecycle/debounce patch uninstalled.");
