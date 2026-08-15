@@ -130,7 +130,7 @@ namespace BannerlordHtmlUI
                 return false;
             }
 
-            HtmlUiLogger.Info("Page open requested: " + id + ", hostReady=" + _host.IsWebViewReady);
+            HtmlUiLogger.Info("Page open requested: " + id + ", hostReady=" + _host.IsWebViewReady + ", currentBefore=" + (CurrentId ?? "<null>"));
             CloseCurrent();
             lock (_sync) _openId = page.Id;
             try
@@ -155,11 +155,13 @@ namespace BannerlordHtmlUI
             _host.SetInputMode(page.DefaultInputMode);
             try { page.Opened?.Invoke(); }
             catch (Exception ex) { HtmlUiLogger.Error("Page open callback failed: " + page.Id, ex); }
+            HtmlUiLogger.Info("Page open state committed: " + page.Id + ", inputMode=" + _host.InputMode + ", requestedVisible=" + _host.IsVisible);
             return true;
         }
 
         public void Close(string id)
         {
+            HtmlUiLogger.Info("Page Close requested: id=" + (id ?? "<null>") + ", current=" + (CurrentId ?? "<null>"));
             if (string.Equals(_openId, id, StringComparison.OrdinalIgnoreCase)) CloseCurrent();
         }
 
@@ -170,10 +172,16 @@ namespace BannerlordHtmlUI
             lock (_sync)
             {
                 openId = _openId;
-                if (openId == null) return;
+                if (openId == null)
+                {
+                    HtmlUiLogger.Info("Page CloseCurrent ignored: no open page.");
+                    return;
+                }
                 _pages.TryGetValue(openId, out page);
                 _openId = null;
             }
+
+            HtmlUiLogger.Info("Page CloseCurrent executing: page=" + openId + ", resolvedPage=" + (page == null ? "<null>" : page.Id));
 
             if (page != null)
             {
@@ -199,6 +207,7 @@ namespace BannerlordHtmlUI
             catch (Exception ex) { HtmlUiLogger.Error("Failed to publish page closed lifecycle: " + openId, ex); }
             HtmlUiLogger.Info("Page closed: " + openId);
             _host.Hide();
+            HtmlUiLogger.Info("Page CloseCurrent finished: page=" + openId + ", currentAfter=" + (CurrentId ?? "<null>") + ", hostVisible=" + _host.IsVisible + ", inputMode=" + _host.InputMode);
         }
 
         public bool Reload()
