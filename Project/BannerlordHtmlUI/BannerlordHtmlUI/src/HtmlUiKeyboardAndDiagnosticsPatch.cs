@@ -10,7 +10,6 @@ namespace BannerlordHtmlUI
         private const int WmKeyDown = 0x0100;
         private const int WmSysKeyDown = 0x0104;
         private const int VkEscape = 0x1B;
-        private const int VkF12 = 0x7B;
 
         private static HtmlUiHost _host;
         private static IMessageFilter _filter;
@@ -26,7 +25,7 @@ namespace BannerlordHtmlUI
             {
                 _filter = new KeyboardFilter();
                 Application.AddMessageFilter(_filter);
-                HtmlUiLogger.Info("Global UI keyboard close filter installed.");
+                HtmlUiLogger.Info("Global UI ESC close filter installed.");
             }
 
             try
@@ -44,7 +43,7 @@ namespace BannerlordHtmlUI
             }
             catch (Exception ex)
             {
-                HtmlUiLogger.Error("Failed to install keyboard/i18n diagnostics hook.", ex);
+                HtmlUiLogger.Error("Failed to install ESC/i18n diagnostics hook.", ex);
             }
         }
 
@@ -91,19 +90,23 @@ namespace BannerlordHtmlUI
                 if (host == null || !host.IsVisible || host.InputMode != HtmlUiInputMode.Captured) return false;
 
                 var key = unchecked((int)m.WParam.ToInt64());
-                if (key != VkF12 && key != VkEscape) return false;
+                if (key != VkEscape) return false;
 
                 try
                 {
-                    HtmlUiLogger.Info("UI keyboard close detected: key=" + (key == VkF12 ? "F12" : "Escape")
+                    HtmlUiLogger.Info("UI keyboard close detected: key=Escape"
                         + ", currentPage=" + (host.Pages.CurrentId ?? "<null>")
                         + ", inputMode=" + host.InputMode);
                     host.Pages.CloseCurrent();
+                    HtmlUiLogger.Info("UI keyboard Escape close completed. currentPage="
+                        + (host.Pages.CurrentId ?? "<null>")
+                        + ", inputMode=" + host.InputMode
+                        + ", hostVisible=" + host.IsVisible);
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    HtmlUiLogger.Error("UI keyboard close failed.", ex);
+                    HtmlUiLogger.Error("UI keyboard Escape close failed.", ex);
                     return false;
                 }
             }
