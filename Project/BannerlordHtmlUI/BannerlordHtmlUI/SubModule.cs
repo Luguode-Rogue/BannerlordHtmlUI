@@ -91,8 +91,8 @@ namespace BannerlordHtmlUI
 
         protected override void OnSubModuleUnloaded()
         {
-            try { HtmlUiHotReloadPatch.Uninstall(); } catch { }
             try { HtmlUiService.NotifyGameContext("application", false); } catch { }
+            try { HtmlUiHotReloadPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("HotReload patch uninstall failed: " + ex.GetBaseException().Message); }
             HtmlUiService.Dispose();
             base.OnSubModuleUnloaded();
         }
