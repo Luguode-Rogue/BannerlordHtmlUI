@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>HtmlUI Stress Lab</title>
+<style>
+body{font-family:sans-serif;background:#11151a;color:#eee;margin:20px}
+button,input{padding:8px;margin:4px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+pre{background:#080a0d;padding:12px;white-space:pre-wrap;min-height:120px}
+#bench{display:grid;grid-template-columns:repeat(10,1fr);gap:2px;margin-top:12px}
+.cell{height:8px;background:#2d343b}
+</style>
+</head>
+<body>
+<h1>HtmlUI M6 Stress Lab</h1>
+<div class="row">
+  <button id="one">Run 1</button>
+  <button id="ten">Run 10</button>
+  <button id="fifty">Run 50</button>
+  <button id="stop">Stop</button>
+</div>
+<div class="row">
+  <button id="snapshot">Snapshot</button>
+  <span>State key count:</span><input id="stateKey" value="stress.counter" size="18">
+</div>
+<div id="bench"></div>
+<pre id="log">idle</pre>
+<script>
+const app=window.game.app;
+const logEl=document.getElementById('log');
+const bench=document.getElementById('bench');
+let stopRequested=false;
+const log=v=>logEl.textContent=JSON.stringify(v,null,2);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const snapshot=()=>app.request('framework.getDiagnostics');
+function renderCells(count){
+  bench.textContent='';
+  for(let i=0;i<count;i++){
+    const el=document.createElement('div');
+    el.className='cell';
+    bench.appendChild(el);
+  }
+}
+async function componentRound(count){
+  const disposers=[];
+  for(let i=0;i<count;i++){
+    const handle=app.bind.component(bench,({index},root)=>{
+      root.dataset.stressIndex=String(index);
+      const span=document.createElement('span');
+      span.textContent='';
+      root.appendChild(span);
+      return {element:root,update(){span.textContent=''},dispose(){span.remove()}};
+    },{index:i});
+    disposers.push(handle);
+  }
+  await sleep(0);
+  for(const handle of disposers) handle.dispose();
+}
+async function cancellableRound(count){
+  const jobs=[];
+  for(let i=0;i<count;i++){
+    if(stopRequested) break;
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort('stress cancel'),15+(i%4)*5);
+    jobs.push(app.requestCancellable('getDataCancellable',{echo:'stress-'+i},5000,controller.signal)
+      .catch(e=>({aborted:e.code==='REQUEST_ABORTED',code:e.code}))
+      .finally(()=>clearTimeout(timer)));
+  }
+  return Promise.all(jobs);
+}
+async function requestRound(count){
+  const jobs=[];
+  for(let i=0;i<count;i++){
+    if(stopRequested) break;
+    jobs.push(app.request('getData',{echo:'stress-'+i}));
+  }
+  return Promise.all(jobs);
+}
+async function runRound(round){
+  const before=await snapshot();
+  renderCells(100);
+  await componentRound(50);
+  await requestRound(20);
+  const canceled=await cancellableRound(20);
+  const after=await snapshot();
+  return {
+    round,
+    before:{pages:before.pageCount,states:before.stateCount,commands:before.bridgeCommandCount,requests:before.bridgeRequestCount,activeRequests:before.activeRequestCount},
+    after:{pages:after.pageCount,states:after.stateCount,commands:after.bridgeCommandCount,requests:after.bridgeRequestCount,activeRequests:after.activeRequestCount},
+    canceled:canceled.filter(x=>x&&x.aborted).length
+  };
+}
+async function run(count){
+  stopRequested=false;
+  const started=performance.now();
+  const results=[];
+  try{
+    for(let i=1;i<=count;i++){
+      if(stopRequested) break;
+      results.push(await runRound(i));
+      log({status:'running',completed:i,target:count,last:results[results.length-1]});
+      await sleep(10);
+    }
+    const final=await snapshot();
+    log({status:stopRequested?'stopped':'complete',elapsedMs:Math.round(performance.now()-started),final:{pages:final.pageCount,states:final.stateCount,commands:final.bridgeCommandCount,requests:final.bridgeRequestCount,activeRequests:final.activeRequestCount},results});
+  }catch(e){
+    log({status:'error',name:e.name,code:e.code,message:e.message,results});
+  }
+}
+document.getElementById('one').onclick=()=>run(1);
+document.getElementById('ten').onclick=()=>run(10);
+document.getElementById('fifty').onclick=()=>run(50);
+document.getElementById('stop').onclick=()=>{stopRequested=true};
+document.getElementById('snapshot').onclick=async()=>{try{log(await snapshot())}catch(e){log({error:{name:e.name,code:e.code,message:e.message}})}};
+window.addEventListener('pagehide',()=>{stopRequested=true},{once:true});
+</script>
+</body>
+</html>
