@@ -120,7 +120,6 @@ namespace BannerlordHtmlUI
             Host.RegisterRequest("framework.getDiagnostics", _ => Task.FromResult<object>(HtmlUiDiagnostics.Snapshot()));
         }
 
-
         private static void OnWindowStateChanged(HtmlUiWindowState state)
         {
             if (!_initialized) return;
@@ -172,7 +171,9 @@ namespace BannerlordHtmlUI
         public static void RegisterRequest(string name, Func<JToken, Task<object>> handler) => Host.RegisterRequest(name, handler);
         internal static void RegisterRequest(string name, Func<JToken, Task<object>> handler, string ownerId) => Host.RegisterRequest(name, handler, ownerId);
         public static bool UnregisterCommand(string name) => Host.UnregisterCommand(name);
+        internal static bool UnregisterCommand(string name, string ownerId) => Host.UnregisterCommand(name, ownerId);
         public static bool UnregisterRequest(string name) => Host.UnregisterRequest(name);
+        internal static bool UnregisterRequest(string name, string ownerId) => Host.UnregisterRequest(name, ownerId);
         public static void SendEvent(string name, object payload) => Host.SendEvent(name, payload);
 
         public static void Dispose()
