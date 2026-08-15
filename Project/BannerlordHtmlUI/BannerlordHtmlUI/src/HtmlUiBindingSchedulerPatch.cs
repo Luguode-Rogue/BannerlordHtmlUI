@@ -7,18 +7,16 @@ namespace BannerlordHtmlUI
     internal static class HtmlUiBindingSchedulerPatch
     {
         private const string Marker = "__bannerlordHtmlUiBindingSchedulerPatched";
-
         private const string Script = @"
 (() => {
   const install = () => {
     const game = window.game;
-    if (!game || game[\"" + Marker + @"\"] || !game.bind) return false;
+    if (!game || game['" + Marker + @"'] || !game.bind) return false;
 
     const schedulerFactory = () => {
       const debounceTimers = new WeakMap();
       const throttleState = new WeakMap();
       const elements = new Set();
-
       const clearFor = element => {
         if (!element) return;
         const debounce = debounceTimers.get(element);
@@ -29,11 +27,7 @@ namespace BannerlordHtmlUI
         throttleState.delete(element);
         elements.delete(element);
       };
-
-      const clearAll = () => {
-        for (const element of [...elements]) clearFor(element);
-      };
-
+      const clearAll = () => { for (const element of [...elements]) clearFor(element); };
       const schedule = (writer, value, event, element, options) => {
         if (typeof writer !== 'function') return;
         if (element) elements.add(element);
@@ -43,7 +37,6 @@ namespace BannerlordHtmlUI
           try { writer(value, event, element); } catch (e) { console.error(e); }
           return;
         }
-
         if (debounceMs > 0) {
           const prior = debounceTimers.get(element);
           if (prior) clearTimeout(prior);
@@ -54,7 +47,6 @@ namespace BannerlordHtmlUI
           debounceTimers.set(element, timer);
           return;
         }
-
         let state = throttleState.get(element);
         const now = Date.now();
         if (!state) {
@@ -79,26 +71,17 @@ namespace BannerlordHtmlUI
           }, throttleMs - (now - state.last));
         }
       };
-
       return {
-        wrapWriter(writer, options) {
-          return (value, event, element) => schedule(writer, value, event, element, options || {});
-        },
+        wrapWriter(writer, options) { return (value, event, element) => schedule(writer, value, event, element, options || {}); },
         clearFor,
         clearAll
       };
     };
 
-    const createDisposedComponentHandle = () => ({
-      element: null,
-      update() {},
-      dispose() {}
-    });
-
+    const createDisposedComponentHandle = () => ({ element: null, update() {}, dispose() {} });
     const patchBinder = binder => {
       if (!binder || binder.__bannerlordHtmlUiBindingSchedulerPatched) return binder;
       if (typeof binder.twoWayValue !== 'function' && typeof binder.twoWayChecked !== 'function') return binder;
-
       const scheduler = schedulerFactory();
       const componentDisposers = new Set();
       const originalValue = binder.twoWayValue;
@@ -141,11 +124,8 @@ namespace BannerlordHtmlUI
         binder.component = (...args) => {
           if (disposed) return createDisposedComponentHandle();
           const component = originalComponent(...args);
-          const originalComponentDispose = component && typeof component.dispose === 'function'
-            ? component.dispose.bind(component)
-            : null;
+          const originalComponentDispose = component && typeof component.dispose === 'function' ? component.dispose.bind(component) : null;
           if (!originalComponentDispose) return component;
-
           let active = true;
           const dispose = () => {
             if (!active) return;
@@ -174,7 +154,6 @@ namespace BannerlordHtmlUI
 
     patchBinder(game.bind);
     patchBinder(game.app && game.app.bind);
-
     if (typeof game.scope === 'function') {
       const originalScope = game.scope;
       game.scope = (...args) => {
@@ -183,7 +162,6 @@ namespace BannerlordHtmlUI
         return scope;
       };
     }
-
     if (!game.__bannerlordHtmlUiBindingPageLifecycleInstalled) {
       window.addEventListener('pagehide', () => {
         try { game.bind?.dispose?.(); } catch (_) {}
@@ -191,11 +169,9 @@ namespace BannerlordHtmlUI
       }, { once: true });
       game.__bannerlordHtmlUiBindingPageLifecycleInstalled = true;
     }
-
-    game[\"" + Marker + @"\"] = true;
+    game['" + Marker + @"'] = true;
     return true;
   };
-
   if (install()) return;
   let attempts = 0;
   const retry = () => {
