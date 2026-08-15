@@ -18,6 +18,8 @@ namespace BannerlordHtmlUI
             new ConcurrentDictionary<string, CommandEntry>(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, CancellationTokenSource> _requestCancellation =
             new ConcurrentDictionary<string, CancellationTokenSource>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, byte> _preCanceledRequests =
+            new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
 
         private sealed class RequestEntry
         {
@@ -94,16 +96,21 @@ namespace BannerlordHtmlUI
         public bool CancelRequest(string id)
         {
             if (string.IsNullOrWhiteSpace(id)) return false;
-            if (!_requestCancellation.TryGetValue(id, out var cancellation)) return false;
-            try
+            if (_requestCancellation.TryGetValue(id, out var cancellation))
             {
-                cancellation.Cancel();
-                return true;
+                try
+                {
+                    cancellation.Cancel();
+                    return true;
+                }
+                catch (ObjectDisposedException)
+                {
+                    return false;
+                }
             }
-            catch (ObjectDisposedException)
-            {
-                return false;
-            }
+
+            _preCanceledRequests[id] = 0;
+            return true;
         }
 
         public void RegisterCommand(string name, Action<JToken> handler, string ownerId)
@@ -322,8 +329,17 @@ namespace BannerlordHtmlUI
                         using (var cancellation = new CancellationTokenSource())
                         {
                             _requestCancellation[id] = cancellation;
+                            if (_preCanceledRequests.TryRemove(id, out _))
+                                cancellation.Cancel();
+
                             try
                             {
+                                if (cancellation.IsCancellationRequested)
+                                {
+                                    HtmlUiLogger.Debug("Skipped pre-canceled request: " + name);
+                                    return;
+                                }
+
                                 object result;
                                 if (requestEntry.CancellableHandler != null)
                                     result = await requestEntry.CancellableHandler(payload, cancellation.Token).ConfigureAwait(false);
@@ -348,8 +364,6 @@ namespace BannerlordHtmlUI
                             catch (OperationCanceledException)
                             {
                                 HtmlUiLogger.Debug("Request canceled: " + name);
-                                if (!cancellation.IsCancellationRequested && IsCurrentRequest(name, requestEntry))
-                                    await SendResponseSafelyAsync(id, null, "Request canceled: " + name, "request canceled").ConfigureAwait(false);
                             }
                             catch (Exception ex)
                             {
@@ -365,6 +379,7 @@ namespace BannerlordHtmlUI
                             finally
                             {
                                 _requestCancellation.TryRemove(id, out _);
+                                _preCanceledRequests.TryRemove(id, out _);
                             }
                         }
                     });
