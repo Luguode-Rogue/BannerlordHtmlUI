@@ -25,11 +25,13 @@
 
 `BridgeCommandCount` / `BridgeRequestCount` 表示当前 **注册项数量**，不是“正在执行或等待中的 Request 数量”。
 
+`ActiveRequestCount` 表示当前仍持有 `CancellationTokenSource` 的 Request 数量。
+
 因此：
 
 - 注册数稳定只能证明 Command / Request 注册没有持续增长。
-- 不能单独用它证明 pending Request 已经全部结束。
-- Cancellation / pagehide / runtime shutdown 的正确性仍以 Request 终态和实机日志为准。
+- `ActiveRequestCount` 回到基线，才可以证明这批 Request 已经退出 Bridge 的活动集合。
+- Runtime shutdown 触发取消后，最终 `ActiveRequestCount` 必须回到 `0`；不能把“调用 Cancel”本身误判为“已经退出执行”。
 
 ## 必须保持的自动清理
 
@@ -58,6 +60,7 @@
 - Rapid Navigation 的旧完成事件覆盖当前页面状态。
 - Cancellation 后出现成功结果或未处理的 late response。
 - 压力测试结束后注册项持续增长。
+- 压力测试结束后 `ActiveRequestCount` 高于开始基线。
 
 ## 日志原则
 
