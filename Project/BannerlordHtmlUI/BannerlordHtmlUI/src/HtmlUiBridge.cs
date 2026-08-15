@@ -46,7 +46,8 @@ namespace BannerlordHtmlUI
             if (string.IsNullOrWhiteSpace(name)) return false;
             if (!_commands.TryGetValue(name, out var existing)) return false;
             if (!string.Equals(existing.OwnerId, NormalizeOwner(ownerId), StringComparison.OrdinalIgnoreCase)) return false;
-            return _commands.TryRemove(new KeyValuePair<string, CommandEntry>(name, existing));
+            return ((ICollection<KeyValuePair<string, CommandEntry>>)_commands).Remove(
+                new KeyValuePair<string, CommandEntry>(name, existing));
         }
 
         public bool UnregisterRequest(string name)
@@ -59,7 +60,8 @@ namespace BannerlordHtmlUI
             if (string.IsNullOrWhiteSpace(name)) return false;
             if (!_requests.TryGetValue(name, out var existing)) return false;
             if (!string.Equals(existing.OwnerId, NormalizeOwner(ownerId), StringComparison.OrdinalIgnoreCase)) return false;
-            return _requests.TryRemove(new KeyValuePair<string, RequestEntry>(name, existing));
+            return ((ICollection<KeyValuePair<string, RequestEntry>>)_requests).Remove(
+                new KeyValuePair<string, RequestEntry>(name, existing));
         }
 
         public void RegisterCommand(string name, Action<JToken> handler, string ownerId)
