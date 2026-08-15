@@ -81,6 +81,12 @@ namespace BannerlordHtmlUI
                 return false;
             }
 
+            if (!__instance.IsWebViewReady)
+            {
+                HtmlUiLogger.Debug("Hot reload ignored: WebView2 is not ready.");
+                return false;
+            }
+
             var state = States.GetOrCreateValue(__instance);
             var now = GetMonotonicMilliseconds();
             lock (state)
@@ -92,6 +98,32 @@ namespace BannerlordHtmlUI
                 }
 
                 state.LastReloadTick = now;
+            }
+
+            var page = __instance.Pages.Current;
+            if (page != null)
+            {
+                try
+                {
+                    __instance.State.Set("framework.page.lifecycle", new
+                    {
+                        state = "reloading",
+                        pageId = page.Id,
+                        ownerId = page.OwnerId,
+                        path = page.RelativePath
+                    });
+                    __instance.SendEvent("framework.page.lifecycle", new
+                    {
+                        state = "reloading",
+                        pageId = page.Id,
+                        ownerId = page.OwnerId,
+                        path = page.RelativePath
+                    });
+                }
+                catch (Exception ex)
+                {
+                    HtmlUiLogger.Error("Failed to publish hot reload lifecycle: " + page.Id, ex);
+                }
             }
 
             return true;
