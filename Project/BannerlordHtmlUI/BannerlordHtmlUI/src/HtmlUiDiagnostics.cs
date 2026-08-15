@@ -26,6 +26,7 @@ namespace BannerlordHtmlUI
         public int StateCount { get; set; }
         public int BridgeCommandCount { get; set; }
         public int BridgeRequestCount { get; set; }
+        public int ActiveRequestCount { get; set; }
         public bool NavigationInProgress { get; set; }
     }
 
@@ -75,6 +76,7 @@ namespace BannerlordHtmlUI
                 StateCount = host?.State.Count ?? 0,
                 BridgeCommandCount = bridge?.CommandCount ?? 0,
                 BridgeRequestCount = bridge?.RequestCount ?? 0,
+                ActiveRequestCount = bridge?.ActiveRequestCount ?? 0,
                 NavigationInProgress = host?.NavigationInProgress ?? false
             };
         }
