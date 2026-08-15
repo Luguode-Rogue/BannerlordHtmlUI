@@ -87,7 +87,7 @@ Framework 内置 `framework.getStateSnapshot` Request 返回当前 C# StateStore
 game.call(name, payload)
 ```
 
-Command 如果由普通应用代码调用，会得到成功或错误结果；框架内部的 `runtime.error` 诊断消息为 fire-and-forget。
+Command handler 在 C# 侧按 game-thread dispatcher 执行，但普通 `game.call()` 仍会收到成功或错误 Response；框架内部的 `runtime.error` 诊断消息才是无 request id 的 fire-and-forget 路径。
 
 ### Request
 
@@ -95,7 +95,7 @@ Command 如果由普通应用代码调用，会得到成功或错误结果；框
 await game.request(name, payload, timeoutMs)
 ```
 
-已注销或在执行期间被注销的 Command/Request 不再无声丢弃。若仍有对应请求 ID，Bridge 会立即返回明确错误，使 JS 不必等待默认超时。
+已注销或在执行期间被注销的 Command/Request 不再无声丢弃。若仍有对应请求 ID，Bridge 会返回明确错误，使 JS 不必等待默认超时。
 
 页面卸载时，当前 Runtime 会主动拒绝尚未完成的 `call()` / `request()` Promise，并取消其 timeout；因此页面切换、Reload 或 WebView navigation 不会留下永久 pending Promise。消费者若需要跨页面持久任务，应自行将任务提升到 C# 或其他长期存活的应用层。
 
@@ -134,7 +134,11 @@ Pages can also use attribute-based binding:
 <img data-bhui-i18n-alt="my.alt">
 ```
 
-`game.i18n.bind(root)` applies the current translations and returns a disposer. Locale-change handling is part of the framework runtime; the binding automatically reapplies translations for the elements captured by that binding. If the binding root or its elements are destroyed, dispose it from the owning page/component; the runtime also releases the binding on `pagehide`. Asynchronous translation results from an older generation are ignored after a newer refresh or disposal.
+`game.i18n.bind(root)` applies the current translations and returns an idempotent disposer. Binding is root-scoped: calling `bind()` again for the same root first disposes the previous binding, so repeated initialization does not accumulate multiple locale listeners or MutationObservers.
+
+The binding observes dynamic DOM changes under the root. Added matching nodes are bound automatically; changing or removing a Localization attribute updates/removes its binding; detached subtrees are removed from the binding set. Multiple DOM mutations in one microtask are coalesced into one refresh pass.
+
+Locale-change handling is part of the framework runtime. Older asynchronous translation results are ignored after a newer locale generation or disposal. `pagehide` automatically disposes the binding and disconnects its observer.
 
 ### Binding
 
