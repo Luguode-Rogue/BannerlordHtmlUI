@@ -35,6 +35,7 @@ Bridge 已具备 Command / Request / Response / Event / State 的基础实现。
 - Bridge 协议异常与未知消息类型进入明确的错误路径，不再静默丢弃。
 - Handler 返回结果时的 Response 发送失败已隔离；WebView 已关闭等情况下不会把二次发送异常继续逸出到回调线程。
 - 页面切换、ConsumerScope Dispose 与 Request/Command 注销发生竞态时，旧 handler 不再静默丢弃请求；有效注册消失后会尽早返回明确错误，过期异步结果不会覆盖后续注册。
+- stale Command / Request handler 即使在执行期间随后被注销并抛出异常，也会给原请求发送终态错误，不再让 JS 端只能等待 timeout。
 - Bridge 按名称注销已增加 owner 校验，并使用 owner + entry identity 的原子删除路径，避免误删其他 Consumer/Framework 注册以及检查后换绑造成的竞态删除。
 - `UnregisterByOwner()` 也已改为 owner + entry identity 的原子删除，不会因为 Scope 清理期间同名注册换绑而误删新 Owner 的 entry。
 - `HtmlUiPageManager.Count` / `Reload()` 已与文档 API 对齐。
@@ -106,6 +107,7 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - [x] Command 基础成功/错误语义与 fire-and-forget runtime.error 区分写入文档
 - [x] Owner / Scope 生命周期主要规则已有文档
 - [x] Owner-scope 批量注销竞态已做 entry-identity 防护
+- [x] stale handler 异常也会终止原 Command / Request，避免退化为前端 timeout
 - [ ] 完整统一错误模型（Command/Request/Timeout/Protocol）
 - [ ] Timeout、取消、页面卸载语义最终冻结
 - [ ] Page / ContentRoot / Reload 资源安全边界最终审计
@@ -120,7 +122,7 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - [ ] 高频 State / Event 压力场景
 - [ ] 大量 DOM Binding 场景
 - [ ] 多 Page 快速切换 / Reload
-- [ ] Request timeout / late response / shutdown race
+- [x] stale late-response handler failure 会立即返回明确错误，不等待 JS timeout
 - [x] Binding debounce/throttle 的 Binder 间 timer 串扰静态修复
 - [ ] 长时间运行的 disposer / observer / timer 泄漏最终审计
 - [ ] Framework 主线程 / WebView2 UI thread 边界最终审计
@@ -171,4 +173,4 @@ Captured 模式下 Overlay 自身成为前台时，旧逻辑误判为 Bannerlord
 完整复盘见：`Handoff/BUG_POSTMORTEM_OVERLAY_RENDERING_20260814.md`。
 
 ### Shutdown
-曾出现 Framework 已关闭而 ConsumerScope 继续访问 HtmlUiService 的 ERROR。当前已有防御式 Dispose。
+曾出现 Framework 已关闭而 ConsumerScope 继续访问 HtmlUIService 的 ERROR。当前已有防御式 Dispose。
