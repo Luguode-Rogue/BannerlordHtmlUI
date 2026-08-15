@@ -32,6 +32,7 @@ namespace BannerlordHtmlUI
             {
                 HtmlUiI18nBindingPatch.Install(HtmlUiService.Host);
                 HtmlUiStateBootstrapPatch.Install(HtmlUiService.Host);
+                HtmlUiBindingSchedulerPatch.Install(HtmlUiService.Host);
                 HtmlUiService.NotifyGameContext("application", true);
                 if (!HtmlUiService.Pages.Contains("framework"))
                     HtmlUiService.Pages.Register(new HtmlUiPage("framework", "index.html") { HotReload = true });
