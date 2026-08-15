@@ -10,6 +10,8 @@ namespace BannerlordHtmlUI
     internal sealed class HtmlUiBridge
     {
         private const int ProtocolVersion = 1;
+        private const long PreCanceledRequestTtlMs = 30_000L;
+        private const int MaxPreCanceledRequests = 2048;
         private static WeakReference<HtmlUiBridge> _current;
         private readonly HtmlUiHost _host;
         private readonly ConcurrentDictionary<string, RequestEntry> _requests =
@@ -18,8 +20,10 @@ namespace BannerlordHtmlUI
             new ConcurrentDictionary<string, CommandEntry>(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, CancellationTokenSource> _requestCancellation =
             new ConcurrentDictionary<string, CancellationTokenSource>(StringComparer.OrdinalIgnoreCase);
-        private readonly ConcurrentDictionary<string, byte> _preCanceledRequests =
-            new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, long> _preCanceledRequests =
+            new ConcurrentDictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, string> _activeRequestOwners =
+            new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         private sealed class RequestEntry
         {
@@ -90,6 +94,7 @@ namespace BannerlordHtmlUI
             if (string.IsNullOrWhiteSpace(name)) return false;
             if (!_requests.TryGetValue(name, out var existing)) return false;
             if (!string.Equals(existing.OwnerId, NormalizeOwner(ownerId), StringComparison.OrdinalIgnoreCase)) return false;
+            CancelRequestsByOwner(existing.OwnerId);
             return ((ICollection<KeyValuePair<string, RequestEntry>>)_requests).Remove(
                 new KeyValuePair<string, RequestEntry>(name, existing));
         }
@@ -97,6 +102,8 @@ namespace BannerlordHtmlUI
         public bool CancelRequest(string id)
         {
             if (string.IsNullOrWhiteSpace(id)) return false;
+            CleanupPreCanceledRequests();
+
             if (_requestCancellation.TryGetValue(id, out var cancellation))
             {
                 try
@@ -110,8 +117,27 @@ namespace BannerlordHtmlUI
                 }
             }
 
-            _preCanceledRequests[id] = 0;
+            if (_preCanceledRequests.Count >= MaxPreCanceledRequests)
+                CleanupPreCanceledRequests(forceTrim: true);
+
+            _preCanceledRequests[id] = Environment.TickCount64;
             return true;
+        }
+
+        public void CancelRequestsByOwner(string ownerId)
+        {
+            var normalizedOwner = NormalizeOwner(ownerId);
+            if (string.IsNullOrWhiteSpace(normalizedOwner)) return;
+
+            foreach (var pair in _activeRequestOwners)
+            {
+                if (!string.Equals(pair.Value, normalizedOwner, StringComparison.OrdinalIgnoreCase)) continue;
+                if (_requestCancellation.TryGetValue(pair.Key, out var cancellation))
+                {
+                    try { cancellation.Cancel(); }
+                    catch (ObjectDisposedException) { }
+                }
+            }
         }
 
         public void CancelAllRequests()
@@ -122,6 +148,7 @@ namespace BannerlordHtmlUI
                 catch (ObjectDisposedException) { }
             }
 
+            _activeRequestOwners.Clear();
             _preCanceledRequests.Clear();
         }
 
@@ -146,6 +173,9 @@ namespace BannerlordHtmlUI
             var normalizedOwner = NormalizeOwner(ownerId);
             var count = 0;
 
+            // Cancel before unregistering so already-running handlers receive the owner lifecycle signal.
+            CancelRequestsByOwner(normalizedOwner);
+
             foreach (var pair in _commands)
             {
                 if (!string.Equals(pair.Value.OwnerId, normalizedOwner, StringComparison.OrdinalIgnoreCase)) continue;
@@ -158,6 +188,8 @@ namespace BannerlordHtmlUI
                 if (((ICollection<KeyValuePair<string, RequestEntry>>)_requests).Remove(pair)) count++;
             }
 
+            // A request can cross the cancellation/removal window; cancel again after removal to close that race.
+            CancelRequestsByOwner(normalizedOwner);
             return count;
         }
 
@@ -231,6 +263,16 @@ namespace BannerlordHtmlUI
             catch (Exception ex)
             {
                 HtmlUiLogger.Debug("Bridge response send failed: " + context + " | " + ex.GetBaseException().Message);
+            }
+        }
+
+        private void CleanupPreCanceledRequests(bool forceTrim = false)
+        {
+            var now = Environment.TickCount64;
+            foreach (var pair in _preCanceledRequests)
+            {
+                if (forceTrim || now - pair.Value >= PreCanceledRequestTtlMs)
+                    _preCanceledRequests.TryRemove(pair.Key, out _);
             }
         }
 
@@ -341,6 +383,7 @@ namespace BannerlordHtmlUI
                         using (var cancellation = new CancellationTokenSource())
                         {
                             _requestCancellation[id] = cancellation;
+                            _activeRequestOwners[id] = requestEntry.OwnerId;
                             if (_preCanceledRequests.TryRemove(id, out _))
                                 cancellation.Cancel();
 
@@ -391,6 +434,7 @@ namespace BannerlordHtmlUI
                             finally
                             {
                                 _requestCancellation.TryRemove(id, out _);
+                                _activeRequestOwners.TryRemove(id, out _);
                                 _preCanceledRequests.TryRemove(id, out _);
                             }
                         }
