@@ -26,6 +26,47 @@ Request registrations are owner-scoped. If a request is unregistered before its 
 
 This prevents a disposed Consumer Scope from receiving stale work and prevents an old asynchronous handler from replying to a newer registration.
 
+### Cancellable Request
+
+Consumers that need actual cancellation may use the cancellable API:
+
+```javascript
+const controller = new AbortController();
+const result = await game.requestCancellable(
+  'getExample',
+  {},
+  10000,
+  controller.signal
+);
+
+controller.abort();
+```
+
+The cancellation is protocol-level, not merely a local Promise rejection. The browser sends a `cancel` message using the original request id. The C# bridge maps that id to a `CancellationTokenSource` when execution begins and also keeps a short-lived pre-cancel marker for cancellations that arrive before the game-thread callback starts.
+
+C# consumers may register a cancellable handler:
+
+```csharp
+RegisterRequest(
+    "getExample",
+    async (payload, cancellationToken) =>
+    {
+        await DoWorkAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return result;
+    });
+```
+
+Cancellation may occur before handler execution, during handler execution, during page unload, or during framework shutdown. A cancelled request must not emit a successful late response.
+
+`ActiveRequestCount` is the number of request executions currently holding a `CancellationTokenSource`. Calling `Cancel()` is not itself the terminal state; the active count returns to baseline only after the handler reaches its cleanup path and the bridge removes the request from the active cancellation registry.
+
+### Request execution thread
+
+The bridge queues the initial Request handler invocation onto the Bannerlord game thread. After an `await`, normal C# synchronization semantics apply; a continuation is not guaranteed to resume on the Bannerlord game thread. Consumer code that requires game-thread affinity must explicitly marshal back to the game thread before touching game-thread-only APIs.
+
+Response delivery is separately marshalled to the WebView2 UI thread by `HtmlUiHost.SendResponseAsync()`, so an async Request continuation must not access `CoreWebView2` directly.
+
 ## Event
 
 C# → JS.
@@ -63,7 +104,10 @@ Page navigation, Reload, ConsumerScope disposal, and Framework shutdown may inva
 - A stale Request callback receives an explicit bridge error instead of waiting for the JS timeout.
 - An asynchronous Request result that becomes stale after unregistration is not delivered to a later registration with the same name.
 - Consumers that need work to survive page replacement should own that work in C# or another longer-lived application scope rather than relying on a page-local JS Promise.
+- Pagehide and Framework shutdown cancel cancellable Requests, but cancellation completion is considered finished only after the handler exits and the bridge removes the active request entry.
 
 ## Error and timeout contract
 
 Bridge errors are returned as error strings on the corresponding Response. JS `game.request(name, payload, timeoutMs)` still applies its client-side timeout for requests that remain valid but do not complete; explicit bridge invalidation errors are preferred when the framework already knows that a request cannot complete because its registration was removed.
+
+The Runtime error model additionally exposes a stable machine-readable `error.code` for known bridge failures while preserving the existing human-readable `error.message` for compatibility.
