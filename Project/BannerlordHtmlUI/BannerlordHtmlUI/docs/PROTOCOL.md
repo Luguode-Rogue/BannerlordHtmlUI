@@ -2,19 +2,19 @@
 
 ## Command
 
-Fire-and-forget JS → C#.
+JS → C# command handler。应用层 handler 本身不返回异步结果，但 `game.call()` 仍会得到一次成功/错误 Response，因此可以用于需要确认“已接收/执行”的普通 UI 操作。
 
 ```javascript
 await game.call('exampleCommand', { value: 10 });
 ```
 
-Normal `game.call()` requests receive a success/error response through the bridge runtime even though the application-level command handler itself is fire-and-forget. Runtime diagnostics (`runtime.error`) are the exception and do not require a request id.
+框架内部的 `runtime.error` 诊断消息为特殊 fire-and-forget Command，不需要 request id，也不要求 Response。
 
-Command registrations are owner-scoped. If a command is unregistered before its queued game-thread callback executes, that stale callback is discarded. A callback that runs after unregistration must not produce a response or invoke a replacement registration with the same name.
+Command registrations are owner-scoped. If a command is unregistered before its queued game-thread callback executes, that stale callback is discarded. A callback that runs after unregistration must not produce a success response or invoke a replacement registration with the same name.
 
 ## Request
 
-Request/response JS ⇄ C#.
+Request/response JS ⇄ C#。
 
 ```javascript
 const result = await game.request('getExample', {});
@@ -54,3 +54,16 @@ Unhandled window errors and unhandled promise rejections are forwarded as `runti
 The current protocol version is `1`. Messages with another version are rejected and, when they contain a request id, receive an error response. Unknown message types are also rejected instead of being silently ignored.
 
 Unknown Command / Request names are returned as bridge errors. Duplicate Command / Request registrations are rejected on the C# side so one Consumer cannot silently replace another registration.
+
+## Lifecycle / stale work
+
+Page navigation, Reload, ConsumerScope disposal, and Framework shutdown may invalidate in-flight application work.
+
+- A stale Command callback must not invoke a replacement registration with the same name.
+- A stale Request callback receives an explicit bridge error instead of waiting for the JS timeout.
+- An asynchronous Request result that becomes stale after unregistration is not delivered to a later registration with the same name.
+- Consumers that need work to survive page replacement should own that work in C# or another longer-lived application scope rather than relying on a page-local JS Promise.
+
+## Error and timeout contract
+
+Bridge errors are returned as error strings on the corresponding Response. JS `game.request(name, payload, timeoutMs)` still applies its client-side timeout for requests that remain valid but do not complete; explicit bridge invalidation errors are preferred when the framework already knows that a request cannot complete because its registration was removed.
