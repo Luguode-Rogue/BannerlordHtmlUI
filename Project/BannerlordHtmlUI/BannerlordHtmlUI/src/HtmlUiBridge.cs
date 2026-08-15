@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Threading;
 using Newtonsoft.Json.Linq;
 using System.Threading.Tasks;
 using Microsoft.Web.WebView2.Core;
@@ -15,11 +16,14 @@ namespace BannerlordHtmlUI
             new ConcurrentDictionary<string, RequestEntry>(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, CommandEntry> _commands =
             new ConcurrentDictionary<string, CommandEntry>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, CancellationTokenSource> _requestCancellation =
+            new ConcurrentDictionary<string, CancellationTokenSource>(StringComparer.OrdinalIgnoreCase);
 
         private sealed class RequestEntry
         {
             public string OwnerId;
             public Func<JToken, Task<object>> Handler;
+            public Func<JToken, CancellationToken, Task<object>> CancellableHandler;
         }
 
         private sealed class CommandEntry
@@ -49,7 +53,12 @@ namespace BannerlordHtmlUI
 
         public void RegisterRequest(string name, Func<JToken, Task<object>> handler)
         {
-            RegisterRequestCore(name, handler, "framework");
+            RegisterRequestCore(name, handler, null, "framework");
+        }
+
+        public void RegisterRequest(string name, Func<JToken, CancellationToken, Task<object>> handler)
+        {
+            RegisterRequestCore(name, null, handler, "framework");
         }
 
         public bool CommandExists(string name) => _commands.ContainsKey(name);
@@ -82,6 +91,21 @@ namespace BannerlordHtmlUI
                 new KeyValuePair<string, RequestEntry>(name, existing));
         }
 
+        public bool CancelRequest(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id)) return false;
+            if (!_requestCancellation.TryGetValue(id, out var cancellation)) return false;
+            try
+            {
+                cancellation.Cancel();
+                return true;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
+        }
+
         public void RegisterCommand(string name, Action<JToken> handler, string ownerId)
         {
             RegisterCommandCore(name, handler, ownerId);
@@ -89,7 +113,12 @@ namespace BannerlordHtmlUI
 
         public void RegisterRequest(string name, Func<JToken, Task<object>> handler, string ownerId)
         {
-            RegisterRequestCore(name, handler, ownerId);
+            RegisterRequestCore(name, handler, null, ownerId);
+        }
+
+        public void RegisterRequest(string name, Func<JToken, CancellationToken, Task<object>> handler, string ownerId)
+        {
+            RegisterRequestCore(name, null, handler, ownerId);
         }
 
         public int UnregisterByOwner(string ownerId)
@@ -138,13 +167,23 @@ namespace BannerlordHtmlUI
             throw new InvalidOperationException("Command registration race: " + name);
         }
 
-        private void RegisterRequestCore(string name, Func<JToken, Task<object>> handler, string ownerId)
+        private void RegisterRequestCore(
+            string name,
+            Func<JToken, Task<object>> handler,
+            Func<JToken, CancellationToken, Task<object>> cancellableHandler,
+            string ownerId)
         {
             if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Request name is required.", nameof(name));
-            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            if (handler == null && cancellableHandler == null) throw new ArgumentNullException(nameof(handler));
             ownerId = NormalizeOwner(ownerId);
 
-            var entry = new RequestEntry { OwnerId = ownerId, Handler = handler };
+            var entry = new RequestEntry
+            {
+                OwnerId = ownerId,
+                Handler = handler,
+                CancellableHandler = cancellableHandler
+            };
+
             if (_requests.TryAdd(name, entry)) return;
 
             if (_requests.TryGetValue(name, out var existing))
@@ -198,6 +237,19 @@ namespace BannerlordHtmlUI
                 var type = root["type"]?.Value<string>() ?? string.Empty;
                 var name = root["name"]?.Value<string>() ?? string.Empty;
                 var payload = root["payload"] ?? JValue.CreateNull();
+
+                if (type == "cancel")
+                {
+                    if (string.IsNullOrWhiteSpace(id))
+                    {
+                        HtmlUiLogger.Debug("Bridge cancel missing id.");
+                        return;
+                    }
+
+                    if (!CancelRequest(id))
+                        HtmlUiLogger.Debug("Cancel request ignored; no active request: " + id);
+                    return;
+                }
 
                 if (type == "command")
                 {
@@ -267,24 +319,53 @@ namespace BannerlordHtmlUI
                             return;
                         }
 
-                        try
+                        using (var cancellation = new CancellationTokenSource())
                         {
-                            var result = await requestEntry.Handler(payload).ConfigureAwait(false);
-                            if (!IsCurrentRequest(name, requestEntry))
+                            _requestCancellation[id] = cancellation;
+                            try
                             {
-                                HtmlUiLogger.Debug("Dropped response from unregistered request: " + name);
-                                await SendResponseSafelyAsync(id, null, "Request was unregistered while executing: " + name, "request unregistered").ConfigureAwait(false);
-                                return;
+                                object result;
+                                if (requestEntry.CancellableHandler != null)
+                                    result = await requestEntry.CancellableHandler(payload, cancellation.Token).ConfigureAwait(false);
+                                else
+                                    result = await requestEntry.Handler(payload).ConfigureAwait(false);
+
+                                if (cancellation.IsCancellationRequested)
+                                {
+                                    HtmlUiLogger.Debug("Suppressed canceled request response: " + name);
+                                    return;
+                                }
+
+                                if (!IsCurrentRequest(name, requestEntry))
+                                {
+                                    HtmlUiLogger.Debug("Dropped response from unregistered request: " + name);
+                                    await SendResponseSafelyAsync(id, null, "Request was unregistered while executing: " + name, "request unregistered").ConfigureAwait(false);
+                                    return;
+                                }
+
+                                await SendResponseSafelyAsync(id, result, null, "request success: " + name).ConfigureAwait(false);
                             }
-                            await SendResponseSafelyAsync(id, result, null, "request success: " + name).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            HtmlUiLogger.Error("Request failed: " + name, ex);
-                            if (IsCurrentRequest(name, requestEntry))
-                                await SendResponseSafelyAsync(id, null, ex.GetBaseException().Message, "request failure: " + name).ConfigureAwait(false);
-                            else
-                                await SendResponseSafelyAsync(id, null, ex.GetBaseException().Message, "stale request failure: " + name).ConfigureAwait(false);
+                            catch (OperationCanceledException)
+                            {
+                                HtmlUiLogger.Debug("Request canceled: " + name);
+                                if (!cancellation.IsCancellationRequested && IsCurrentRequest(name, requestEntry))
+                                    await SendResponseSafelyAsync(id, null, "Request canceled: " + name, "request canceled").ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                HtmlUiLogger.Error("Request failed: " + name, ex);
+                                if (cancellation.IsCancellationRequested)
+                                    return;
+
+                                if (IsCurrentRequest(name, requestEntry))
+                                    await SendResponseSafelyAsync(id, null, ex.GetBaseException().Message, "request failure: " + name).ConfigureAwait(false);
+                                else
+                                    await SendResponseSafelyAsync(id, null, ex.GetBaseException().Message, "stale request failure: " + name).ConfigureAwait(false);
+                            }
+                            finally
+                            {
+                                _requestCancellation.TryRemove(id, out _);
+                            }
                         }
                     });
                     return;
