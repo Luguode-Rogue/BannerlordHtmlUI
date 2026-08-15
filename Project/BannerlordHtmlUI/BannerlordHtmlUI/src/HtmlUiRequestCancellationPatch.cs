@@ -56,6 +56,7 @@ namespace BannerlordHtmlUI
         };
 
         const cleanup = () => {
+          if (settled) return;
           settled = true;
           activeCancels.delete(sendCancel);
           if (timeoutHandle) clearTimeout(timeoutHandle);
@@ -77,34 +78,28 @@ namespace BannerlordHtmlUI
           webview.postMessage = originalPostMessage;
         }
 
-        activeCancels.add(sendCancel);
-
-        if (signal) {
+        const result = new Promise((resolve, reject) => {
           abortHandler = () => {
             if (settled) return;
             sendCancel();
+            reject(makeAbortError('Request aborted: ' + name, name));
           };
-          signal.addEventListener('abort', abortHandler, { once: true });
-        }
+
+          requestPromise.then(resolve, reject).finally(cleanup);
+
+          if (signal) {
+            signal.addEventListener('abort', abortHandler, { once: true });
+          }
+        });
+
+        activeCancels.add(sendCancel);
 
         const safeTimeout = Math.max(1, Number(timeoutMs) || 10000);
         timeoutHandle = setTimeout(() => {
           if (!settled) sendCancel();
         }, Math.max(0, safeTimeout - 25));
 
-        return new Promise((resolve, reject) => {
-          requestPromise.then(resolve, reject).finally(cleanup);
-          if (signal) {
-            const rejectAbort = () => {
-              if (settled) return;
-              sendCancel();
-              reject(makeAbortError('Request aborted: ' + name, name));
-            };
-            abortHandler = rejectAbort;
-            signal.removeEventListener('abort', abortHandler);
-            signal.addEventListener('abort', abortHandler, { once: true });
-          }
-        });
+        return result;
       };
     };
 
