@@ -35,6 +35,7 @@ namespace BannerlordHtmlUI
                 HtmlUiStateRemovalPatch.Install(HtmlUiService.Host);
                 HtmlUiWindowTrackingPatch.Install(HtmlUiService.Host);
                 HtmlUiProcessRecovery.Install(HtmlUiService.Host);
+                HtmlUiContextMenuPatch.Install(HtmlUiService.Host);
 
                 if (!HtmlUiCommands.CommandExists("runtime.error"))
                 {
@@ -98,6 +99,7 @@ namespace BannerlordHtmlUI
             try { HtmlUiHotReloadPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("HotReload patch uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiWindowTrackingPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Window tracking patch uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiProcessRecovery.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("WebView2 process recovery uninstall failed: " + ex.GetBaseException().Message); }
+            try { HtmlUiContextMenuPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Context menu patch uninstall failed: " + ex.GetBaseException().Message); }
             HtmlUiService.Dispose();
             base.OnSubModuleUnloaded();
         }
