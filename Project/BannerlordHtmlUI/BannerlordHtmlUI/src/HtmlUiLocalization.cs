@@ -12,12 +12,54 @@ namespace BannerlordHtmlUI
         private static readonly HashSet<string> MissingWarningKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private static string _lastLanguage;
 
+        // This is the user-facing language title returned by Bannerlord's active-language property.
+        // Keep it for diagnostics/UI state. LocalizationManager.GetTranslatedText requires the language ID.
         public static string CurrentLanguage
         {
             get
             {
                 try { return MBTextManager.ActiveTextLanguage ?? LocalizedTextManager.DefaultEnglishLanguageId; }
                 catch { return LocalizedTextManager.DefaultEnglishLanguageId; }
+            }
+        }
+
+        // Resolve Bannerlord's active language to the language ID expected by LocalizedTextManager.
+        // ActiveTextLanguage can be a display title such as "简体中文", while GetTranslatedText expects
+        // an ID such as "Chinese". Match both the ID and title so this remains compatible across versions.
+        private static string CurrentLanguageId
+        {
+            get
+            {
+                var active = CurrentLanguage;
+                if (string.IsNullOrWhiteSpace(active))
+                    return LocalizedTextManager.DefaultEnglishLanguageId;
+
+                try
+                {
+                    var ids = LocalizedTextManager.GetLanguageIds(false);
+                    if (ids != null)
+                    {
+                        foreach (var id in ids)
+                        {
+                            if (string.IsNullOrWhiteSpace(id)) continue;
+                            if (string.Equals(id, active, StringComparison.OrdinalIgnoreCase))
+                                return id;
+
+                            string title = null;
+                            try { title = LocalizedTextManager.GetLanguageTitle(id); }
+                            catch { }
+                            if (!string.IsNullOrWhiteSpace(title) &&
+                                string.Equals(title, active, StringComparison.OrdinalIgnoreCase))
+                                return id;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    HtmlUiLogger.Debug("Failed to resolve active localization language ID: " + ex.GetBaseException().Message);
+                }
+
+                return active;
             }
         }
 
@@ -43,19 +85,22 @@ namespace BannerlordHtmlUI
         {
             if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("Localization key is required.", nameof(key));
 
-            var active = CurrentLanguage;
-            var text = Lookup(active, key);
-            var resolvedLanguage = active;
+            var activeLanguage = CurrentLanguage;
+            var activeLanguageId = CurrentLanguageId;
+            var text = Lookup(activeLanguageId, key);
+            var resolvedLanguage = activeLanguageId;
             var found = !IsMissing(text);
 
-            if (!found && !string.IsNullOrWhiteSpace(fallbackLanguage) && !string.Equals(fallbackLanguage, active, StringComparison.OrdinalIgnoreCase))
+            if (!found && !string.IsNullOrWhiteSpace(fallbackLanguage) &&
+                !string.Equals(fallbackLanguage, activeLanguageId, StringComparison.OrdinalIgnoreCase))
             {
-                text = Lookup(fallbackLanguage, key);
-                resolvedLanguage = fallbackLanguage;
+                var fallbackId = ResolveLanguageId(fallbackLanguage);
+                text = Lookup(fallbackId, key);
+                resolvedLanguage = fallbackId;
                 found = !IsMissing(text);
             }
 
-            if (!found && !string.Equals(active, LocalizedTextManager.DefaultEnglishLanguageId, StringComparison.OrdinalIgnoreCase))
+            if (!found && !string.Equals(activeLanguageId, LocalizedTextManager.DefaultEnglishLanguageId, StringComparison.OrdinalIgnoreCase))
             {
                 text = Lookup(LocalizedTextManager.DefaultEnglishLanguageId, key);
                 resolvedLanguage = LocalizedTextManager.DefaultEnglishLanguageId;
@@ -66,7 +111,7 @@ namespace BannerlordHtmlUI
             text = ApplyVariables(text, variables);
 
             if (!found)
-                WarnMissingOnce(active, key);
+                WarnMissingOnce(activeLanguage, key);
 
             return new
             {
@@ -74,7 +119,7 @@ namespace BannerlordHtmlUI
                 text,
                 found,
                 language = resolvedLanguage,
-                requestedLanguage = active
+                requestedLanguage = activeLanguage
             };
         }
 
@@ -127,12 +172,45 @@ namespace BannerlordHtmlUI
 
         public static string FormatDate(DateTime value)
         {
-            return LocalizedTextManager.GetDateFormattedByLanguage(CurrentLanguage, value);
+            return LocalizedTextManager.GetDateFormattedByLanguage(CurrentLanguageId, value);
         }
 
         public static string FormatTime(DateTime value)
         {
-            return LocalizedTextManager.GetTimeFormattedByLanguage(CurrentLanguage, value);
+            return LocalizedTextManager.GetTimeFormattedByLanguage(CurrentLanguageId, value);
+        }
+
+        private static string ResolveLanguageId(string language)
+        {
+            if (string.IsNullOrWhiteSpace(language))
+                return LocalizedTextManager.DefaultEnglishLanguageId;
+
+            try
+            {
+                var ids = LocalizedTextManager.GetLanguageIds(false);
+                if (ids != null)
+                {
+                    foreach (var id in ids)
+                    {
+                        if (string.IsNullOrWhiteSpace(id)) continue;
+                        if (string.Equals(id, language, StringComparison.OrdinalIgnoreCase))
+                            return id;
+
+                        string title = null;
+                        try { title = LocalizedTextManager.GetLanguageTitle(id); }
+                        catch { }
+                        if (!string.IsNullOrWhiteSpace(title) &&
+                            string.Equals(title, language, StringComparison.OrdinalIgnoreCase))
+                            return id;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Debug("Failed to resolve localization language ID: " + language + " | " + ex.GetBaseException().Message);
+            }
+
+            return language;
         }
 
         private static string Lookup(string language, string key)
