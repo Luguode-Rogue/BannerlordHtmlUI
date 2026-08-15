@@ -9,6 +9,7 @@ namespace BannerlordHtmlUI
     internal sealed class HtmlUiBridge
     {
         private const int ProtocolVersion = 1;
+        private static WeakReference<HtmlUiBridge> _current;
         private readonly HtmlUiHost _host;
         private readonly ConcurrentDictionary<string, RequestEntry> _requests =
             new ConcurrentDictionary<string, RequestEntry>(StringComparer.OrdinalIgnoreCase);
@@ -27,7 +28,21 @@ namespace BannerlordHtmlUI
             public Action<JToken> Handler;
         }
 
-        public HtmlUiBridge(HtmlUiHost host) => _host = host;
+        public HtmlUiBridge(HtmlUiHost host)
+        {
+            _host = host;
+            _current = new WeakReference<HtmlUiBridge>(this);
+        }
+
+        internal static HtmlUiBridge Current
+        {
+            get
+            {
+                var weak = _current;
+                if (weak == null) return null;
+                return weak.TryGetTarget(out var bridge) ? bridge : null;
+            }
+        }
 
         public int CommandCount => _commands.Count;
         public int RequestCount => _requests.Count;
