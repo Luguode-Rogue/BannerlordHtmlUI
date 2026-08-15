@@ -175,7 +175,59 @@ Framework shutdown 时主动：
 - 删除通知仍能让 Binding / listener 正确更新
 - 后续重新 set 可以恢复
 
-## 6. 当前已知剩余结构性问题
+## 6. Request 生命周期硬化
+
+### Owner Dispose -> cancellable requests
+
+**代码已完成，待实机回归。**
+
+`HtmlUiConsumerScope.Dispose()` 当前顺序为：
+
+1. 关闭 Owner 当前页面。
+2. `HtmlUiBridge.CancelRequestsByOwner(OwnerId)` 主动取消正在运行的 cancellable request。
+3. Unregister Owner Pages / Commands / Requests。
+4. Request unregister 内部再次执行 targeted cancellation，覆盖取消扫描与 unregister 之间的竞态窗口。
+5. 清理 Owner State / ContentRoot。
+
+因此 Owner Dispose 不再只是删除注册表，而是主动进入 request cancellation 生命周期。
+
+验收：
+
+- Consumer 创建 cancellable request 并阻塞。
+- Dispose ConsumerScope。
+- handler 收到 `CancellationToken.IsCancellationRequested` / `OperationCanceledException`。
+- 浏览器端 Promise 不应等待到超时。
+- `HtmlUiBridge.ActiveRequestCount` 最终回到 0。
+- 再次注册同名 Request 后不受旧 request 状态影响。
+
+### preCanceledRequests 生命周期
+
+**代码已有 bounded cleanup，待长时间回归。**
+
+当前实现：
+
+- TTL：30 秒。
+- 上限：2048 项。
+- Cancel 新请求前执行 TTL cleanup。
+- 达到上限时执行 force trim。
+- 请求最终完成时主动移除对应 pre-cancel 标记。
+
+因此目前不存在无限增长路径；剩余工作是 StressLab 验证高频 cancel / request churn 后集合不会异常膨胀。
+
+### requestCancellable requestId 竞态
+
+**旧方案已移除。当前实现采用独立请求 ID，不再临时替换 `chrome.webview.postMessage`。**
+
+`HtmlUiRequestCancellationPatch` 为 cancellable request 独立生成 `c<timestamp>_<counter>` ID，并先登记本地 pending，再直接发送标准 `request` 消息；响应通过独立的 `__receive` 包装分流。
+
+当前剩余工作是实机验证：
+
+- 高并发 requestCancellable 不串 ID。
+- Abort / timeout / response 三者不会重复 settle。
+- 普通 `game.request()` 不受影响。
+- Page unload 后不会残留 cancellable pending。
+
+## 7. 当前已知剩余结构性问题
 
 ### P0/P1 优先
 
@@ -197,17 +249,11 @@ Framework shutdown 时主动：
      - 多 Page 不丢失
      - 恢复失败才进入安全关闭
 
-4. **Owner Dispose -> Cancel owned requests**
-   - Consumer Scope Dispose 当前会注销 Request，但需要主动取消正在运行的 cancellable handler。
+4. **Request lifecycle StressLab 回归**
+   - Owner Dispose / pre-cancel / requestCancellable 代码已经收口。
+   - 需要长时间、高并发场景实测。
 
-5. **preCanceledRequests 生命周期**
-   - 需要避免长期残留。
-   - 应采用有限生命周期/可验证清理策略。
-
-6. **requestCancellable requestId 捕获竞态**
-   - 当前临时替换 `postMessage` 捕获 requestId 的方式存在竞态窗口，需要继续审查并改成可靠的协议级机制。
-
-7. **HotReload / Page lifecycle**
+5. **HotReload / Page lifecycle**
    - 需要继续审查跨导航、reload、unregister、consumer dispose 的生命周期一致性。
 
 ### P2
@@ -217,7 +263,7 @@ Framework shutdown 时主动：
 - Framework SubModule 中仍有部分 diagnostics/testing hook，可在稳定性收口后整理。
 - WebView2 ProcessFailed 后的恢复需要确保 Runtime、Bridge、Patch、Page 状态全部一致。
 
-## 7. 当前测试基线
+## 8. 当前测试基线
 
 Consumer TestMod：
 
@@ -242,7 +288,7 @@ Consumer TestMod：
 
 注意：日志中 `i18n DOM audit` 的 item text 曾全部为空，这是过去 UI 异常期间的重要信号；后续 i18n 回归测试不能只看 NavigationCompleted。
 
-## 8. 最近一次异常的关键日志结论
+## 9. 最近一次异常的关键日志结论
 
 最近一次日志显示：
 
@@ -264,7 +310,7 @@ Consumer TestMod：
 - WebView2 focus / foreground
 - Page navigation 后 runtime state 是否完整
 
-## 9. 当前开发顺序
+## 10. 当前开发顺序
 
 严格按以下顺序：
 
@@ -272,16 +318,16 @@ Consumer TestMod：
 2. ~~实现 WebView2 ProcessFailed Recovery~~ **代码完成，待真实 ProcessFailed 回归**。
 3. ~~修复 `HtmlUiHost.cs` 历史截断导致的级联编译错误~~ **代码完成，待本机编译**。
 4. **Framework 编译 → Consumer TestMod 编译 → 完整回归单页面 + 多页面 + ESC + 焦点 + i18n + HWND=0 + ProcessFailed Recovery。**
-5. Owner Dispose -> Request cancellation。
-6. 清理 preCanceledRequests 生命周期。
-7. 修正 requestCancellable requestId 捕获竞态。
-8. HotReload / Page lifecycle 全面回归。
-9. StressLab 长时间测试。
-10. Binding / i18n / Runtime 协议最终审查。
-11. 恢复全功能开发。
-12. v0.44 release checklist / 文档 / 发布收口。
+5. ~~Owner Dispose -> Request cancellation~~ **代码完成，待实机/StressLab 回归**。
+6. ~~收口 preCanceledRequests 生命周期~~ **代码完成，待 StressLab 回归**。
+7. ~~修正 requestCancellable requestId 捕获竞态~~ **旧方案已移除，当前实现待实机回归**。
+8. **HotReload / Page lifecycle 全面回归。**
+9. **StressLab 长时间测试。**
+10. **Binding / i18n / Runtime 协议最终审查。**
+11. **恢复全功能开发。**
+12. **v0.44 release checklist / 文档 / 发布收口。**
 
-## 10. 开发原则
+## 11. 开发原则
 
 - 不要因为测试失败就删除功能或回退到简化版本。
 - 不要用“二分”代替代码定位；二分已经完成了它的定位任务。
@@ -292,23 +338,22 @@ Consumer TestMod：
 - 每次修复应有明确的代码原因、最小修改范围和提交说明。
 - Framework 修改后按约定先重新编译 Framework，再编译 Consumer TestMod。
 - 不要为了日志好看而制造假状态；所有 Ready/Visible/Input 状态必须与实际 WebView2 状态一致。
-- `HtmlUiHost.cs` 属于回归敏感核心文件；涉及单行功能修改时优先使用独立 Patch，避免再次发生大文件误删。
+- `HtmlUiHost.cs` 属于回归敏感核心文件；涉及单行功能修改时优先使用独立 Patch，避免再次发生历史级联破坏。
 
-## 11. 下一步交接点
+## 12. 下一步交接点
 
-**当前真正的下一步是本机编译，而不是继续架构改造：**
+**当前真正的下一步是本机编译与实机稳定性回归，而不是继续无谓重构：**
 
 - Framework 编译
 - Consumer TestMod 编译
-- F11 打开
-- ESC 关闭
+- F11 打开/ESC 关闭
 - 连续打开/关闭
 - 多 Page 切换
 - i18n 文本与按钮点击
 - 失焦/恢复焦点
 - Bannerlord 主窗口短暂不可解析
-- WebView2 ProcessFailed Recovery（专门测试路径）
+- WebView2 ProcessFailed Recovery
 - Recovery 后再次打开/关闭
-- StressLab
-
-只有这些通过，才继续 Request 生命周期和剩余功能开发。
+- Owner Dispose + cancellable request
+- requestCancellable 高并发 / Abort / timeout
+- StressLab 长时间运行
