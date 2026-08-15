@@ -213,12 +213,14 @@ namespace BannerlordHtmlUI
                             commandEntry.Handler(payload);
                             if (!string.IsNullOrWhiteSpace(id) && IsCurrentCommand(name, commandEntry))
                                 _ = SendResponseSafelyAsync(id, true, null, "command success: " + name);
+                            else if (!string.IsNullOrWhiteSpace(id))
+                                _ = SendResponseSafelyAsync(id, null, "Command was unregistered while executing: " + name, "command unregistered");
                         }
                         catch (Exception ex)
                         {
                             HtmlUiLogger.Error("Command failed: " + name, ex);
-                            if (!string.IsNullOrWhiteSpace(id) && IsCurrentCommand(name, commandEntry))
-                                _ = SendResponseSafelyAsync(id, null, ex.GetBaseException().Message, "command failure: " + name);
+                            if (!string.IsNullOrWhiteSpace(id))
+                                _ = SendResponseSafelyAsync(id, null, ex.GetBaseException().Message, IsCurrentCommand(name, commandEntry) ? "command failure: " + name : "stale command failure: " + name);
                         }
                     });
                     return;
@@ -263,6 +265,8 @@ namespace BannerlordHtmlUI
                             HtmlUiLogger.Error("Request failed: " + name, ex);
                             if (IsCurrentRequest(name, requestEntry))
                                 await SendResponseSafelyAsync(id, null, ex.GetBaseException().Message, "request failure: " + name).ConfigureAwait(false);
+                            else
+                                await SendResponseSafelyAsync(id, null, ex.GetBaseException().Message, "stale request failure: " + name).ConfigureAwait(false);
                         }
                     });
                     return;
