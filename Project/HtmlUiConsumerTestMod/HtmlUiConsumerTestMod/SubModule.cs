@@ -13,8 +13,10 @@ namespace HtmlUiConsumerTestMod
     {
         private const string OwnerId = "HtmlUiConsumerTestMod";
         private const string PageName = "consumer.test";
+        private const string StressPageName = "consumer.stress";
         private HtmlUiConsumerScope _scope;
         private string _pageId;
+        private string _stressPageId;
         private bool _registered;
         private string _logPath;
         private int _counter;
@@ -30,7 +32,7 @@ namespace HtmlUiConsumerTestMod
                 _logPath = Path.Combine(moduleDirectory ?? ".", "HtmlUiConsumerTestMod.log");
                 Log("=== HtmlUiConsumerTestMod loaded ===");
                 Log("Assembly=" + typeof(SubModule).Assembly.Location);
-                Log("F11/F12 test hooks are active.");
+                Log("F11/F12/F8/F7 test hooks are active.");
                 HtmlUiService.OnReady(RegisterUi);
                 Log("Registered HtmlUiService.OnReady callback.");
             }
@@ -63,6 +65,15 @@ namespace HtmlUiConsumerTestMod
                         DefaultInputMode = HtmlUiInputMode.Captured
                     });
                 Log("Page registered: " + _pageId);
+
+                _stressPageId = _scope.RegisterPage(
+                    new HtmlUiPage(StressPageName, "StressLab/index.html")
+                    {
+                        ContentRootId = rootId,
+                        HotReload = true,
+                        DefaultInputMode = HtmlUiInputMode.Captured
+                    });
+                Log("Stress page registered: " + _stressPageId);
 
                 _scope.RegisterCommand("increment", _ =>
                 {
@@ -157,7 +168,7 @@ namespace HtmlUiConsumerTestMod
                 _scope.SetState("loaded", true);
                 _registered = true;
                 Log("Consumer UI registration completed successfully.");
-                Log("M5 bridge diagnostics registered: getDataDelayed, getDataCancellable, emitTestEvent, throwCommand, throwRequest, removeNameState.");
+                Log("M5/M6 diagnostics registered: getDataDelayed, getDataCancellable, emitTestEvent, throwCommand, throwRequest, removeNameState.");
             }
             catch (Exception ex)
             {
@@ -187,6 +198,18 @@ namespace HtmlUiConsumerTestMod
                 Log("F12 pressed. registered=" + _registered + ", frameworkReady=" + HtmlUiService.IsReady + ", page=" + (_pageId ?? "<null>"));
                 Close();
             }
+
+            if (Input.IsKeyPressed(InputKey.F8))
+            {
+                Log("F8 pressed. opening StressLab page=" + (_stressPageId ?? "<null>"));
+                OpenStress();
+            }
+
+            if (Input.IsKeyPressed(InputKey.F7))
+            {
+                Log("F7 pressed. closing StressLab/current page.");
+                CloseCurrent();
+            }
         }
 
         private void Open()
@@ -208,6 +231,25 @@ namespace HtmlUiConsumerTestMod
             }
         }
 
+        private void OpenStress()
+        {
+            try
+            {
+                if (!_registered || !HtmlUiService.IsReady)
+                {
+                    Log("OpenStress skipped: consumer not registered or Framework not ready.");
+                    return;
+                }
+
+                var result = HtmlUiService.Pages.Open(_stressPageId);
+                Log("Stress Pages.Open result=" + result + ", currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>"));
+            }
+            catch (Exception ex)
+            {
+                Log("OpenStress ERROR: " + ex);
+            }
+        }
+
         private void Close()
         {
             try
@@ -223,6 +265,24 @@ namespace HtmlUiConsumerTestMod
             catch (Exception ex)
             {
                 Log("Close ERROR: " + ex);
+            }
+        }
+
+        private void CloseCurrent()
+        {
+            try
+            {
+                if (!_registered || !HtmlUiService.IsReady)
+                {
+                    Log("CloseCurrent skipped: consumer not registered or Framework not ready.");
+                    return;
+                }
+
+                HtmlUiService.Pages.CloseCurrent();
+            }
+            catch (Exception ex)
+            {
+                Log("CloseCurrent ERROR: " + ex);
             }
         }
 
