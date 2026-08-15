@@ -11,6 +11,7 @@ namespace BannerlordHtmlUI
         private static bool _installed;
         private static Harmony _harmony;
         private static FieldInfo _requestedVisibleField;
+        private static bool _diagnosticLogged;
 
         public static void Install(HtmlUiHost host)
         {
@@ -24,13 +25,40 @@ namespace BannerlordHtmlUI
                 if (method == null)
                     throw new MissingMethodException("HtmlUiHost.FollowBannerlordWindow was not found.");
 
-                _requestedVisibleField = typeof(HtmlUiHost).GetField("_requestedVisible", BindingFlags.Instance | BindingFlags.NonPublic);
+                _requestedVisibleField = typeof(HtmlUiHost).GetField(
+                    "_requestedVisible",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+
                 _harmony = new Harmony("BannerlordHtmlUI.WindowTracking");
-                _harmony.Patch(method,
-                    prefix: new HarmonyMethod(typeof(HtmlUiWindowTrackingPatch), nameof(BeforeFollowBannerlordWindow)));
+                _harmony.Patch(
+                    method,
+                    prefix: new HarmonyMethod(
+                        typeof(HtmlUiWindowTrackingPatch),
+                        nameof(BeforeFollowBannerlordWindow)));
 
                 _installed = true;
-                HtmlUiLogger.Info("Window tracking stability patch installed.");
+                _diagnosticLogged = false;
+                HtmlUiLogger.Info("Window tracking HWND=0 stability guard installed.");
+            }
+        }
+
+        public static void Uninstall()
+        {
+            lock (Sync)
+            {
+                if (!_installed) return;
+
+                try
+                {
+                    _harmony?.UnpatchAll("BannerlordHtmlUI.WindowTracking");
+                }
+                finally
+                {
+                    _harmony = null;
+                    _requestedVisibleField = null;
+                    _installed = false;
+                    _diagnosticLogged = false;
+                }
             }
         }
 
@@ -41,20 +69,35 @@ namespace BannerlordHtmlUI
                 var requestedVisible = _requestedVisibleField != null &&
                     (bool)_requestedVisibleField.GetValue(__instance);
 
-                if (!requestedVisible) return true;
+                if (!requestedVisible)
+                {
+                    _diagnosticLogged = false;
+                    return true;
+                }
 
                 var hwnd = Process.GetCurrentProcess().MainWindowHandle;
-                if (hwnd != IntPtr.Zero) return true;
+                if (hwnd != IntPtr.Zero && Win32.IsWindow(hwnd))
+                {
+                    _diagnosticLogged = false;
+                    return true;
+                }
 
-                // Bannerlord can transiently expose MainWindowHandle == 0 during
-                // focus/scene transitions. Do not hide an active HTML overlay just
-                // because the native HWND is temporarily unavailable.
-                HtmlUiLogger.Debug("Window tracking skipped: Bannerlord MainWindowHandle is temporarily zero while HTML UI is visible.");
+                // MainWindowHandle can transiently become zero during Bannerlord
+                // focus/scene transitions. A missing HWND means "cannot resync
+                // position this tick", not "hide the active HTML UI".
+                if (!_diagnosticLogged)
+                {
+                    HtmlUiLogger.Warn(
+                        "Window tracking skipped: Bannerlord main window is temporarily unavailable; preserving requested HtmlUI visibility.");
+                    _diagnosticLogged = true;
+                }
+
                 return false;
             }
             catch (Exception ex)
             {
-                HtmlUiLogger.Debug("Window tracking stability guard failed: " + ex.GetBaseException().Message);
+                HtmlUiLogger.Debug(
+                    "Window tracking HWND=0 guard failed: " + ex.GetBaseException().Message);
                 return true;
             }
         }
