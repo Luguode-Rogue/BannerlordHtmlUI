@@ -410,12 +410,10 @@ namespace BannerlordHtmlUI
             foreach (var host in _contentHosts.Values)
             {
                 var prefix = "https://" + host + "/";
-                if (e.Uri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    allowedPrefix = true;
-                    relative = e.Uri.Substring(prefix.Length);
-                    break;
-                }
+                if (!e.Uri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                allowedPrefix = true;
+                relative = e.Uri.Substring(prefix.Length);
+                break;
             }
             if (!allowedPrefix)
             {
@@ -761,6 +759,7 @@ namespace BannerlordHtmlUI
             _requestedVisible = false;
             _inputMode = HtmlUiInputMode.Hidden;
             try { HtmlUiKeyboardAndDiagnosticsPatch.Uninstall(this); } catch (Exception ex) { HtmlUiLogger.Debug("Keyboard/diagnostics patch uninstall failed: " + ex.GetBaseException().Message); }
+            try { HtmlUiNavigationRacePatch.Uninstall(this); } catch (Exception ex) { HtmlUiLogger.Debug("Navigation race guard uninstall failed: " + ex.GetBaseException().Message); }
             try { _watcher?.Dispose(); } catch { }
             try { _followTimer?.Stop(); _followTimer?.Dispose(); } catch { }
             try
