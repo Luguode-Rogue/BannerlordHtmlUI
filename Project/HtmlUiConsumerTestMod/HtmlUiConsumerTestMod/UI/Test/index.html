@@ -46,9 +46,22 @@ const app=window.game.app;
 const logEl=document.getElementById('log');
 const errEl=document.getElementById('err');
 const log=v=>logEl.textContent=JSON.stringify(v,null,2);
+const addLog=(entry)=>{
+  try{
+    const previous=logEl.textContent;
+    const parsed=previous&&previous!=='加载中...' ? JSON.parse(previous) : null;
+    if(Array.isArray(parsed)) parsed.push(entry); else logEl.textContent=JSON.stringify([entry],null,2);
+  }catch(_){ logEl.textContent=JSON.stringify([entry],null,2); }
+};
 const renderCounter=async value=>{
-  document.getElementById('counterText').textContent=
-    await app.i18n.t('HtmlUiConsumer_Counter',{COUNT:value??0});
+  const key='HtmlUiConsumer_Counter';
+  try{
+    const text=await app.i18n.t(key,{COUNT:value??0});
+    addLog({i18n:{key,value:text,source:'counter'}});
+    document.getElementById('counterText').textContent=text;
+  }catch(e){
+    addLog({i18nError:{key,name:e.name,code:e.code,message:e.message}});
+  }
 };
 app.state.subscribe('counter',renderCounter);
 app.state.subscribe('name',value=>{
@@ -58,8 +71,8 @@ app.bind.twoWayValue('#name','name',v=>app.call('setName',{value:v}),{event:'inp
 app.bind.twoWayChecked('#enabled','enabled',v=>app.call('setEnabled',{value:v}));
 app.on('counterChanged',d=>log({event:d}));
 app.on('testEvent',d=>log({event:d}));
-app.errors.on(e=>errEl.textContent=JSON.stringify(e,null,2));
-app.page.onLifecycle(state=>log({pageLifecycle:state}));
+app.errors.on(e=>{ errEl.textContent=JSON.stringify(e,null,2); addLog({runtimeError:e}); });
+app.page.onLifecycle(state=>addLog({pageLifecycle:state}));
 
 document.getElementById('inc').onclick=async()=>{try{log({command:await app.call('increment',{})})}catch(e){log({error:{name:e.name,code:e.code,message:e.message}})}};
 document.getElementById('get').onclick=async()=>{try{log({request:await app.request('getData',{echo:'hello'})})}catch(e){log({error:{name:e.name,code:e.code,message:e.message}})}};
@@ -82,8 +95,8 @@ document.getElementById('cancelTest').onclick=async()=>{
 document.getElementById('commandErrorTest').onclick=async()=>{try{await app.call('throwCommand');log({unexpected:'command did not fail'})}catch(e){log({expectedCommandError:{name:e.name,code:e.code,message:e.message}})}};
 document.getElementById('requestErrorTest').onclick=async()=>{try{await app.request('throwRequest');log({unexpected:'request did not fail'})}catch(e){log({expectedRequestError:{name:e.name,code:e.code,message:e.message}})}};
 document.getElementById('snapshotTest').onclick=async()=>{try{log({diagnostics:await app.request('framework.getDiagnostics')})}catch(e){log({diagnosticsError:{name:e.name,code:e.code,message:e.message}})}};
-document.getElementById('release').onclick=()=>app.input.release();
-document.getElementById('capture').onclick=()=>app.input.capture();
+document.getElementById('release').onclick=()=>{addLog({input:'release'});app.input.release();};
+document.getElementById('capture').onclick=()=>{addLog({input:'capture'});app.input.capture();};
 document.getElementById('reloadRace').onclick=async()=>{
   try{
     const pageId=app.page&&app.page.id;
@@ -94,20 +107,45 @@ document.getElementById('reloadRace').onclick=async()=>{
     log({reloadRace:'completed',results:results.map(r=>r.status==='fulfilled'?{status:r.status,value:r.value}:{status:r.status,reason:String(r.reason)})});
   }catch(e){log({reloadRaceError:{name:e.name,code:e.code,message:e.message}})}
 };
-document.getElementById('close').onclick=()=>app.pages.close();
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();app.pages.close();}});
+document.getElementById('close').onclick=()=>{addLog({close:'button-click',currentPage:app.page&&app.page.id});app.pages.close();};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();addLog({close:'escape',currentPage:app.page&&app.page.id});app.pages.close();}});
 
 let i18nBindingDispose=null;
+async function auditI18n(){
+  const elements=[...document.querySelectorAll('[data-bhui-i18n],[data-bhui-i18n-placeholder],[data-bhui-i18n-title],[data-bhui-i18n-alt]')];
+  const entries=[];
+  for(const el of elements){
+    for(const attribute of ['data-bhui-i18n','data-bhui-i18n-placeholder','data-bhui-i18n-title','data-bhui-i18n-alt']){
+      if(!el.hasAttribute(attribute)) continue;
+      const key=el.getAttribute(attribute);
+      try{
+        const value=await app.i18n.t(key);
+        entries.push({tag:el.tagName,id:el.id||null,attribute,key,value});
+      }catch(e){
+        entries.push({tag:el.tagName,id:el.id||null,attribute,key,error:{name:e.name,code:e.code,message:e.message}});
+      }
+    }
+  }
+  addLog({i18nAudit:entries});
+  try{ await app.call('logI18nDiagnostics',{entries}); }catch(_){ }
+}
 async function applyLocalization(){
   if(i18nBindingDispose){
     try{i18nBindingDispose();}catch(_){ }
     i18nBindingDispose=null;
   }
-  i18nBindingDispose=await app.i18n.bind();
+  try{
+    i18nBindingDispose=await app.i18n.bind();
+    addLog({i18nBind:'success'});
+  }catch(e){
+    addLog({i18nBindError:{name:e.name,code:e.code,message:e.message}});
+  }
   await renderCounter(app.state.get('counter')||0);
+  await auditI18n();
 }
-applyLocalization().catch(e=>log({i18nBindError:String(e)}));
+applyLocalization().catch(e=>addLog({i18nFatal:{name:e.name,code:e.code,message:e.message}}));
 window.addEventListener('pagehide',()=>{
+  addLog({page:'pagehide'});
   if(i18nBindingDispose){
     try{i18nBindingDispose();}catch(_){ }
     i18nBindingDispose=null;
