@@ -73,25 +73,20 @@ namespace BannerlordHtmlUI
           }
         };
 
-        if (signal) {
-          abortHandler = () => sendCancel();
-          signal.addEventListener('abort', abortHandler, { once: true });
-        }
-
-        const safeTimeout = Math.max(1, Number(timeoutMs) || 10000);
-        timeoutHandle = setTimeout(sendCancel, safeTimeout + 25);
-
-        return new Promise((resolve, reject) => {
+        const result = new Promise((resolve, reject) => {
           requestPromise.then(resolve, reject).finally(cleanup);
           if (signal) {
             abortHandler = () => {
               sendCancel();
               reject(makeAbortError('Request aborted: ' + name));
             };
-            signal.removeEventListener('abort', abortHandler);
             signal.addEventListener('abort', abortHandler, { once: true });
           }
         });
+
+        const safeTimeout = Math.max(1, Number(timeoutMs) || 10000);
+        timeoutHandle = setTimeout(sendCancel, safeTimeout + 25);
+        return result;
       };
     };
 
