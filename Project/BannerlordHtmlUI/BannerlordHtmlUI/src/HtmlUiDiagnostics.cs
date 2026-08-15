@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 
 namespace BannerlordHtmlUI
 {
@@ -25,6 +24,8 @@ namespace BannerlordHtmlUI
         public int ContentRootCount { get; set; }
         public int PageCount { get; set; }
         public int StateCount { get; set; }
+        public int BridgeCommandCount { get; set; }
+        public int BridgeRequestCount { get; set; }
         public bool NavigationInProgress { get; set; }
     }
 
@@ -46,6 +47,7 @@ namespace BannerlordHtmlUI
             var host = HtmlUiService.IsInitialized ? HtmlUiService.Host : null;
             var window = host?.GetWindowState() ?? default(HtmlUiWindowState);
             var page = host?.Pages.Current;
+            var bridge = HtmlUiBridge.Current;
             string lastError;
             lock (Sync) lastError = _lastBrowserError;
 
@@ -71,6 +73,8 @@ namespace BannerlordHtmlUI
                 ContentRootCount = host?.ContentRootCount ?? 0,
                 PageCount = host?.Pages.Count ?? 0,
                 StateCount = host?.State.Count ?? 0,
+                BridgeCommandCount = bridge?.CommandCount ?? 0,
+                BridgeRequestCount = bridge?.RequestCount ?? 0,
                 NavigationInProgress = host?.NavigationInProgress ?? false
             };
         }
