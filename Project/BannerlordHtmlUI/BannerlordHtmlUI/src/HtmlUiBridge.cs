@@ -96,9 +96,15 @@ namespace BannerlordHtmlUI
             if (string.IsNullOrWhiteSpace(name)) return false;
             if (!_requests.TryGetValue(name, out var existing)) return false;
             if (!string.Equals(existing.OwnerId, NormalizeOwner(ownerId), StringComparison.OrdinalIgnoreCase)) return false;
+
             CancelRequests(name, existing.OwnerId);
-            return ((ICollection<KeyValuePair<string, RequestEntry>>)_requests).Remove(
+            var removed = ((ICollection<KeyValuePair<string, RequestEntry>>)_requests).Remove(
                 new KeyValuePair<string, RequestEntry>(name, existing));
+
+            // A request can enter the active set between the first cancellation scan and removal.
+            // Repeat the targeted cancellation after removal to close that race without touching sibling requests.
+            CancelRequests(name, existing.OwnerId);
+            return removed;
         }
 
         public bool CancelRequest(string id)
