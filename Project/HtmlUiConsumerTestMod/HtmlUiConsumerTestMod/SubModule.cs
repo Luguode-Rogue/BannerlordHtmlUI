@@ -186,7 +186,6 @@ namespace HtmlUiConsumerTestMod
 
                 var result = HtmlUiService.Pages.Open(_pageId);
                 Log("Pages.Open result=" + result + ", currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>"));
-                HtmlUiService.CaptureInput();
             }
             catch (Exception ex)
             {
@@ -205,7 +204,6 @@ namespace HtmlUiConsumerTestMod
                 }
 
                 HtmlUiService.Pages.Close(_pageId);
-                HtmlUiService.ReleaseInput();
             }
             catch (Exception ex)
             {
