@@ -19,10 +19,12 @@
 - `preCanceledRequests` 改为带时间戳的 tombstone，并加入 30 秒 TTL 与 2048 条上限清理，避免无界累积。
 - HotReload 增加生命周期 gate：无当前可见页面时 watcher 触发的 `Reload()` 不再重新加载隐藏页面。
 - HotReload 增加 75ms debounce，抑制 FileSystemWatcher 连续 Changed/Created 事件产生的 reload storm。
+- `State.Remove` 已改为独立 `state-remove:<key>` 协议事件。
+- Framework document-created runtime patch 会捕获内部 state `Map`，收到 `state-remove:<key>` 后执行真实 `Map.delete(key)`。
+- 删除后仍通过原 `state:<key>` 订阅链通知绑定/监听器，因此既保持 `state.has(key) == false`，又不会破坏现有绑定刷新语义。
 
 ## 仍未完成
 
-- `State.Remove`：C# dictionary 删除后，Runtime 仍按 `state.set(key, null)` 处理；JS `state.has(key)` 语义尚未修复。
 - Request `requestCancellable()` 当前仍通过临时替换 `webview.postMessage` 捕获 requestId；尚未完成协议层直接暴露 requestId 的重构。
 - WebView2 `ProcessFailed` 尚未形成完整恢复状态机；当前仍主要记录错误并通知 `BrowserError`。
 - `EnsureUiThread` disposed-host failure semantics 仍待收口。
