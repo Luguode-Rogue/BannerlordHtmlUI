@@ -171,9 +171,6 @@ namespace BannerlordHtmlUI
 
             try
             {
-                // Framework shutdown may happen before a consumer Mod is unloaded.
-                // In that case all framework-owned registrations are already gone, so
-                // only finalize the local scope bookkeeping and avoid noisy cleanup errors.
                 if (!HtmlUiService.IsInitialized)
                 {
                     lock (_sync) ClearOwnershipListsLocked();
@@ -181,9 +178,6 @@ namespace BannerlordHtmlUI
                     return;
                 }
 
-                // Close the active page first so the WebView cannot keep navigating into a scope being removed.
-                // The scope remains logically usable during this callback; IsDisposed becomes true only
-                // after all owned registrations have been removed.
                 try
                 {
                     var current = HtmlUiService.Pages.Current;
@@ -203,13 +197,13 @@ namespace BannerlordHtmlUI
 
                 foreach (var command in commandNames)
                 {
-                    try { HtmlUiService.UnregisterCommand(command); }
+                    try { HtmlUiService.UnregisterCommand(command, OwnerId); }
                     catch (Exception ex) { HtmlUiLogger.Error("Consumer scope command cleanup failed: " + command, ex); }
                 }
 
                 foreach (var request in requestNames)
                 {
-                    try { HtmlUiService.UnregisterRequest(request); }
+                    try { HtmlUiService.UnregisterRequest(request, OwnerId); }
                     catch (Exception ex) { HtmlUiLogger.Error("Consumer scope request cleanup failed: " + request, ex); }
                 }
 
