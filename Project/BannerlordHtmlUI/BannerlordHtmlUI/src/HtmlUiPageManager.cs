@@ -253,15 +253,60 @@ namespace BannerlordHtmlUI
 
         public bool Reload()
         {
-            HtmlUiPage current;
-            lock (_sync)
-            {
-                if (_openId == null || !_pages.TryGetValue(_openId, out current)) return false;
-            }
-
             if (_host == null || !_host.IsHostCreated) return false;
-            _host.Reload();
-            return true;
+
+            lock (_transitionSync)
+            {
+                HtmlUiPage current;
+                lock (_sync)
+                {
+                    if (_openId == null || !_pages.TryGetValue(_openId, out current))
+                    {
+                        HtmlUiLogger.Info("Page Reload ignored: no open page.");
+                        return false;
+                    }
+                }
+
+                if (!_host.IsVisible || !_host.IsWebViewReady)
+                {
+                    HtmlUiLogger.Info("Page Reload ignored: host is not in an active ready state.");
+                    return false;
+                }
+
+                try
+                {
+                    _host.State.Set("framework.page.lifecycle", new
+                    {
+                        state = "reloading",
+                        pageId = current.Id,
+                        ownerId = current.OwnerId,
+                        path = current.RelativePath
+                    });
+                    _host.SendEvent("framework.page.lifecycle", new
+                    {
+                        state = "reloading",
+                        pageId = current.Id,
+                        ownerId = current.OwnerId,
+                        path = current.RelativePath
+                    });
+                }
+                catch (Exception ex)
+                {
+                    HtmlUiLogger.Error("Failed to publish page reloading lifecycle: " + current.Id, ex);
+                }
+
+                try
+                {
+                    _host.Reload();
+                    HtmlUiLogger.Info("Page reload requested: " + current.Id);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    HtmlUiLogger.Error("Page reload failed: " + current.Id, ex);
+                    return false;
+                }
+            }
         }
 
         public string CurrentId
