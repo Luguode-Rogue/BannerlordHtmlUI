@@ -89,12 +89,11 @@ namespace BannerlordHtmlUI
 
           if (signal) {
             signal.addEventListener('abort', abortHandler, { once: true });
+            if (signal.aborted) abortHandler();
           }
         });
 
-        if (settled) {
-          return result;
-        }
+        if (settled) return result;
 
         activeCancels.add(sendCancel);
         const safeTimeout = Math.max(1, Number(timeoutMs) || 10000);
