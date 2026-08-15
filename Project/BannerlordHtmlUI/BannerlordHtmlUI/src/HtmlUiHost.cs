@@ -192,6 +192,7 @@ namespace BannerlordHtmlUI
             ConfigureLocalHost();
             InstallFrameworkRuntime();
             InstallRuntimeErrorForwarder();
+            InstallRuntimePatchesOnUiThread();
 
             _webViewReady = true;
 
@@ -201,6 +202,21 @@ namespace BannerlordHtmlUI
             FlushPendingPage();
         }
 
+        private void InstallRuntimePatchesOnUiThread()
+        {
+            try { HtmlUiI18nBindingPatch.Install(this); }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install i18n binding lifecycle patch.", ex); }
+            try { HtmlUiStateBootstrapPatch.Install(this); }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install state bootstrap patch.", ex); }
+            try { HtmlUiBindingSchedulerPatch.Install(this); }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install binding scheduler patch.", ex); }
+            try { HtmlUiErrorModelPatch.Install(this); }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install bridge error model patch.", ex); }
+            try { HtmlUiRequestCancellationPatch.Install(this); }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install request cancellation patch.", ex); }
+            try { HtmlUiNavigationRacePatch.Install(this); }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install navigation race guard.", ex); }
+        }
 
         private void FollowBannerlordWindow()
         {
@@ -228,10 +244,6 @@ namespace BannerlordHtmlUI
                 var width = Math.Max(0, rect.Right - rect.Left);
                 var height = Math.Max(0, rect.Bottom - rect.Top);
 
-                // Passive mode follows Bannerlord focus so the HUD does not remain over
-                // unrelated applications. Captured mode is different: the overlay itself
-                // is intentionally the foreground window, so using only `foreground` here
-                // creates a hide/show loop and visible flicker.
                 var focusAccepted = foreground ||
                                     (_inputMode == HtmlUiInputMode.Captured && overlayForeground);
                 var active = !minimized && windowVisible && focusAccepted && _requestedVisible;
@@ -271,10 +283,7 @@ namespace BannerlordHtmlUI
             WindowStateChanged?.Invoke(state);
         }
 
-        private void ConfigureLocalHost()
-        {
-            MapContentRoot("framework", _webRoot);
-        }
+        private void ConfigureLocalHost() => MapContentRoot("framework", _webRoot);
 
         internal bool UnregisterContentRoot(string id)
         {
@@ -389,7 +398,6 @@ namespace BannerlordHtmlUI
 
         private void OnWebResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs e)
         {
-            // Resource access is provided only through the mapped local host.
         }
 
         private void OnNavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs e)
@@ -575,25 +583,10 @@ namespace BannerlordHtmlUI
             EnsureUiThread(() => _web.CoreWebView2?.OpenDevToolsWindow());
         }
 
-        public void Show()
-        {
-            SetInputMode(HtmlUiInputMode.Passive);
-        }
-
-        public void Hide()
-        {
-            SetInputMode(HtmlUiInputMode.Hidden);
-        }
-
-        public void CaptureInput()
-        {
-            SetInputMode(HtmlUiInputMode.Captured);
-        }
-
-        public void ReleaseInput()
-        {
-            SetInputMode(HtmlUiInputMode.Passive);
-        }
+        public void Show() => SetInputMode(HtmlUiInputMode.Passive);
+        public void Hide() => SetInputMode(HtmlUiInputMode.Hidden);
+        public void CaptureInput() => SetInputMode(HtmlUiInputMode.Captured);
+        public void ReleaseInput() => SetInputMode(HtmlUiInputMode.Passive);
 
         public void SetInputMode(HtmlUiInputMode mode)
         {
@@ -649,20 +642,9 @@ namespace BannerlordHtmlUI
 
         internal void DispatchToGameThread(Action action) => _gameThread.Post(action);
 
-        public bool CommandExists(string name)
-        {
-            return _bridge != null && _bridge.CommandExists(name);
-        }
-
-        public bool UnregisterCommand(string name)
-        {
-            return _bridge != null && _bridge.UnregisterCommand(name);
-        }
-
-        public bool UnregisterRequest(string name)
-        {
-            return _bridge != null && _bridge.UnregisterRequest(name);
-        }
+        public bool CommandExists(string name) => _bridge != null && _bridge.CommandExists(name);
+        public bool UnregisterCommand(string name) => _bridge != null && _bridge.UnregisterCommand(name);
+        public bool UnregisterRequest(string name) => _bridge != null && _bridge.UnregisterRequest(name);
 
         public void RegisterCommand(string name, Action<JToken> handler)
         {
@@ -682,7 +664,19 @@ namespace BannerlordHtmlUI
             _bridge.RegisterRequest(name, handler);
         }
 
+        public void RegisterRequest(string name, Func<JToken, CancellationToken, Task<object>> handler)
+        {
+            if (_bridge == null) throw new InvalidOperationException("HTML UI host is not ready.");
+            _bridge.RegisterRequest(name, handler);
+        }
+
         internal void RegisterRequest(string name, Func<JToken, Task<object>> handler, string ownerId)
+        {
+            if (_bridge == null) throw new InvalidOperationException("HTML UI host is not ready.");
+            _bridge.RegisterRequest(name, handler, ownerId);
+        }
+
+        internal void RegisterRequest(string name, Func<JToken, CancellationToken, Task<object>> handler, string ownerId)
         {
             if (_bridge == null) throw new InvalidOperationException("HTML UI host is not ready.");
             _bridge.RegisterRequest(name, handler, ownerId);
@@ -734,10 +728,7 @@ namespace BannerlordHtmlUI
 
             void ExecuteSafe()
             {
-                try
-                {
-                    action();
-                }
+                try { action(); }
                 catch (Exception ex)
                 {
                     HtmlUiLogger.Error("UI thread callback failed.", ex);
@@ -750,13 +741,13 @@ namespace BannerlordHtmlUI
                 if (_form.InvokeRequired) _form.BeginInvoke((Action)ExecuteSafe);
                 else ExecuteSafe();
             }
-            catch (InvalidOperationException ex)
-            {
-                HtmlUiLogger.Warn("UI thread callback could not be scheduled: " + ex.Message);
-            }
             catch (ObjectDisposedException ex)
             {
                 HtmlUiLogger.Warn("UI thread host was disposed before callback scheduling: " + ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                HtmlUiLogger.Warn("UI thread callback could not be scheduled: " + ex.Message);
             }
         }
 
