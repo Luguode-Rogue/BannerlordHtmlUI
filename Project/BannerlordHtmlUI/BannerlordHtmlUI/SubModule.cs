@@ -34,6 +34,7 @@ namespace BannerlordHtmlUI
                 HtmlUiStateBootstrapPatch.Install(HtmlUiService.Host);
                 HtmlUiBindingSchedulerPatch.Install(HtmlUiService.Host);
                 HtmlUiErrorModelPatch.Install(HtmlUiService.Host);
+                HtmlUiRequestCancellationPatch.Install(HtmlUiService.Host);
                 HtmlUiNavigationRacePatch.Install(HtmlUiService.Host);
                 HtmlUiService.NotifyGameContext("application", true);
                 if (!HtmlUiService.Pages.Contains("framework"))
