@@ -524,6 +524,7 @@
         return {
           key: getKey(item, index),
           element,
+          update: result && typeof result.update === 'function' ? result.update : null,
           dispose: result && result.dispose ? result.dispose : null
         };
       };
@@ -557,6 +558,11 @@
             const existing = oldByKey.get(keyString);
             if (existing) {
               oldByKey.delete(keyString);
+              try {
+                if (typeof existing.update === 'function') existing.update(item, index, currentGeneration);
+              } catch (e) {
+                emitRuntimeError({ kind: 'list-update', message: String(e), key: fullKey });
+              }
               nextChildren.push(existing);
               target.appendChild(existing.element);
               return;
