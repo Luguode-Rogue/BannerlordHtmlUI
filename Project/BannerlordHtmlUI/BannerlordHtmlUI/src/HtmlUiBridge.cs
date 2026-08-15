@@ -24,6 +24,8 @@ namespace BannerlordHtmlUI
             new ConcurrentDictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<string, string> _activeRequestOwners =
             new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, string> _activeRequestNames =
+            new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         private sealed class RequestEntry
         {
@@ -94,7 +96,7 @@ namespace BannerlordHtmlUI
             if (string.IsNullOrWhiteSpace(name)) return false;
             if (!_requests.TryGetValue(name, out var existing)) return false;
             if (!string.Equals(existing.OwnerId, NormalizeOwner(ownerId), StringComparison.OrdinalIgnoreCase)) return false;
-            CancelRequestsByOwner(existing.OwnerId);
+            CancelRequests(name, existing.OwnerId);
             return ((ICollection<KeyValuePair<string, RequestEntry>>)_requests).Remove(
                 new KeyValuePair<string, RequestEntry>(name, existing));
         }
@@ -126,12 +128,20 @@ namespace BannerlordHtmlUI
 
         public void CancelRequestsByOwner(string ownerId)
         {
-            var normalizedOwner = NormalizeOwner(ownerId);
-            if (string.IsNullOrWhiteSpace(normalizedOwner)) return;
+            CancelRequests(null, ownerId);
+        }
 
+        private void CancelRequests(string requestName, string ownerId)
+        {
+            var normalizedOwner = NormalizeOwner(ownerId);
             foreach (var pair in _activeRequestOwners)
             {
                 if (!string.Equals(pair.Value, normalizedOwner, StringComparison.OrdinalIgnoreCase)) continue;
+                if (requestName != null &&
+                    (!_activeRequestNames.TryGetValue(pair.Key, out var activeName) ||
+                     !string.Equals(activeName, requestName, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
                 if (_requestCancellation.TryGetValue(pair.Key, out var cancellation))
                 {
                     try { cancellation.Cancel(); }
@@ -149,6 +159,7 @@ namespace BannerlordHtmlUI
             }
 
             _activeRequestOwners.Clear();
+            _activeRequestNames.Clear();
             _preCanceledRequests.Clear();
         }
 
@@ -173,7 +184,6 @@ namespace BannerlordHtmlUI
             var normalizedOwner = NormalizeOwner(ownerId);
             var count = 0;
 
-            // Cancel before unregistering so already-running handlers receive the owner lifecycle signal.
             CancelRequestsByOwner(normalizedOwner);
 
             foreach (var pair in _commands)
@@ -188,7 +198,6 @@ namespace BannerlordHtmlUI
                 if (((ICollection<KeyValuePair<string, RequestEntry>>)_requests).Remove(pair)) count++;
             }
 
-            // A request can cross the cancellation/removal window; cancel again after removal to close that race.
             CancelRequestsByOwner(normalizedOwner);
             return count;
         }
@@ -384,6 +393,7 @@ namespace BannerlordHtmlUI
                         {
                             _requestCancellation[id] = cancellation;
                             _activeRequestOwners[id] = requestEntry.OwnerId;
+                            _activeRequestNames[id] = name;
                             if (_preCanceledRequests.TryRemove(id, out _))
                                 cancellation.Cancel();
 
@@ -435,6 +445,7 @@ namespace BannerlordHtmlUI
                             {
                                 _requestCancellation.TryRemove(id, out _);
                                 _activeRequestOwners.TryRemove(id, out _);
+                                _activeRequestNames.TryRemove(id, out _);
                                 _preCanceledRequests.TryRemove(id, out _);
                             }
                         }
