@@ -11,6 +11,29 @@ export interface BannerlordHtmlUiScopePages {
   close(): Promise<unknown>;
 }
 
+export interface BannerlordHtmlUiError extends Error {
+  name: 'BannerlordHtmlUiError';
+  code:
+    | 'COMMAND_TIMEOUT'
+    | 'REQUEST_TIMEOUT'
+    | 'COMMAND_UNKNOWN'
+    | 'REQUEST_UNKNOWN'
+    | 'COMMAND_STALE'
+    | 'COMMAND_UNREGISTERED'
+    | 'REQUEST_STALE'
+    | 'REQUEST_UNREGISTERED'
+    | 'PROTOCOL_UNSUPPORTED_VERSION'
+    | 'PROTOCOL_UNKNOWN_TYPE'
+    | 'RUNTIME_DISPOSED'
+    | 'PAGE_UNLOADED'
+    | 'COMMAND_HANDLER_ERROR'
+    | 'REQUEST_HANDLER_ERROR'
+    | 'BRIDGE_ERROR';
+  raw: string;
+  operation: 'command' | 'request' | string;
+  requestName: string | null;
+}
+
 export interface BannerlordHtmlUiI18n {
   readonly locale: string | null;
   getLocale(): Promise<string | null>;
@@ -76,8 +99,8 @@ declare namespace BannerlordHtmlUI {
     readonly input: WindowApi['input'] | null;
     readonly pages: BannerlordHtmlUiScopePages;
     readonly i18n: BannerlordHtmlUiI18n;
-    readonly app: GameApp;
     readonly bind: BindingApi;
+    app?: GameApp;
   }
 
   interface GameScope extends GameApp {
@@ -87,7 +110,7 @@ declare namespace BannerlordHtmlUI {
     on<T = unknown>(name: string, handler: (payload: T) => void): () => void;
     readonly state: GameState;
     readonly bind: BindingApi;
-    readonly i18n: BannerlordHtmlUiI18n;
+    readonly i18n: BannerlordHtmlUII18n;
   }
 
   interface WindowApi {
