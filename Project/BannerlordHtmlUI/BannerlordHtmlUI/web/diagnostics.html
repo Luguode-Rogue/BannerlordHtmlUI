@@ -45,7 +45,7 @@
         try {
           const data = await game.request('framework.getDiagnostics');
           if (disposed) return;
-          status.textContent = 'Diagnostics request succeeded. Auto-refresh: 500 ms.';
+          status.textContent = 'Diagnostics request succeeded. Auto-refresh: 1000 ms.';
           render(data);
         } catch (e) {
           if (!disposed) status.textContent = 'Diagnostics request failed: ' + e.message;
@@ -55,8 +55,8 @@
       };
 
       refresh();
-      const timer = setInterval(refresh, 500);
-      window.addEventListener('beforeunload', () => {
+      const timer = setInterval(refresh, 1000);
+      window.addEventListener('pagehide', () => {
         disposed = true;
         clearInterval(timer);
       }, { once: true });
