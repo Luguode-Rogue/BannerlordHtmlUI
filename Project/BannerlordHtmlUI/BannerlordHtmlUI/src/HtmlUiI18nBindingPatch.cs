@@ -7,6 +7,7 @@ namespace BannerlordHtmlUI
     internal static class HtmlUiI18nBindingPatch
     {
         private const string Marker = "__bannerlordHtmlUiI18nBindLifecyclePatched";
+        private const string RegistryMarker = "__bannerlordHtmlUiI18nBindingRegistry";
 
         private const string Script = @"
 (() => {
@@ -22,9 +23,17 @@ namespace BannerlordHtmlUI
       ['data-bhui-i18n-alt', 'alt']
     ];
 
+    const registry = i18n[\"" + RegistryMarker + @"\"] || new WeakMap();
+    i18n[\"" + RegistryMarker + @"\"] = registry;
+
     i18n.bind = async (root = document) => {
       const target = root || document;
-      const bindings = [];
+      const previous = registry.get(target);
+      if (previous) {
+        try { previous(); } catch (_) {}
+      }
+
+      const bindings = new Set();
       const bindingIndex = new WeakMap();
       let active = true;
       let generation = 0;
@@ -32,6 +41,41 @@ namespace BannerlordHtmlUI
       let pageHideHandler = null;
       let observer = null;
       let translationCache = new Map();
+      let applyScheduled = false;
+
+      const getProperties = (element, create) => {
+        let properties = bindingIndex.get(element);
+        if (!properties && create) {
+          properties = new Map();
+          bindingIndex.set(element, properties);
+        }
+        return properties;
+      };
+
+      const removeBinding = (element, property) => {
+        const properties = getProperties(element, false);
+        if (!properties) return;
+        const existing = properties.get(property);
+        if (!existing) return;
+        properties.delete(property);
+        bindings.delete(existing);
+      };
+
+      const removeSubtree = (node) => {
+        if (!node || node.nodeType !== 1) return;
+        removeBinding(node, 'textContent');
+        removeBinding(node, 'placeholder');
+        removeBinding(node, 'title');
+        removeBinding(node, 'alt');
+        if (typeof node.querySelectorAll === 'function') {
+          for (const element of node.querySelectorAll(selector)) {
+            removeBinding(element, 'textContent');
+            removeBinding(element, 'placeholder');
+            removeBinding(element, 'title');
+            removeBinding(element, 'alt');
+          }
+        }
+      };
 
       const alive = (binding) => {
         if (!active) return false;
@@ -49,24 +93,24 @@ namespace BannerlordHtmlUI
       };
 
       const addBinding = (element, property, key) => {
-        if (!element || !key) return;
-        let properties = bindingIndex.get(element);
-        if (!properties) {
-          properties = new Map();
-          bindingIndex.set(element, properties);
-        }
+        if (!element) return;
+        const normalizedKey = String(key || '');
+        const properties = getProperties(element, true);
         const existing = properties.get(property);
-        if (existing && existing.key === key) return;
-        if (existing) {
-          const index = bindings.indexOf(existing);
-          if (index >= 0) bindings.splice(index, 1);
+
+        if (!normalizedKey) {
+          if (existing) removeBinding(element, property);
+          return;
         }
-        const binding = { element, property, key };
+        if (existing && existing.key === normalizedKey) return;
+        if (existing) removeBinding(element, property);
+
+        const binding = { element, property, key: normalizedKey };
         properties.set(property, binding);
-        bindings.push(binding);
+        bindings.add(binding);
 
         const currentGeneration = generation;
-        getTranslation(key)
+        getTranslation(normalizedKey)
           .then(value => {
             if (!active || currentGeneration !== generation || !alive(binding)) return;
             binding.element[binding.property] = value;
@@ -83,6 +127,8 @@ namespace BannerlordHtmlUI
         for (const [attribute, property] of mappings) {
           if (element.hasAttribute(attribute)) {
             addBinding(element, property, element.getAttribute(attribute));
+          } else {
+            removeBinding(element, property);
           }
         }
       };
@@ -96,7 +142,7 @@ namespace BannerlordHtmlUI
       };
 
       const apply = async (currentGeneration) => {
-        const jobs = bindings.map(binding =>
+        const jobs = Array.from(bindings).map(binding =>
           getTranslation(binding.key)
             .then(value => {
               if (!active || currentGeneration !== generation || !alive(binding)) return;
@@ -111,10 +157,27 @@ namespace BannerlordHtmlUI
         await Promise.all(jobs);
       };
 
+      const scheduleApply = () => {
+        if (!active || applyScheduled) return;
+        applyScheduled = true;
+        queueMicrotask(() => {
+          applyScheduled = false;
+          if (!active) return;
+          const currentGeneration = generation;
+          apply(currentGeneration).catch(error => {
+            if (active && currentGeneration === generation) {
+              console.error('BannerlordHtmlUI i18n dynamic refresh failed:', error);
+            }
+          });
+        });
+      };
+
       const dispose = () => {
         if (!active) return;
         active = false;
         generation++;
+        applyScheduled = false;
+        if (registry.get(target) === dispose) registry.delete(target);
         if (localeOff) {
           try { localeOff(); } catch (_) {}
           localeOff = null;
@@ -128,9 +191,10 @@ namespace BannerlordHtmlUI
           observer = null;
         }
         translationCache.clear();
-        bindings.length = 0;
+        bindings.clear();
       };
 
+      registry.set(target, dispose);
       scanRoot(target);
 
       localeOff = i18n.onLocaleChanged(() => {
@@ -138,7 +202,9 @@ namespace BannerlordHtmlUI
         translationCache.clear();
         const currentGeneration = ++generation;
         apply(currentGeneration).catch(error => {
-          if (active && currentGeneration === generation) console.error('BannerlordHtmlUI i18n locale refresh failed:', error);
+          if (active && currentGeneration === generation) {
+            console.error('BannerlordHtmlUI i18n locale refresh failed:', error);
+          }
         });
       });
 
@@ -151,6 +217,10 @@ namespace BannerlordHtmlUI
           let changed = false;
           for (const mutation of mutations) {
             if (mutation.type === 'childList') {
+              for (const node of mutation.removedNodes) {
+                removeSubtree(node);
+                changed = true;
+              }
               for (const node of mutation.addedNodes) {
                 scanRoot(node);
                 changed = true;
@@ -160,9 +230,7 @@ namespace BannerlordHtmlUI
               changed = true;
             }
           }
-          if (changed) apply(generation).catch(error => {
-            if (active) console.error('BannerlordHtmlUI i18n dynamic refresh failed:', error);
-          });
+          if (changed) scheduleApply();
         });
         observer.observe(target, {
           childList: true,
