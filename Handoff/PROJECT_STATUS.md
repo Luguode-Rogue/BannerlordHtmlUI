@@ -41,11 +41,8 @@ Bridge 已具备 Command / Request / Response / Event / State 的基础实现。
 - `HtmlUiStateStore.Count` 已开放给诊断层。
 - `HtmlUiConsumerScope.RemoveState(key)` 已提供 Consumer 自有 State 的主动删除路径，并同步移除 Scope 的拥有记录。
 - Consumer 测试页已加入 State 删除回归入口，并监听 `name` State 变化验证 `null` 删除传播。
-
-当前重点：Bridge 实机绿灯验收，以及跨页面/Reload/Shutdown 的边界错误传播验收。
-
-已知技术债：
-- StateStore 当前按“对象引用 + 内容比较”的混合语义工作。如果 Consumer 原地修改同一个复杂对象实例后再次 `Set`，由于 Store 保留的是同一引用，可能无法观察到这类原地突变。是否改为完全 value-semantics 需要单独定义并评估序列化/性能影响，当前不作为普通修复顺手修改。
+- Request 已支持可选 `CancellationToken` handler；JS Runtime 新增 `requestCancellable()`，支持 AbortSignal、timeout cancel、pagehide cancel 和 runtime shutdown cancel。
+- Request cancellation 已处理执行前、执行中、timeout、pagehide、runtime shutdown 等竞态，并抑制取消后的晚到成功结果。
 
 ### M3 Localization / Binding
 Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
@@ -61,6 +58,9 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - `i18n.bind()` 已支持动态 DOM：新增匹配节点自动加入绑定，Localization 属性变化自动重新绑定，删除节点/子树会回收对应 binding，dispose/pagehide 会断开 MutationObserver。
 - 同一 `root` 重复调用 `i18n.bind()` 时会先自动 dispose 旧 binding，避免重复 locale listener / MutationObserver 累积。
 - 多个连续 DOM mutation 会在 microtask 内合并为一次 refresh pass，减少重复翻译和 DOM 写回。
+- Binding scheduler 已隔离不同 Binder 的 debounce/throttle 状态；Binder dispose 会清理 timer。
+- `component()` 创建的 child 已加入 parent Binder 生命周期；child disposer 幂等，Binder dispose 后不能再创建孤儿 component。
+- Pagehide 会主动 dispose `game.bind` / `game.app.bind`，让 State/Event/DOM/list/component/timer 统一收口。
 
 当前继续处理：
 - Language Switch 后 DOM 自动刷新实机验收
@@ -73,19 +73,22 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - document-created bootstrap 已改为短时间重试等待 `window.game` / `game.request` 建立，不再依赖单次 microtask，避免首次导航出现 Runtime 注入时序导致的 State hydration 丢失。
 - 当前代码不新增高频运行日志；失败只在实际异常时通过页面 console 诊断。
 
-### API 边界
+### API / Protocol 边界
 - `HtmlUiPage.RelativePath` 已明确拒绝 rooted/absolute path，并继续拒绝 `..` 越界路径，保持 Page 资源只能落在声明的 ContentRoot 内。
 - Public API 文档已同步 `PageManager.Count/Current/Reload`、`StateStore.Count/GetSnapshot`、`ConsumerScope.RemoveState`。
 - Command / Request / timeout / lifecycle 语义已开始固化到 Protocol/API 文档。
-- Runtime 与 `.d.ts` 的 API 差异审计已开始；目前已先修复 Binding API 类型声明缺口。
-- Public API 下一阶段需要冻结 v0.44 对外语义：错误码、timeout、disposer、页面生命周期和 ownership 规则必须写成稳定契约。
+- Runtime 与 `.d.ts` 的 API 差异审计已开始；Binding、Cancellation 等新增 API 已同步声明。
+- 新的 `BannerlordHtmlUiError` 为 JS Error 提供稳定 `code/raw/operation/requestName` 字段，同时保持旧 `Error.message` 兼容。
+- Cancellation 已成为兼容扩展：旧 `request()` 与旧 `Func<JToken, Task<object>>` 不变；新式 handler 可接收 `CancellationToken`。
+- Public API 下一阶段需要冻结 v0.44 对外语义：错误码、timeout、disposer、页面生命周期、ownership 和 cancellation 规则必须写成稳定契约。
 
 ### Diagnostics
 - Framework version 已与 v0.44 文档对齐为 `0.44.0`。
-- F10 Diagnostics 可报告 PageCount / StateCount，避免诊断页面只显示部分运行态。
-- F10 Diagnostics 页面已改为 500ms 轻量自动刷新，并带 in-flight 防重入与 unload disposer，方便观察窗口、输入模式、Page 生命周期变化而不产生框架级高频日志。
-- Diagnostics snapshot 新增 `SnapshotUtc`、`CurrentPageOwner`、`CurrentPagePath`，便于多 Page / 多 Consumer 生命周期排查。
-- 下一阶段增加 Bridge/Binding 运行态计数与失败摘要，但继续避免逐帧日志。
+- F10 Diagnostics 可报告 PageCount / StateCount / ContentRootCount。
+- Diagnostics 页面默认 1000ms 轻量刷新，并带 in-flight 防重入与 pagehide disposer，避免诊断页面自己成为高频噪声源。
+- Diagnostics snapshot 已包含 `SnapshotUtc`、`CurrentPageOwner`、`CurrentPagePath`、BridgeCommandCount、BridgeRequestCount、ActiveRequestCount、NavigationInProgress 等字段。
+- `BridgeCommandCount` / `BridgeRequestCount` 表示注册数量；`ActiveRequestCount` 表示当前真正持有 CancellationTokenSource 的活跃 Request 数量。
+- 后续继续增加非高频的 Binding/Observer 运行态摘要，不恢复逐帧日志。
 
 ### Overlay / WebView2
 - 当前已有经过实机验证的正常基线：`debug/test-root-transparent`。
@@ -98,6 +101,8 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - [x] `i18n.bind()` 多次调用幂等 / root 级 disposer 去重
 - [x] 动态 DOM 删除节点后的 binding 清理
 - [x] 连续 DOM mutation refresh 合并
+- [x] Binder debounce/throttle 生命周期隔离
+- [x] Component child disposer 接入 Binder 生命周期
 - [ ] Binding locale refresh / disposal 压力验证
 - [ ] Template / List 长期运行与 key diff 验收
 - [ ] 大量 DOM Binding 性能检查
@@ -106,23 +111,32 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - [x] Command 基础成功/错误语义与 fire-and-forget runtime.error 区分写入文档
 - [x] Owner / Scope 生命周期主要规则已有文档
 - [x] Owner-scope 批量注销竞态已做 entry-identity 防护
-- [ ] 完整统一错误模型（Command/Request/Timeout/Protocol）
-- [ ] Timeout、取消、页面卸载语义最终冻结
-- [ ] Page / ContentRoot / Reload 资源安全边界最终审计
-- [ ] TypeScript `.d.ts` 与实际 Runtime API 一致性审计
+- [x] 统一 JS Error model 基础字段与稳定错误码
+- [x] Timeout、AbortSignal、pagehide、runtime shutdown cancellation 基础语义
+- [x] Page / ContentRoot / Reload 资源安全边界初步审计
+- [x] TypeScript `.d.ts` 与新增 Runtime API 一致性审计
+- [ ] 冻结 v0.44 Public API / Protocol 合同
 
 ### M5 Consumer / Diagnostics
-- [ ] Consumer TestMod 覆盖 Command / Request / Event / State / Binding / i18n / Page 切换
-- [ ] Diagnostics 增加非高频的运行态摘要：注册数、pending request、binding scope 数、错误摘要
-- [ ] 新增明确的 smoke / lifecycle 回归入口，尽量一次操作覆盖一组生命周期
+- [x] Consumer TestMod 覆盖 Command / Request / Event / State / Binding / i18n / Page 切换基础入口
+- [x] Diagnostics 已包含注册数、ActiveRequestCount、页面/状态/ContentRoot 等摘要
+- [x] Consumer TestMod 新增独立 `StressLab` 页面
+- [x] `F8` 打开 StressLab，`F7` 关闭当前页面；不改变 F11/F12 默认入口
+- [x] M5 回归矩阵文档已建立
+- [ ] StressLab 实机验证
+- [ ] 一键 smoke / lifecycle 回归入口完全覆盖
 
 ### M6 Stability / Performance
+- [x] Navigation race 已有 NavigationId Guard + Rapid Open/Reload 回归入口
+- [x] Request active count 可用于压力前后基线比较
+- [x] Runtime shutdown cancellation 已接入 Service Dispose
+- [x] Binding / Component / timer / observer lifecycle 已做多轮静态收口
 - [ ] 高频 State / Event 压力场景
-- [ ] 大量 DOM Binding 场景
-- [ ] 多 Page 快速切换 / Reload
-- [ ] Request timeout / late response / shutdown race
-- [ ] 长时间运行的 disposer / observer / timer 泄漏审计
+- [ ] StressLab 长时间运行验证
+- [ ] 大量 DOM Binding / Component 场景
+- [ ] 多 Page 快速切换 / Reload 长时间验证
 - [ ] Framework 主线程 / WebView2 UI thread 边界最终审计
+- [ ] 压力测试结果记录与泄漏基线冻结
 
 ### M7 Release Baseline
 - [ ] 清理遗留 debug 分支与实验开关
@@ -135,6 +149,7 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - Command
 - Request / Response
 - Async Request / timeout
+- Request Cancellation / AbortSignal
 - Event
 - State
 - State remove / redundant-set 行为
@@ -146,6 +161,7 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - i18n DOM bind 生命周期与语言切换自动刷新
 - 多次 i18n.bind/dispose 的生命周期压力场景
 - Bridge 竞态下的旧 handler / 过期 response 行为
+- StressLab 长时间运行后 ActiveRequestCount / PageCount / StateCount / Bridge 注册数回落
 
 ## 已解决的历史问题
 ### WebView2 跨线程
@@ -169,4 +185,4 @@ Captured 模式下 Overlay 自身成为前台时，旧逻辑误判为 Bannerlord
 完整复盘见：`Handoff/BUG_POSTMORTEM_OVERLAY_RENDERING_20260814.md`。
 
 ### Shutdown
-曾出现 Framework 已关闭而 ConsumerScope 继续访问 HtmlUiService 的 12 条 ERROR。当前已有防御式 Dispose。
+曾出现 Framework 已关闭而 ConsumerScope 继续访问 HtmlUiService 的 12 条 ERROR。当前已有防御式 Dispose；Runtime Dispose 会先取消当前 Bridge 的活跃 Request，再销毁 Host。
