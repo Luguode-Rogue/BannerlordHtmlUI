@@ -94,16 +94,22 @@ namespace BannerlordHtmlUI
       if (typeof binder.twoWayValue !== 'function' && typeof binder.twoWayChecked !== 'function') return binder;
 
       const scheduler = schedulerFactory();
+      const componentDisposers = new Set();
       const originalValue = binder.twoWayValue;
       const originalChecked = binder.twoWayChecked;
+      const originalComponent = typeof binder.component === 'function' ? binder.component : null;
       const originalDispose = typeof binder.dispose === 'function' ? binder.dispose.bind(binder) : null;
+      let disposed = false;
 
       if (typeof originalValue === 'function') {
         binder.twoWayValue = (element, key, writer, options = {}) => {
           const target = typeof element === 'string' ? document.querySelector(element) : element;
           const wrapped = scheduler.wrapWriter(writer, options);
           const dispose = originalValue.call(binder, element, key, wrapped, { ...options, debounce: 0, throttle: 0 });
+          let active = true;
           return () => {
+            if (!active) return;
+            active = false;
             scheduler.clearFor(target);
             try { dispose?.(); } catch (_) {}
           };
@@ -115,15 +121,45 @@ namespace BannerlordHtmlUI
           const target = typeof element === 'string' ? document.querySelector(element) : element;
           const wrapped = scheduler.wrapWriter(writer, options);
           const dispose = originalChecked.call(binder, element, key, wrapped, { ...options, debounce: 0, throttle: 0 });
+          let active = true;
           return () => {
+            if (!active) return;
+            active = false;
             scheduler.clearFor(target);
             try { dispose?.(); } catch (_) {}
           };
         };
       }
 
+      if (originalComponent) {
+        binder.component = (...args) => {
+          if (disposed) return originalComponent(...args);
+          const component = originalComponent(...args);
+          const originalComponentDispose = component && typeof component.dispose === 'function'
+            ? component.dispose.bind(component)
+            : null;
+          if (!originalComponentDispose) return component;
+
+          let active = true;
+          const dispose = () => {
+            if (!active) return;
+            active = false;
+            componentDisposers.delete(dispose);
+            try { originalComponentDispose(); } catch (e) { console.error(e); }
+          };
+          componentDisposers.add(dispose);
+          return { ...component, dispose };
+        };
+      }
+
       binder.dispose = () => {
+        if (disposed) return;
+        disposed = true;
         scheduler.clearAll();
+        for (const dispose of [...componentDisposers]) {
+          try { dispose(); } catch (_) {}
+        }
+        componentDisposers.clear();
         try { originalDispose?.(); } catch (e) { console.error(e); }
       };
       binder.__bannerlordHtmlUiBindingSchedulerPatched = true;
