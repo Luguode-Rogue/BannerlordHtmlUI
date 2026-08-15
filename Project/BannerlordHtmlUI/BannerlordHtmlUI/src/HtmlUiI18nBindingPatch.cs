@@ -169,7 +169,6 @@ namespace BannerlordHtmlUI
                 var core = web?.CoreWebView2;
                 if (core == null) return;
                 _ = core.AddScriptToExecuteOnDocumentCreatedAsync(Script);
-                HtmlUiKeyboardAndDiagnosticsPatch.Install(host);
                 HtmlUiLogger.Info("i18n binding lifecycle patch installed.");
             }
             catch (Exception ex)
