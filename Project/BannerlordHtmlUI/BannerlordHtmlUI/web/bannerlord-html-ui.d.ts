@@ -22,6 +22,7 @@ export interface BannerlordHtmlUiError extends Error {
     | 'COMMAND_UNREGISTERED'
     | 'REQUEST_STALE'
     | 'REQUEST_UNREGISTERED'
+    | 'REQUEST_ABORTED'
     | 'PROTOCOL_UNSUPPORTED_VERSION'
     | 'PROTOCOL_UNKNOWN_TYPE'
     | 'RUNTIME_DISPOSED'
@@ -89,6 +90,7 @@ declare namespace BannerlordHtmlUI {
     readonly ownerId: string | null;
     call<T = unknown>(name: string, payload?: unknown, timeoutMs?: number): Promise<T>;
     request<T = unknown>(name: string, payload?: unknown, timeoutMs?: number): Promise<T>;
+    requestCancellable<T = unknown>(name: string, payload?: unknown, timeoutMs?: number, signal?: AbortSignal | null): Promise<T>;
     on<T = unknown>(name: string, handler: (payload: T) => void): () => void;
     readonly state: GameState;
     readonly events: { on<T = unknown>(name: string, handler: (payload: T) => void): () => void };
@@ -107,6 +109,7 @@ declare namespace BannerlordHtmlUI {
     readonly ownerId: string;
     call<T = unknown>(name: string, payload?: unknown, timeoutMs?: number): Promise<T>;
     request<T = unknown>(name: string, payload?: unknown, timeoutMs?: number): Promise<T>;
+    requestCancellable<T = unknown>(name: string, payload?: unknown, timeoutMs?: number, signal?: AbortSignal | null): Promise<T>;
     on<T = unknown>(name: string, handler: (payload: T) => void): () => void;
     readonly state: GameState;
     readonly bind: BindingApi;
@@ -118,6 +121,7 @@ declare namespace BannerlordHtmlUI {
     scope(ownerId?: string): GameScope;
     call<T = unknown>(name: string, payload?: unknown, timeoutMs?: number): Promise<T>;
     request<T = unknown>(name: string, payload?: unknown, timeoutMs?: number): Promise<T>;
+    requestCancellable<T = unknown>(name: string, payload?: unknown, timeoutMs?: number, signal?: AbortSignal | null): Promise<T>;
     on<T = unknown>(name: string, handler: (payload: T) => void): () => void;
     readonly state: GameState;
     readonly app: GameApp;
