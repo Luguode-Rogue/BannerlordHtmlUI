@@ -14,6 +14,8 @@ namespace BannerlordHtmlUI
     if (!game || game['" + Marker + @"'] || typeof game.request !== 'function' || !window.chrome?.webview) return false;
 
     const activeCancels = new Set();
+    const cancellablePending = new Map();
+    let nextCancellableId = 1;
     const makeAbortError = (reason, requestName = null) => {
       const error = new Error(reason || 'Request aborted.');
       error.name = 'BannerlordHtmlUiError';
@@ -24,67 +26,94 @@ namespace BannerlordHtmlUI
       return error;
     };
 
+    const settleCancellable = (id, ok, payload, error) => {
+      const item = cancellablePending.get(id);
+      if (!item) return false;
+      cancellablePending.delete(id);
+      if (item.timer) clearTimeout(item.timer);
+      if (item.signal && item.abortHandler) {
+        try { item.signal.removeEventListener('abort', item.abortHandler); } catch (_) {}
+      }
+      activeCancels.delete(item.cancel);
+      if (ok) item.resolve(payload);
+      else item.reject(error instanceof Error ? error : new Error(String(error || 'Request failed')));
+      return true;
+    };
+
+    if (!game.__bannerlordHtmlUiRequestCancellationReceivePatched && typeof game.__receive === 'function') {
+      const originalReceive = game.__receive;
+      game.__receive = function(messageJson) {
+        let message = messageJson;
+        try { if (typeof messageJson === 'string') message = JSON.parse(messageJson); } catch (_) {}
+        if (message && message.type === 'response' && message.id && cancellablePending.has(String(message.id))) {
+          settleCancellable(String(message.id), !!message.ok, message.payload, message.error || 'Request failed');
+          return;
+        }
+        return originalReceive.call(this, messageJson);
+      };
+      game.__bannerlordHtmlUiRequestCancellationReceivePatched = true;
+    }
+
+    const sendCancel = id => {
+      const item = cancellablePending.get(id);
+      if (!item || item.cancelSent) return;
+      item.cancelSent = true;
+      try {
+        window.chrome.webview.postMessage({ version: 1, type: 'cancel', id, name: '', payload: null });
+      } catch (_) {}
+    };
+
+    const requestCancellableInternal = (name, payload = {}, timeoutMs = 10000, signal = null) => {
+      if (signal?.aborted) return Promise.reject(makeAbortError('Request aborted: ' + name, name));
+      if (!name) return Promise.reject(new Error('Request name is required.'));
+
+      const id = `c${Date.now()}_${nextCancellableId++}`;
+      return new Promise((resolve, reject) => {
+        const item = {
+          resolve,
+          reject,
+          timer: null,
+          signal,
+          abortHandler: null,
+          cancel: null,
+          cancelSent: false
+        };
+        item.cancel = () => sendCancel(id);
+        item.abortHandler = () => {
+          if (!cancellablePending.has(id)) return;
+          sendCancel(id);
+          settleCancellable(id, false, null, makeAbortError('Request aborted: ' + name, name));
+        };
+        cancellablePending.set(id, item);
+        activeCancels.add(item.cancel);
+
+        const safeTimeout = Math.max(1, Number(timeoutMs) || 10000);
+        item.timer = setTimeout(() => {
+          if (!cancellablePending.has(id)) return;
+          sendCancel(id);
+          settleCancellable(id, false, null, new Error('request timeout: ' + name));
+        }, safeTimeout);
+
+        if (signal) {
+          try { signal.addEventListener('abort', item.abortHandler, { once: true }); } catch (_) {}
+          if (signal.aborted) {
+            item.abortHandler();
+            return;
+          }
+        }
+
+        try {
+          window.chrome.webview.postMessage({ version: 1, type: 'request', id, name, payload });
+        } catch (e) {
+          settleCancellable(id, false, null, e);
+        }
+      });
+    };
+
     const patchRequestOwner = owner => {
       if (!owner || typeof owner.request !== 'function' || owner.requestCancellable) return;
-      const originalRequest = owner.request.bind(owner);
-      owner.requestCancellable = (name, payload = {}, timeoutMs = 10000, signal = null) => {
-        if (signal?.aborted) return Promise.reject(makeAbortError('Request aborted: ' + name, name));
-
-        const webview = window.chrome.webview;
-        const originalPostMessage = webview.postMessage;
-        let requestId = null;
-        let settled = false;
-        let timeoutHandle = null;
-        let abortHandler = null;
-        let cancelSent = false;
-
-        const sendCancel = () => {
-          if (cancelSent || !requestId) return;
-          cancelSent = true;
-          try {
-            originalPostMessage.call(webview, { version: 1, type: 'cancel', id: requestId, name: '', payload: null });
-          } catch (_) {}
-        };
-        const cleanup = () => {
-          if (settled) return;
-          settled = true;
-          activeCancels.delete(sendCancel);
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          if (signal && abortHandler) {
-            try { signal.removeEventListener('abort', abortHandler); } catch (_) {}
-          }
-        };
-
-        webview.postMessage = function(message) {
-          if (!requestId && message && message.version === 1 && message.type === 'request' && message.id && message.name === name)
-            requestId = String(message.id);
-          return originalPostMessage.call(this, message);
-        };
-
-        let requestPromise;
-        try { requestPromise = originalRequest(name, payload, timeoutMs); }
-        finally { webview.postMessage = originalPostMessage; }
-
-        const result = new Promise((resolve, reject) => {
-          abortHandler = () => {
-            if (settled) return;
-            sendCancel();
-            reject(makeAbortError('Request aborted: ' + name, name));
-          };
-
-          requestPromise.then(resolve, reject).finally(cleanup);
-          if (signal) {
-            signal.addEventListener('abort', abortHandler, { once: true });
-            if (signal.aborted) abortHandler();
-          }
-        });
-
-        if (settled) return result;
-        activeCancels.add(sendCancel);
-        const safeTimeout = Math.max(1, Number(timeoutMs) || 10000);
-        timeoutHandle = setTimeout(() => { if (!settled) sendCancel(); }, Math.max(0, safeTimeout - 25));
-        return result;
-      };
+      owner.requestCancellable = (name, payload = {}, timeoutMs = 10000, signal = null) =>
+        requestCancellableInternal(owner.ownerId ? `${owner.ownerId}.${String(name).replace(/^\\.+/, '')}` : name, payload, timeoutMs, signal);
     };
 
     patchRequestOwner(game);
@@ -104,6 +133,8 @@ namespace BannerlordHtmlUI
         for (const cancel of [...activeCancels]) {
           try { cancel(); } catch (_) {}
         }
+        for (const id of [...cancellablePending.keys()])
+          settleCancellable(id, false, null, new Error('BannerlordHtmlUI page unloaded'));
         activeCancels.clear();
       }, { once: true });
       game.__bannerlordHtmlUiRequestCancellationPageLifecycleInstalled = true;
