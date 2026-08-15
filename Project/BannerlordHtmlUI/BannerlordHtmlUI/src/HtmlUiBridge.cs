@@ -29,6 +29,9 @@ namespace BannerlordHtmlUI
 
         public HtmlUiBridge(HtmlUiHost host) => _host = host;
 
+        public int CommandCount => _commands.Count;
+        public int RequestCount => _requests.Count;
+
         public void RegisterRequest(string name, Func<JToken, Task<object>> handler)
         {
             RegisterRequestCore(name, handler, "framework");
