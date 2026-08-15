@@ -26,6 +26,7 @@ namespace BannerlordHtmlUI
             if (normalizedPath == ".." || normalizedPath.StartsWith("../", StringComparison.Ordinal) || normalizedPath.IndexOf("/../", StringComparison.Ordinal) >= 0)
                 throw new ArgumentException("RelativePath must stay inside its content root.", nameof(relativePath));
 
+            Id = id;
             RelativePath = normalizedPath;
         }
 
