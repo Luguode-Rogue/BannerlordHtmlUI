@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using BannerlordHtmlUI;
 using Newtonsoft.Json.Linq;
@@ -133,6 +134,20 @@ namespace HtmlUiConsumerTestMod
                     };
                 });
 
+                _scope.RegisterRequest("getDataCancellable", async (payload, cancellationToken) =>
+                {
+                    var echo = payload?["echo"]?.Value<string>() ?? string.Empty;
+                    await Task.Delay(5000, cancellationToken).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return new
+                    {
+                        mod = OwnerId,
+                        echo,
+                        counter = _counter,
+                        cancellable = true
+                    };
+                });
+
                 _scope.RegisterRequest("throwRequest", payload =>
                 {
                     throw new InvalidOperationException("Intentional consumer request failure.");
@@ -142,7 +157,7 @@ namespace HtmlUiConsumerTestMod
                 _scope.SetState("loaded", true);
                 _registered = true;
                 Log("Consumer UI registration completed successfully.");
-                Log("M2 bridge diagnostics registered: getDataDelayed, emitTestEvent, throwCommand, throwRequest, removeNameState.");
+                Log("M5 bridge diagnostics registered: getDataDelayed, getDataCancellable, emitTestEvent, throwCommand, throwRequest, removeNameState.");
             }
             catch (Exception ex)
             {
