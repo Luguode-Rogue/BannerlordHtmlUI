@@ -204,6 +204,8 @@ namespace BannerlordHtmlUI
 
         private void InstallRuntimePatchesOnUiThread()
         {
+            try { HtmlUiKeyboardAndDiagnosticsPatch.Install(this); }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install keyboard/diagnostics patch.", ex); }
             try { HtmlUiI18nBindingPatch.Install(this); }
             catch (Exception ex) { HtmlUiLogger.Error("Failed to install i18n binding lifecycle patch.", ex); }
             try { HtmlUiStateBootstrapPatch.Install(this); }
@@ -758,6 +760,7 @@ namespace BannerlordHtmlUI
             _webViewReady = false;
             _requestedVisible = false;
             _inputMode = HtmlUiInputMode.Hidden;
+            try { HtmlUiKeyboardAndDiagnosticsPatch.Uninstall(this); } catch (Exception ex) { HtmlUiLogger.Debug("Keyboard/diagnostics patch uninstall failed: " + ex.GetBaseException().Message); }
             try { _watcher?.Dispose(); } catch { }
             try { _followTimer?.Stop(); _followTimer?.Dispose(); } catch { }
             try
