@@ -30,10 +30,41 @@ BannerlordHtmlUI 是 Bannerlord 的 WebView2 HTML UI Framework。目标是让其
 - 页面关闭状态与实际窗口状态可能不同。
 - Bannerlord 主窗口 HWND 临时变为 0 时，旧逻辑可能错误 `Hide()` WebView2 Overlay。
 - 多页面功能曾因错误修改/覆盖而丢失，因此后续修复不得删除已有 Page / Consumer / StressLab 功能。
+- `84c9ecfe56fbc06b1b81dca261ce8ad5576c6563` 曾在只修改右键菜单的同时误删 `HtmlUiHost.cs` 后续 516 行，导致 `FlushPendingPage`、导航事件处理、Runtime 安装、窗口状态、`Dispose()` 等方法全部消失并产生一串级联编译错误。该提交不是功能设计变更，应视为历史文件损坏点。
 
 此前已经通过二分确认过若干可用版本；后续应把“已确认可用的多页面完整版本”视为功能基线，而不是用简化版本继续开发。
 
 ## 4. 已完成的重要稳定性修复
+
+### HtmlUiHost 历史损坏恢复
+
+**已完成代码恢复。**
+
+恢复依据：`84c9ecfe56fbc06b1b81dca261ce8ad5576c6563` 的父版本 `e15685a9dcf1e46d71372aa44a3407f5fe458b04` 中的完整 `HtmlUiHost.cs`。
+
+恢复内容包括：
+
+- `ApplyWindowState()`
+- `ConfigureLocalHost()` / ContentRoot 管理
+- `InstallFrameworkRuntime()` / `InstallRuntimeErrorForwarder()`
+- `OnWebResourceRequested()`
+- `OnNavigationStarting()` / `OnNavigationCompleted()`
+- `ValidatePage()` / `Navigate()` / `FlushPendingPage()` / `NavigateOnUiThread()`
+- HotReload watcher
+- InputMode / UI thread 调度
+- Command / Request / Event / Response API
+- `Dispose()`
+
+恢复提交：
+
+- `c7bbe9fffa1757935b433991ca43f58c2375ab51` — `fix: restore truncated HtmlUiHost implementation`
+
+随后为避免再次直接改动这个大文件，右键菜单功能改由独立生命周期 Patch 保证：
+
+- `62d82f3c37bbb72f5d9609682a5fd5c1e7cfc16a` — 新增 `HtmlUiContextMenuPatch.cs`
+- `01e393228cd391c36f5c2cd02df09a767e695a26` — 接入安装/卸载生命周期
+
+因此当前 `HtmlUiHost.cs` 保持历史完整实现，而 `AreDefaultContextMenusEnabled=false` 由独立 Patch 在 `ConfigureAfterWebViewReady()` 后强制设置。
 
 ### Page transition race
 
@@ -91,11 +122,13 @@ Framework shutdown 时主动：
 
 ### WebView2 右键菜单
 
-用户明确要求网页 F11 UI 不出现浏览器右键菜单。当前已有：
+用户明确要求网页 F11 UI 不出现浏览器右键菜单。
+
+当前通过 `HtmlUiContextMenuPatch` 在 `ConfigureAfterWebViewReady()` 完成后设置：
 
 `CoreWebView2.Settings.AreDefaultContextMenusEnabled = false`
 
-因此该功能已经处理，不要重复实现。
+不要再次直接修改完整 `HtmlUiHost.cs` 来实现这一功能，以免重复引入历史级联破坏。
 
 ### WebView2 ProcessFailed Recovery
 
@@ -146,11 +179,16 @@ Framework shutdown 时主动：
 
 ### P0/P1 优先
 
-1. **HWND=0 实机回归**
+1. **Framework / Consumer 编译回归**
+   - `HtmlUiHost.cs` 历史截断已经恢复。
+   - GitHub 当前没有可用 Actions workflow run，因此未能提供远程编译通过证据。
+   - 下一步必须在本机先编译 Framework，再编译 Consumer TestMod。
+
+2. **HWND=0 实机回归**
    - 代码收口完成。
    - 待 Bannerlord 实机验证：短暂 MainWindowHandle 不可解析时 UI 不应被隐藏；恢复后应自动继续跟随。
 
-2. **WebView2 ProcessFailed Recovery 实机回归**
+3. **WebView2 ProcessFailed Recovery 实机回归**
    - 恢复代码已接入。
    - 待真实 ProcessFailed 触发验证：
      - 当前 Page 保留
@@ -159,17 +197,17 @@ Framework shutdown 时主动：
      - 多 Page 不丢失
      - 恢复失败才进入安全关闭
 
-3. **Owner Dispose -> Cancel owned requests**
+4. **Owner Dispose -> Cancel owned requests**
    - Consumer Scope Dispose 当前会注销 Request，但需要主动取消正在运行的 cancellable handler。
 
-4. **preCanceledRequests 生命周期**
+5. **preCanceledRequests 生命周期**
    - 需要避免长期残留。
    - 应采用有限生命周期/可验证清理策略。
 
-5. **requestCancellable requestId 捕获竞态**
+6. **requestCancellable requestId 捕获竞态**
    - 当前临时替换 `postMessage` 捕获 requestId 的方式存在竞态窗口，需要继续审查并改成可靠的协议级机制。
 
-6. **HotReload / Page lifecycle**
+7. **HotReload / Page lifecycle**
    - 需要继续审查跨导航、reload、unregister、consumer dispose 的生命周期一致性。
 
 ### P2
@@ -232,15 +270,16 @@ Consumer TestMod：
 
 1. ~~收口 HWND=0 残留 Hide 路径~~ **代码完成，待实机回归**。
 2. ~~实现 WebView2 ProcessFailed Recovery~~ **代码完成，待真实 ProcessFailed 回归**。
-3. **完整回归单页面 + 多页面 + ESC + 焦点 + i18n + HWND=0 + ProcessFailed Recovery。**
-4. Owner Dispose -> Request cancellation。
-5. 清理 preCanceledRequests 生命周期。
-6. 修正 requestCancellable requestId 捕获竞态。
-7. HotReload / Page lifecycle 全面回归。
-8. StressLab 长时间测试。
-9. Binding / i18n / Runtime 协议最终审查。
-10. 恢复全功能开发。
-11. v0.44 release checklist / 文档 / 发布收口。
+3. ~~修复 `HtmlUiHost.cs` 历史截断导致的级联编译错误~~ **代码完成，待本机编译**。
+4. **Framework 编译 → Consumer TestMod 编译 → 完整回归单页面 + 多页面 + ESC + 焦点 + i18n + HWND=0 + ProcessFailed Recovery。**
+5. Owner Dispose -> Request cancellation。
+6. 清理 preCanceledRequests 生命周期。
+7. 修正 requestCancellable requestId 捕获竞态。
+8. HotReload / Page lifecycle 全面回归。
+9. StressLab 长时间测试。
+10. Binding / i18n / Runtime 协议最终审查。
+11. 恢复全功能开发。
+12. v0.44 release checklist / 文档 / 发布收口。
 
 ## 10. 开发原则
 
@@ -253,10 +292,11 @@ Consumer TestMod：
 - 每次修复应有明确的代码原因、最小修改范围和提交说明。
 - Framework 修改后按约定先重新编译 Framework，再编译 Consumer TestMod。
 - 不要为了日志好看而制造假状态；所有 Ready/Visible/Input 状态必须与实际 WebView2 状态一致。
+- `HtmlUiHost.cs` 属于回归敏感核心文件；涉及单行功能修改时优先使用独立 Patch，避免再次发生大文件误删。
 
 ## 11. 下一步交接点
 
-**当前真正的下一步是做真实回归，而不是继续改架构：**
+**当前真正的下一步是本机编译，而不是继续架构改造：**
 
 - Framework 编译
 - Consumer TestMod 编译
