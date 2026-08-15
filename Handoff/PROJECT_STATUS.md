@@ -80,6 +80,8 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - Runtime 与 `.d.ts` 的 API 差异审计已开始；Binding、Cancellation 等新增 API 已同步声明。
 - 新的 `BannerlordHtmlUiError` 为 JS Error 提供稳定 `code/raw/operation/requestName` 字段，同时保持旧 `Error.message` 兼容。
 - Cancellation 已成为兼容扩展：旧 `request()` 与旧 `Func<JToken, Task<object>>` 不变；新式 handler 可接收 `CancellationToken`。
+- Request handler 的初始调用在 Bannerlord game thread；如果 handler `await` 后继续执行，则不保证仍在 Bannerlord game thread。需要 game-thread affinity 的 Consumer 必须显式重新 marshal。
+- Response 发送单独回到 WebView2 UI thread，Request async continuation 不应直接访问 `CoreWebView2`。
 - Public API 下一阶段需要冻结 v0.44 对外语义：错误码、timeout、disposer、页面生命周期、ownership 和 cancellation 规则必须写成稳定契约。
 
 ### Diagnostics
@@ -131,11 +133,12 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - [x] Request active count 可用于压力前后基线比较
 - [x] Runtime shutdown cancellation 已接入 Service Dispose
 - [x] Binding / Component / timer / observer lifecycle 已做多轮静态收口
+- [x] StressLab 已覆盖普通 Request / Cancellation / Component / DOM baseline
+- [x] GameThread → async continuation → WebView2 UI thread 边界已完成静态审计并写入 Protocol
 - [ ] 高频 State / Event 压力场景
 - [ ] StressLab 长时间运行验证
 - [ ] 大量 DOM Binding / Component 场景
 - [ ] 多 Page 快速切换 / Reload 长时间验证
-- [ ] Framework 主线程 / WebView2 UI thread 边界最终审计
 - [ ] 压力测试结果记录与泄漏基线冻结
 
 ### M7 Release Baseline
