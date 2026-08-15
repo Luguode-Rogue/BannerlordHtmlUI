@@ -113,7 +113,7 @@ namespace BannerlordHtmlUI
     const patchRequestOwner = owner => {
       if (!owner || typeof owner.request !== 'function' || owner.requestCancellable) return;
       owner.requestCancellable = (name, payload = {}, timeoutMs = 10000, signal = null) =>
-        requestCancellableInternal(owner.ownerId ? `${owner.ownerId}.${String(name).replace(/^\\.+/, '')}` : name, payload, timeoutMs, signal);
+        requestCancellableInternal(owner.ownerId ? `${owner.ownerId}.${String(name).replace(/^\.+/, '')}` : name, payload, timeoutMs, signal);
     };
 
     patchRequestOwner(game);
