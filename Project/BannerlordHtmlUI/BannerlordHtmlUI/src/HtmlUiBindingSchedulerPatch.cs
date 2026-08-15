@@ -142,6 +142,14 @@ namespace BannerlordHtmlUI
       };
     }
 
+    if (!game.__bannerlordHtmlUiBindingPageLifecycleInstalled) {
+      window.addEventListener('pagehide', () => {
+        try { game.bind?.dispose?.(); } catch (_) {}
+        try { game.app?.bind?.dispose?.(); } catch (_) {}
+      }, { once: true });
+      game.__bannerlordHtmlUiBindingPageLifecycleInstalled = true;
+    }
+
     game[\"" + Marker + @"\"] = true;
     return true;
   };
