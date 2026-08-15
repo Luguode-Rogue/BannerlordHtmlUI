@@ -4,13 +4,11 @@ namespace BannerlordHtmlUI
 {
     internal static class HtmlUiBridgeShutdownPatch
     {
-        public static void CancelAll()
+        public static void CancelAll(HtmlUiBridge bridge)
         {
             try
             {
-                var bridge = HtmlUiBridge.Current;
-                if (bridge == null) return;
-                bridge.CancelAllRequests();
+                bridge?.CancelAllRequests();
             }
             catch (Exception ex)
             {
