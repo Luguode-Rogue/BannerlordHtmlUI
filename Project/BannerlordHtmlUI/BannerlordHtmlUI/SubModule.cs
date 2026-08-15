@@ -91,6 +91,16 @@ namespace BannerlordHtmlUI
         protected override void OnSubModuleUnloaded()
         {
             try { HtmlUiService.NotifyGameContext("application", false); } catch { }
+            try
+            {
+                if (HtmlUiService.IsInitialized)
+                    HtmlUiKeyboardAndDiagnosticsPatch.Uninstall(HtmlUiService.Host);
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Debug("ESC diagnostics uninstall during module shutdown failed: " + ex.GetBaseException().Message);
+            }
+
             HtmlUiService.Dispose();
             base.OnSubModuleUnloaded();
         }
