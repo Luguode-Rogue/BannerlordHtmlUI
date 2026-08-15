@@ -42,6 +42,34 @@ namespace BannerlordHtmlUI
             }
         }
 
+        public static void Uninstall()
+        {
+            lock (Sync)
+            {
+                if (!_installed) return;
+
+                try
+                {
+                    _harmony?.Unpatch(
+                        AccessTools.Method(typeof(HtmlUiHost), "Reload"),
+                        HarmonyPatchType.Prefix,
+                        "BannerlordHtmlUI.HotReload");
+                }
+                catch (Exception ex)
+                {
+                    HtmlUiLogger.Debug("Hot reload patch uninstall failed: " + ex.GetBaseException().Message);
+                }
+                finally
+                {
+                    _harmony = null;
+                    _installed = false;
+                    States.Clear();
+                }
+
+                HtmlUiLogger.Info("Hot reload lifecycle/debounce patch uninstalled.");
+            }
+        }
+
         private static bool BeforeReload(HtmlUiHost __instance)
         {
             if (__instance == null || !__instance.HotReloadEnabled)
