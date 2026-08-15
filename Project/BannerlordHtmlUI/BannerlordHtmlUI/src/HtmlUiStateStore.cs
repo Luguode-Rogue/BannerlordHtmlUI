@@ -52,9 +52,10 @@ namespace BannerlordHtmlUI
             lock (_sync) removed = _values.Remove(key);
             if (!removed) return;
 
-            // Runtime state subscriptions are keyed by `state:<key>`.
-            // Publish null on the same channel so subscribers and binders see the removal.
-            _host.SendEvent("state:" + key, null);
+            // A null value is a valid state value, so removal needs its own protocol event.
+            // The runtime deletes the key and then notifies ordinary state:<key> subscribers
+            // with undefined so existing bindings still refresh correctly.
+            _host.SendEvent("state-remove:" + key, null);
         }
 
         public IReadOnlyDictionary<string, object> GetSnapshot()
