@@ -9,15 +9,16 @@ namespace BannerlordHtmlUI
     {
         private const string Script = @"
 (() => {
-  const install = () => {
-    if (!window.game || window.game[""__bannerlordHtmlUiStateBootstrapInstalled""] || typeof window.game.request !== 'function') return;
+  const tryInstall = () => {
+    const game = window.game;
+    if (!game || game['__bannerlordHtmlUiStateBootstrapInstalled'] || typeof game.request !== 'function') return false;
 
     const hydrate = async () => {
       try {
-        const snapshot = await window.game.request('framework.getStateSnapshot', {});
-        if (!snapshot || typeof snapshot !== 'object' || typeof window.game.__receive !== 'function') return;
+        const snapshot = await game.request('framework.getStateSnapshot', {});
+        if (!snapshot || typeof snapshot !== 'object' || typeof game.__receive !== 'function') return;
         for (const [key, value] of Object.entries(snapshot)) {
-          window.game.__receive({
+          game.__receive({
             version: 1,
             type: 'event',
             name: `state:${key}`,
@@ -29,12 +30,23 @@ namespace BannerlordHtmlUI
       }
     };
 
-    window.game[""__bannerlordHtmlUiStateBootstrapInstalled""] = true;
+    game['__bannerlordHtmlUiStateBootstrapInstalled'] = true;
     queueMicrotask(() => { hydrate(); });
+    return true;
   };
 
-  if (window.game) install();
-  else queueMicrotask(install);
+  if (tryInstall()) return;
+
+  // The framework runtime may be injected after document-created scripts run.
+  // Poll briefly rather than relying on a single microtask, otherwise the first
+  // navigation can permanently miss State hydration.
+  let attempts = 0;
+  const retry = () => {
+    if (tryInstall()) return;
+    if (++attempts >= 100) return;
+    setTimeout(retry, 25);
+  };
+  setTimeout(retry, 0);
 })();";
 
         public static void Install(HtmlUiHost host)
