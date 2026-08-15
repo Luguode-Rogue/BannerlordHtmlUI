@@ -67,6 +67,37 @@ namespace BannerlordHtmlUI
             }
         }
 
+        public static void Uninstall(HtmlUiHost host)
+        {
+            if (_filter != null)
+            {
+                try { Application.RemoveMessageFilter(_filter); }
+                catch (Exception ex) { HtmlUiLogger.Debug("Failed to remove global UI ESC close filter: " + ex.GetBaseException().Message); }
+                _filter = null;
+            }
+
+            if (_core != null)
+            {
+                try { _core.NavigationCompleted -= OnNavigationCompleted; }
+                catch { }
+                _core = null;
+            }
+
+            if (host != null)
+            {
+                try
+                {
+                    var formField = typeof(HtmlUiHost).GetField("_form", BindingFlags.Instance | BindingFlags.NonPublic);
+                    var form = formField?.GetValue(host) as HtmlUiOverlayForm;
+                    if (form != null) form.EscapePressed = null;
+                }
+                catch { }
+            }
+
+            if (ReferenceEquals(_host, host)) _host = null;
+            HtmlUiLogger.Info("Global UI ESC close diagnostics uninstalled.");
+        }
+
         private static async void OnNavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
         {
             var core = sender as CoreWebView2 ?? _core;
