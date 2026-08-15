@@ -59,6 +59,7 @@ namespace BannerlordHtmlUI
                     HtmlUiLogger.Info("UI navigation diagnostics hook installed for current WebView2 instance.");
                 }
 
+                InstallRuntimeStateRemovalPatch(host);
                 HtmlUiWindowTrackingPatch.Install(host);
             }
             catch (Exception ex)
@@ -96,6 +97,69 @@ namespace BannerlordHtmlUI
 
             if (ReferenceEquals(_host, host)) _host = null;
             HtmlUiLogger.Info("Global UI ESC close diagnostics uninstalled.");
+        }
+
+        private static void InstallRuntimeStateRemovalPatch(HtmlUiHost host)
+        {
+            try
+            {
+                var webField = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
+                var web = webField?.GetValue(host) as WebView2;
+                var core = web?.CoreWebView2;
+                if (core == null)
+                {
+                    HtmlUiLogger.Warn("State removal runtime patch deferred: CoreWebView2 is not ready.");
+                    return;
+                }
+
+                const string script = @"
+(() => {
+  try {
+    // runtime.js keeps its state Map private. Capture that Map from its early
+    // framework.* writes, then restore Map.prototype.set immediately so this
+    // patch does not permanently affect unrelated page code.
+    const originalMapSet = Map.prototype.set;
+    let stateMap = null;
+    let restored = false;
+
+    Map.prototype.set = function(key, value) {
+      if (!stateMap && typeof key === 'string' && key.indexOf('framework.') === 0) {
+        stateMap = this;
+        if (!restored) {
+          Map.prototype.set = originalMapSet;
+          restored = true;
+        }
+      }
+      return originalMapSet.call(this, key, value);
+    };
+
+    const game = window.game;
+    if (!game || typeof game.__receive !== 'function') {
+      if (!restored) Map.prototype.set = originalMapSet;
+      return;
+    }
+
+    const originalReceive = game.__receive;
+    game.__receive = function(messageJson) {
+      try {
+        const msg = typeof messageJson === 'string' ? JSON.parse(messageJson) : messageJson;
+        if (msg && msg.type === 'event' && typeof msg.name === 'string' && msg.name.indexOf('state-remove:') === 0) {
+          const key = msg.name.substring(13);
+          if (stateMap) stateMap.delete(key);
+        }
+      } catch (_) {}
+      return originalReceive(messageJson);
+    };
+  } catch (_) {}
+})();";
+
+                core.AddScriptToExecuteOnDocumentCreatedAsync(script);
+                HtmlUiLogger.Info("Runtime state removal patch installed.");
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Error("Failed to install runtime state removal patch.", ex);
+            }
         }
 
         private static async void OnNavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
