@@ -1,13 +1,12 @@
 using System;
-using Newtonsoft.Json.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 
 namespace BannerlordHtmlUI
 {
     /// <summary>
     /// Convenience surface for framework consumers. Keeps consumers away from HtmlUiHost internals.
-    /// Prefer HtmlUiConsumerScope for owner-scoped registrations.
     /// </summary>
     public static class HtmlUiCommands
     {
