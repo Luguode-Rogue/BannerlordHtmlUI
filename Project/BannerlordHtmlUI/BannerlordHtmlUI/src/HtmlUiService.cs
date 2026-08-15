@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -169,7 +170,9 @@ namespace BannerlordHtmlUI
         public static void RegisterCommand(string name, Action<JToken> handler) => Host.RegisterCommand(name, handler);
         internal static void RegisterCommand(string name, Action<JToken> handler, string ownerId) => Host.RegisterCommand(name, handler, ownerId);
         public static void RegisterRequest(string name, Func<JToken, Task<object>> handler) => Host.RegisterRequest(name, handler);
+        public static void RegisterRequest(string name, Func<JToken, CancellationToken, Task<object>> handler) => Host.RegisterRequest(name, handler);
         internal static void RegisterRequest(string name, Func<JToken, Task<object>> handler, string ownerId) => Host.RegisterRequest(name, handler, ownerId);
+        internal static void RegisterRequest(string name, Func<JToken, CancellationToken, Task<object>> handler, string ownerId) => Host.RegisterRequest(name, handler, ownerId);
         public static bool UnregisterCommand(string name) => Host.UnregisterCommand(name);
         internal static bool UnregisterCommand(string name, string ownerId)
         {
@@ -181,6 +184,11 @@ namespace BannerlordHtmlUI
         {
             var bridge = HtmlUiBridge.Current;
             return bridge != null && bridge.UnregisterRequest(name, ownerId);
+        }
+        public static bool CancelRequest(string id)
+        {
+            var bridge = HtmlUiBridge.Current;
+            return bridge != null && bridge.CancelRequest(id);
         }
         public static void SendEvent(string name, object payload) => Host.SendEvent(name, payload);
 
