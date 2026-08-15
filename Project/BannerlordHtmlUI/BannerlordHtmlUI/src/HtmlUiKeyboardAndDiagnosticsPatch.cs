@@ -1,7 +1,8 @@
 using System;
-using System.Threading.Tasks;
+using System.Reflection;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 
 namespace BannerlordHtmlUI
 {
@@ -14,32 +15,51 @@ namespace BannerlordHtmlUI
         private static HtmlUiHost _host;
         private static IMessageFilter _filter;
         private static CoreWebView2 _core;
-        private static bool _diagnosticsHooked;
 
         public static void Install(HtmlUiHost host)
         {
             if (host == null) return;
 
             _host = host;
-            if (_filter == null)
-            {
-                _filter = new KeyboardFilter();
-                Application.AddMessageFilter(_filter);
-                HtmlUiLogger.Info("Global UI ESC close filter installed.");
-            }
-
             try
             {
-                var field = typeof(HtmlUiHost).GetField("_web", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-                var web = field?.GetValue(host) as Microsoft.Web.WebView2.WinForms.WebView2;
+                var formField = typeof(HtmlUiHost).GetField("_form", BindingFlags.Instance | BindingFlags.NonPublic);
+                var form = formField?.GetValue(host) as HtmlUiOverlayForm;
+                if (form != null)
+                {
+                    form.EscapePressed = () =>
+                    {
+                        try
+                        {
+                            HtmlUiLogger.Info("ESC callback received by overlay form. Closing current page.");
+                            host.Pages.CloseCurrent();
+                        }
+                        catch (Exception ex)
+                        {
+                            HtmlUiLogger.Error("ESC overlay callback failed.", ex);
+                        }
+                    };
+                    HtmlUiLogger.Info("Overlay ESC callback wired.");
+                }
+
+                if (_filter == null)
+                {
+                    _filter = new KeyboardFilter();
+                    Application.AddMessageFilter(_filter);
+                    HtmlUiLogger.Info("Global UI ESC close filter installed.");
+                }
+
+                var webField = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
+                var web = webField?.GetValue(host) as WebView2;
                 var core = web?.CoreWebView2;
-                if (core != null && !_diagnosticsHooked)
+                if (core != null && !ReferenceEquals(_core, core))
                 {
                     _core = core;
-                    _diagnosticsHooked = true;
                     core.NavigationCompleted += OnNavigationCompleted;
-                    HtmlUiLogger.Info("UI navigation diagnostics hook installed.");
+                    HtmlUiLogger.Info("UI navigation diagnostics hook installed for current WebView2 instance.");
                 }
+
+                HtmlUiWindowTrackingPatch.Install(host);
             }
             catch (Exception ex)
             {
@@ -49,7 +69,8 @@ namespace BannerlordHtmlUI
 
         private static async void OnNavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
         {
-            if (!e.IsSuccess || _core == null) return;
+            var core = sender as CoreWebView2 ?? _core;
+            if (!e.IsSuccess || core == null) return;
 
             const string script = @"
 (() => {
@@ -71,7 +92,7 @@ namespace BannerlordHtmlUI
 
             try
             {
-                var result = await _core.ExecuteScriptAsync(script);
+                var result = await core.ExecuteScriptAsync(script);
                 HtmlUiLogger.Info("i18n DOM audit: " + result);
             }
             catch (Exception ex)
