@@ -14,13 +14,15 @@ namespace BannerlordHtmlUI
     const game = window.game;
     if (!game || game[\"" + Marker + @"\"] || typeof game.request !== 'function' || !window.chrome?.webview) return false;
 
-    const makeAbortError = (reason) => {
+    const activeCancels = new Set();
+
+    const makeAbortError = (reason, requestName = null) => {
       const error = new Error(reason || 'Request aborted.');
       error.name = 'BannerlordHtmlUiError';
       error.code = 'REQUEST_ABORTED';
       error.raw = error.message;
       error.operation = 'request';
-      error.requestName = null;
+      error.requestName = requestName;
       return error;
     };
 
@@ -29,25 +31,11 @@ namespace BannerlordHtmlUI
       const originalRequest = owner.request.bind(owner);
 
       owner.requestCancellable = (name, payload = {}, timeoutMs = 10000, signal = null) => {
-        if (signal?.aborted) return Promise.reject(makeAbortError('Request aborted: ' + name));
+        if (signal?.aborted) return Promise.reject(makeAbortError('Request aborted: ' + name, name));
 
         const webview = window.chrome.webview;
         const originalPostMessage = webview.postMessage;
         let requestId = null;
-
-        webview.postMessage = function(message) {
-          if (!requestId && message && message.version === 1 && message.type === 'request' && message.id && message.name === name)
-            requestId = String(message.id);
-          return originalPostMessage.call(this, message);
-        };
-
-        let requestPromise;
-        try {
-          requestPromise = originalRequest(name, payload, timeoutMs);
-        } finally {
-          webview.postMessage = originalPostMessage;
-        }
-
         let settled = false;
         let timeoutHandle = null;
         let abortHandler = null;
@@ -69,28 +57,54 @@ namespace BannerlordHtmlUI
 
         const cleanup = () => {
           settled = true;
+          activeCancels.delete(sendCancel);
           if (timeoutHandle) clearTimeout(timeoutHandle);
           if (signal && abortHandler) {
             try { signal.removeEventListener('abort', abortHandler); } catch (_) {}
           }
         };
 
-        const result = new Promise((resolve, reject) => {
-          requestPromise.then(resolve, reject).finally(cleanup);
-          if (signal) {
-            abortHandler = () => {
-              sendCancel();
-              if (!settled) reject(makeAbortError('Request aborted: ' + name));
-            };
-            signal.addEventListener('abort', abortHandler, { once: true });
-          }
-        });
+        webview.postMessage = function(message) {
+          if (!requestId && message && message.version === 1 && message.type === 'request' && message.id && message.name === name)
+            requestId = String(message.id);
+          return originalPostMessage.call(this, message);
+        };
+
+        let requestPromise;
+        try {
+          requestPromise = originalRequest(name, payload, timeoutMs);
+        } finally {
+          webview.postMessage = originalPostMessage;
+        }
+
+        activeCancels.add(sendCancel);
+
+        if (signal) {
+          abortHandler = () => {
+            if (settled) return;
+            sendCancel();
+          };
+          signal.addEventListener('abort', abortHandler, { once: true });
+        }
 
         const safeTimeout = Math.max(1, Number(timeoutMs) || 10000);
         timeoutHandle = setTimeout(() => {
-          sendCancel();
+          if (!settled) sendCancel();
         }, Math.max(0, safeTimeout - 25));
-        return result;
+
+        return new Promise((resolve, reject) => {
+          requestPromise.then(resolve, reject).finally(cleanup);
+          if (signal) {
+            const rejectAbort = () => {
+              if (settled) return;
+              sendCancel();
+              reject(makeAbortError('Request aborted: ' + name, name));
+            };
+            abortHandler = rejectAbort;
+            signal.removeEventListener('abort', abortHandler);
+            signal.addEventListener('abort', abortHandler, { once: true });
+          }
+        });
       };
     };
 
@@ -105,6 +119,16 @@ namespace BannerlordHtmlUI
         return scope;
       };
       game.__bannerlordHtmlUiRequestCancellationScopePatched = true;
+    }
+
+    if (!game.__bannerlordHtmlUiRequestCancellationPageLifecycleInstalled) {
+      window.addEventListener('pagehide', () => {
+        for (const cancel of [...activeCancels]) {
+          try { cancel(); } catch (_) {}
+        }
+        activeCancels.clear();
+      }, { once: true });
+      game.__bannerlordHtmlUiRequestCancellationPageLifecycleInstalled = true;
     }
 
     game[\"" + Marker + @"\"] = true;
