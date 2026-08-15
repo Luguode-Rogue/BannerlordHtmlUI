@@ -28,6 +28,7 @@ const app=window.game.app;
 const logEl=document.getElementById('log');
 const bench=document.getElementById('bench');
 let stopRequested=false;
+let running=false;
 const log=v=>logEl.textContent=JSON.stringify(v,null,2);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const snapshot=()=>app.request('framework.getDiagnostics');
@@ -40,19 +41,26 @@ function renderCells(count){
   }
 }
 async function componentRound(count){
+  const hosts=[];
   const disposers=[];
   for(let i=0;i<count;i++){
-    const handle=app.bind.component(bench,({index},root)=>{
+    if(stopRequested) break;
+    const host=document.createElement('div');
+    host.className='componentHost';
+    bench.appendChild(host);
+    hosts.push(host);
+    const handle=app.bind.component(host,({index},root)=>{
       root.dataset.stressIndex=String(index);
       const span=document.createElement('span');
-      span.textContent='';
+      span.textContent='stress';
       root.appendChild(span);
-      return {element:root,update(){span.textContent=''},dispose(){span.remove()}};
+      return {element:root,update(){span.textContent='stress'},dispose(){span.remove()}};
     },{index:i});
     disposers.push(handle);
   }
   await sleep(0);
   for(const handle of disposers) handle.dispose();
+  for(const host of hosts) host.remove();
 }
 async function cancellableRound(count){
   const jobs=[];
@@ -83,12 +91,15 @@ async function runRound(round){
   const after=await snapshot();
   return {
     round,
+    domChildren:bench.childElementCount,
     before:{pages:before.pageCount,states:before.stateCount,commands:before.bridgeCommandCount,requests:before.bridgeRequestCount,activeRequests:before.activeRequestCount},
     after:{pages:after.pageCount,states:after.stateCount,commands:after.bridgeCommandCount,requests:after.bridgeRequestCount,activeRequests:after.activeRequestCount},
     canceled:canceled.filter(x=>x&&x.aborted).length
   };
 }
 async function run(count){
+  if(running) return;
+  running=true;
   stopRequested=false;
   const started=performance.now();
   const results=[];
@@ -100,9 +111,13 @@ async function run(count){
       await sleep(10);
     }
     const final=await snapshot();
-    log({status:stopRequested?'stopped':'complete',elapsedMs:Math.round(performance.now()-started),final:{pages:final.pageCount,states:final.stateCount,commands:final.bridgeCommandCount,requests:final.bridgeRequestCount,activeRequests:final.activeRequestCount},results});
+    log({status:stopRequested?'stopped':'complete',elapsedMs:Math.round(performance.now()-started),domChildren:bench.childElementCount,final:{pages:final.pageCount,states:final.stateCount,commands:final.bridgeCommandCount,requests:final.bridgeRequestCount,activeRequests:final.activeRequestCount},results});
   }catch(e){
     log({status:'error',name:e.name,code:e.code,message:e.message,results});
+  }finally{
+    running=false;
+    stopRequested=false;
+    bench.textContent='';
   }
 }
 document.getElementById('one').onclick=()=>run(1);
