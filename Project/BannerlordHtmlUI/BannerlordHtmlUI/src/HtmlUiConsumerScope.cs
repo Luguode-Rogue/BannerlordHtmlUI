@@ -201,6 +201,18 @@ namespace BannerlordHtmlUI
                     HtmlUiLogger.Error("Consumer scope active-page cleanup failed: " + OwnerId, ex);
                 }
 
+                // Stop owner-owned handlers before unregistering them. This closes the
+                // lifecycle gap where a cancellable request could otherwise continue
+                // running after the consumer scope has been disposed.
+                try
+                {
+                    HtmlUiBridge.Current?.CancelRequestsByOwner(OwnerId);
+                }
+                catch (Exception ex)
+                {
+                    HtmlUiLogger.Error("Consumer scope owner request cancellation failed: " + OwnerId, ex);
+                }
+
                 foreach (var pageId in pageIds)
                 {
                     try { HtmlUiService.Pages.Unregister(pageId); }
@@ -219,6 +231,7 @@ namespace BannerlordHtmlUI
                     catch (Exception ex) { HtmlUiLogger.Error("Consumer scope request cleanup failed: " + request, ex); }
                 }
 
+                lock (_sync) ClearOwnershipListsLocked();
                 foreach (var key in stateKeys)
                 {
                     try { HtmlUiService.State.Remove(key); }
@@ -231,7 +244,6 @@ namespace BannerlordHtmlUI
                     catch (Exception ex) { HtmlUiLogger.Error("Consumer scope content root cleanup failed: " + contentRootId, ex); }
                 }
 
-                lock (_sync) ClearOwnershipListsLocked();
                 HtmlUiLogger.Info("Consumer scope disposed: " + OwnerId);
             }
             finally
