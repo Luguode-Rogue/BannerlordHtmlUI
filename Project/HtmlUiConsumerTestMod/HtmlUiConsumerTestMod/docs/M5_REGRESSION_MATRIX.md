@@ -19,7 +19,20 @@
 | Navigation Race | Rapid Open/Reload Race | 旧导航不得覆盖当前导航状态 |
 | Binding | Name / Enabled | State → DOM / DOM → Command 正常 |
 | i18n | 页面初始 bind / pagehide | 页面切换后无残留 binding |
-| Pressure | 当前页面多次 Request / Cancellation / Component 操作 | 结束后无未处理异常；注册数回到基线，组件 disposer 全部执行 |
+| Pressure | F8 → StressLab，Run 1/10/50 | 结束后无未处理异常；注册数与 ActiveRequestCount 回到基线，Component host 全部清除 |
+
+### StressLab 压力模型
+
+每轮压力测试包含：
+
+- 100 个独立 DOM host。
+- 50 个独立 `binder.component()` host；每个组件单独挂载，避免多个组件共享一个 DOM root 造成测试假阳性。
+- 20 个普通 Request。
+- 20 个 `requestCancellable()`，在短延迟后批量 Abort。
+- 开始/结束各读取一次 Diagnostics。
+- 单次 StressLab 运行具有互斥锁，重复点击不会并发启动第二个压力循环。
+- `Stop` / `pagehide` 会停止下一轮循环；当前轮已经创建的 Promise 仍由自己的 finally/cancellation 路径负责收尾。
+- 每轮结束会清空 StressLab 的 benchmark DOM。
 
 ## Diagnostics 指标语义
 
@@ -61,6 +74,7 @@
 - Cancellation 后出现成功结果或未处理的 late response。
 - 压力测试结束后注册项持续增长。
 - 压力测试结束后 `ActiveRequestCount` 高于开始基线。
+- StressLab 结束后 benchmark DOM 没有回到预期数量。
 
 ## 日志原则
 
