@@ -17,24 +17,30 @@ namespace BannerlordHtmlUI
     const schedulerFactory = () => {
       const debounceTimers = new WeakMap();
       const throttleState = new WeakMap();
+      const elements = new Set();
 
       const clearFor = element => {
         if (!element) return;
         const debounce = debounceTimers.get(element);
         if (debounce) clearTimeout(debounce);
         debounceTimers.delete(element);
-
         const throttle = throttleState.get(element);
         if (throttle?.timer) clearTimeout(throttle.timer);
         throttleState.delete(element);
+        elements.delete(element);
+      };
+
+      const clearAll = () => {
+        for (const element of [...elements]) clearFor(element);
       };
 
       const schedule = (writer, value, event, element, options) => {
         if (typeof writer !== 'function') return;
+        if (element) elements.add(element);
         const debounceMs = Math.max(0, Number(options?.debounce || 0));
         const throttleMs = Math.max(0, Number(options?.throttle || 0));
         if (debounceMs <= 0 && throttleMs <= 0) {
-          writer(value, event, element);
+          try { writer(value, event, element); } catch (e) { console.error(e); }
           return;
         }
 
@@ -78,7 +84,8 @@ namespace BannerlordHtmlUI
         wrapWriter(writer, options) {
           return (value, event, element) => schedule(writer, value, event, element, options || {});
         },
-        clearFor
+        clearFor,
+        clearAll
       };
     };
 
@@ -89,14 +96,13 @@ namespace BannerlordHtmlUI
       const scheduler = schedulerFactory();
       const originalValue = binder.twoWayValue;
       const originalChecked = binder.twoWayChecked;
+      const originalDispose = typeof binder.dispose === 'function' ? binder.dispose.bind(binder) : null;
 
       if (typeof originalValue === 'function') {
         binder.twoWayValue = (element, key, writer, options = {}) => {
-          let target = element;
-          if (typeof target === 'string') target = document.querySelector(target);
+          const target = typeof element === 'string' ? document.querySelector(element) : element;
           const wrapped = scheduler.wrapWriter(writer, options);
-          const safeOptions = { ...options, debounce: 0, throttle: 0 };
-          const dispose = originalValue.call(binder, element, key, wrapped, safeOptions);
+          const dispose = originalValue.call(binder, element, key, wrapped, { ...options, debounce: 0, throttle: 0 });
           return () => {
             scheduler.clearFor(target);
             try { dispose?.(); } catch (_) {}
@@ -106,11 +112,9 @@ namespace BannerlordHtmlUI
 
       if (typeof originalChecked === 'function') {
         binder.twoWayChecked = (element, key, writer, options = {}) => {
-          let target = element;
-          if (typeof target === 'string') target = document.querySelector(target);
+          const target = typeof element === 'string' ? document.querySelector(element) : element;
           const wrapped = scheduler.wrapWriter(writer, options);
-          const safeOptions = { ...options, debounce: 0, throttle: 0 };
-          const dispose = originalChecked.call(binder, element, key, wrapped, safeOptions);
+          const dispose = originalChecked.call(binder, element, key, wrapped, { ...options, debounce: 0, throttle: 0 });
           return () => {
             scheduler.clearFor(target);
             try { dispose?.(); } catch (_) {}
@@ -118,6 +122,10 @@ namespace BannerlordHtmlUI
         };
       }
 
+      binder.dispose = () => {
+        scheduler.clearAll();
+        try { originalDispose?.(); } catch (e) { console.error(e); }
+      };
       binder.__bannerlordHtmlUiBindingSchedulerPatched = true;
       return binder;
     };
@@ -127,11 +135,11 @@ namespace BannerlordHtmlUI
 
     if (typeof game.scope === 'function') {
       const originalScope = game.scope;
-      game.scope = (...args) => patchBinderOnScope(originalScope(...args));
-      function patchBinderOnScope(scope) {
-        if (scope && scope.bind) patchBinder(scope.bind);
+      game.scope = (...args) => {
+        const scope = originalScope(...args);
+        if (scope?.bind) patchBinder(scope.bind);
         return scope;
-      }
+      };
     }
 
     game[\"" + Marker + @"\"] = true;
