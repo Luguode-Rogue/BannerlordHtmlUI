@@ -19,6 +19,17 @@
 | Navigation Race | Rapid Open/Reload Race | 旧导航不得覆盖当前导航状态 |
 | Binding | Name / Enabled | State → DOM / DOM → Command 正常 |
 | i18n | 页面初始 bind / pagehide | 页面切换后无残留 binding |
+| Pressure | 当前页面多次 Request / Cancellation / Component 操作 | 结束后无未处理异常；注册数回到基线，组件 disposer 全部执行 |
+
+## Diagnostics 指标语义
+
+`BridgeCommandCount` / `BridgeRequestCount` 表示当前 **注册项数量**，不是“正在执行或等待中的 Request 数量”。
+
+因此：
+
+- 注册数稳定只能证明 Command / Request 注册没有持续增长。
+- 不能单独用它证明 pending Request 已经全部结束。
+- Cancellation / pagehide / runtime shutdown 的正确性仍以 Request 终态和实机日志为准。
 
 ## 必须保持的自动清理
 
@@ -34,6 +45,7 @@
 1. WebView2 / Overlay 可见性或输入行为发生改动。
 2. Navigation Guard、Cancellation 或 Binding patch 的运行时行为发生改动。
 3. Bannerlord 版本或 WebView2 Runtime 发生变化。
+4. 压力测试需要验证长时间运行后的实际资源回落。
 
 ## 通过标准
 
@@ -45,6 +57,7 @@
 - 重复 Open/Close 产生重复生命周期回调。
 - Rapid Navigation 的旧完成事件覆盖当前页面状态。
 - Cancellation 后出现成功结果或未处理的 late response。
+- 压力测试结束后注册项持续增长。
 
 ## 日志原则
 
