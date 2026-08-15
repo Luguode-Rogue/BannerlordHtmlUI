@@ -21,23 +21,23 @@ pre{background:#0d0f12;padding:12px;min-height:80px;white-space:pre-wrap}
 <div class="card">
   <label><span data-bhui-i18n="HtmlUiConsumer_Name"></span> <input id="name"></label><br>
   <label><input id="enabled" type="checkbox"> <span data-bhui-i18n="HtmlUiConsumer_Enabled"></span></label>
-  <button id="removeNameState">Remove name State</button>
+  <button id="removeNameState" data-bhui-i18n="HtmlUiConsumer_RemoveNameState"></button>
 </div>
 <div class="card">
   <button id="release" data-bhui-i18n="HtmlUiConsumer_Release"></button>
   <button id="capture" data-bhui-i18n="HtmlUiConsumer_Capture"></button>
-  <button id="reloadRace">Rapid Open/Reload Race</button>
+  <button id="reloadRace" data-bhui-i18n="HtmlUiConsumer_ReloadRace"></button>
   <button id="close" data-bhui-i18n="HtmlUiConsumer_Close"></button>
   <div class="muted" data-bhui-i18n="HtmlUiConsumer_EscHint"></div>
 </div>
 <div class="card">
-  <strong>M5 Bridge / Lifecycle 验收</strong><br>
-  <button id="eventTest">Event</button>
-  <button id="delayTest">普通异步 Request</button>
-  <button id="cancelTest">可取消 Request</button>
-  <button id="commandErrorTest">Command 异常</button>
-  <button id="requestErrorTest">Request 异常</button>
-  <button id="snapshotTest">Diagnostics Snapshot</button>
+  <strong data-bhui-i18n="HtmlUiConsumer_M5Title"></strong><br>
+  <button id="eventTest" data-bhui-i18n="HtmlUiConsumer_Event"></button>
+  <button id="delayTest" data-bhui-i18n="HtmlUiConsumer_DelayedRequest"></button>
+  <button id="cancelTest" data-bhui-i18n="HtmlUiConsumer_CancellableRequest"></button>
+  <button id="commandErrorTest" data-bhui-i18n="HtmlUiConsumer_CommandError"></button>
+  <button id="requestErrorTest" data-bhui-i18n="HtmlUiConsumer_RequestError"></button>
+  <button id="snapshotTest" data-bhui-i18n="HtmlUiConsumer_DiagnosticsSnapshot"></button>
 </div>
 <pre id="log">加载中...</pre>
 <pre id="err"></pre>
