@@ -20,9 +20,10 @@
 | `Reload()` | 刷新当前页面 |
 | `Tick()` | 在 Bannerlord Tick 中执行游戏线程队列 |
 | `RegisterCommand(name, handler)` | 注册 JS Command |
-| `RegisterRequest(name, handler)` | 注册 JS Request |
+| `RegisterRequest(name, handler)` | 注册普通 JS Request |
+| `RegisterRequest(name, cancellableHandler)` | 注册带 `CancellationToken` 的可取消 Request |
 | `SendEvent(name, payload)` | C# → JS 发送事件 |
-| `Dispose()` | 释放 Host |
+| `Dispose()` | 释放 Host，并取消当前 Bridge 的活跃 Request |
 
 ## HtmlUiPage
 
@@ -84,7 +85,7 @@ Framework 内置 `framework.getStateSnapshot` Request 返回当前 C# StateStore
 ### Command
 
 ```javascript
-game.call(name, payload)
+game.call(name, payload, timeoutMs)
 ```
 
 Command handler 在 C# 侧按 game-thread dispatcher 执行，但普通 `game.call()` 仍会收到成功或错误 Response；框架内部的 `runtime.error` 诊断消息才是无 request id 的 fire-and-forget 路径。
@@ -97,7 +98,40 @@ await game.request(name, payload, timeoutMs)
 
 已注销或在执行期间被注销的 Command/Request 不再无声丢弃。若仍有对应请求 ID，Bridge 会返回明确错误，使 JS 不必等待默认超时。
 
-页面卸载时，当前 Runtime 会主动拒绝尚未完成的 `call()` / `request()` Promise，并取消其 timeout；因此页面切换、Reload 或 WebView navigation 不会留下永久 pending Promise。消费者若需要跨页面持久任务，应自行将任务提升到 C# 或其他长期存活的应用层。
+页面卸载时，当前 Runtime 会主动拒绝尚未完成的 `call()` / `request()` Promise，并取消其 timeout；因此页面切换、Reload 或 WebView navigation 不会留下永久 pending Promise。
+
+### Cancellable Request
+
+需要主动终止异步工作的 Consumer 可以使用 `AbortSignal`：
+
+```javascript
+const controller = new AbortController();
+
+const promise = game.requestCancellable(
+  'getExample',
+  { value: 10 },
+  10000,
+  controller.signal
+);
+
+controller.abort();
+```
+
+`requestCancellable()` 在 AbortSignal、客户端 timeout、pagehide 或 runtime shutdown 发生时向 C# Bridge 发送取消通知。C# 侧可用：
+
+```csharp
+scope.RegisterRequest("getExample", async (payload, cancellationToken) =>
+{
+    // 外部异步工作应观察 cancellationToken。
+    await SomeOperationAsync(cancellationToken);
+    cancellationToken.ThrowIfCancellationRequested();
+    return new { ok = true };
+});
+```
+
+旧式 `Func<JToken, Task<object>>` handler 与普通 `game.request()` 保持兼容，不要求消费者迁移。
+
+取消后的成功结果不会再被送回 JS。取消请求如果尚未进入 GameThread 执行队列，也会由 Bridge 的预取消状态保证不会重新开始。
 
 ### Event
 
@@ -162,7 +196,13 @@ game.bind.twoWayValue('#name', 'player.name', (value) => {
 }, { debounce: 150 });
 ```
 
-List/template/component helpers return disposers and should be disposed when their owning page/component is destroyed. `game.bind.dispose()` removes bindings registered by that binder instance. Individual disposer functions are currently idempotent but may remain referenced internally until the parent binder is disposed; avoid creating unbounded numbers of short-lived binder instances in a long-lived page. This is a runtime implementation optimization target, not a public API semantic requirement.
+List/template/component helpers return disposers and should be disposed when their owning page/component is destroyed. `game.bind.dispose()` removes bindings registered by that binder instance. Individual disposer functions are idempotent.
+
+### Errors
+
+Bridge errors remain backward-compatible as strings in the Response payload. The Framework Runtime exposes them to modern consumers as `BannerlordHtmlUiError` instances with stable fields such as `code`, `raw`, `operation`, and `requestName`. Consumers should prefer `error.code` for branching and use `error.message` for human-readable text.
+
+The current stable error-code set includes request/command timeout, unknown/stale registration, handler errors, runtime disposal, page unload, cancellation, and protocol errors. The authoritative list and message semantics are defined in `docs/PROTOCOL.md`.
 
 ## 协议
 
