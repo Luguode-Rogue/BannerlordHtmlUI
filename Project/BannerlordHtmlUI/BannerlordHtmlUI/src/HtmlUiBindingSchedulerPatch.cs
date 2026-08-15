@@ -89,6 +89,12 @@ namespace BannerlordHtmlUI
       };
     };
 
+    const createDisposedComponentHandle = () => ({
+      element: null,
+      update() {},
+      dispose() {}
+    });
+
     const patchBinder = binder => {
       if (!binder || binder.__bannerlordHtmlUiBindingSchedulerPatched) return binder;
       if (typeof binder.twoWayValue !== 'function' && typeof binder.twoWayChecked !== 'function') return binder;
@@ -133,7 +139,7 @@ namespace BannerlordHtmlUI
 
       if (originalComponent) {
         binder.component = (...args) => {
-          if (disposed) return originalComponent(...args);
+          if (disposed) return createDisposedComponentHandle();
           const component = originalComponent(...args);
           const originalComponentDispose = component && typeof component.dispose === 'function'
             ? component.dispose.bind(component)
