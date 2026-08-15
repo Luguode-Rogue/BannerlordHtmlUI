@@ -7,12 +7,11 @@ namespace BannerlordHtmlUI
     internal static class HtmlUiErrorModelPatch
     {
         private const string Marker = "__bannerlordHtmlUiErrorModelPatched";
-
         private const string Script = @"
 (() => {
   const install = () => {
     const game = window.game;
-    if (!game || game[\"" + Marker + @"\"]) return false;
+    if (!game || game['" + Marker + @"']) return false;
 
     const classify = (operation, raw) => {
       const message = String(raw || 'Bridge operation failed.');
@@ -45,21 +44,14 @@ namespace BannerlordHtmlUI
       return target;
     };
 
-    const wrap = (operation) => {
+    const wrap = operation => {
       const original = game[operation];
-      if (typeof original !== 'function') return;
-      if (original.__bannerlordHtmlUiErrorWrapped) return;
-
+      if (typeof original !== 'function' || original.__bannerlordHtmlUiErrorWrapped) return;
       const wrapped = function(name, payload, timeoutMs) {
         let result;
-        try {
-          result = original.call(this, name, payload, timeoutMs);
-        } catch (error) {
-          throw decorate(operation, name, error);
-        }
-        return Promise.resolve(result).catch(error => {
-          throw decorate(operation, name, error);
-        });
+        try { result = original.call(this, name, payload, timeoutMs); }
+        catch (error) { throw decorate(operation, name, error); }
+        return Promise.resolve(result).catch(error => { throw decorate(operation, name, error); });
       };
       wrapped.__bannerlordHtmlUiErrorWrapped = true;
       game[operation] = wrapped;
@@ -67,8 +59,7 @@ namespace BannerlordHtmlUI
 
     wrap('call');
     wrap('request');
-
-    game[\"" + Marker + @"\"] = true;
+    game['" + Marker + @"'] = true;
     return true;
   };
 
