@@ -107,6 +107,17 @@ namespace BannerlordHtmlUI
 
             try
             {
+                // The PageManager may have switched pages while the runtime-registration
+                // barrier was pending. Never replay an obsolete navigation after a newer
+                // Open/Close transition has already committed.
+                var current = host.Pages.Current;
+                if (current == null || !string.Equals(current.Id, page.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    HtmlUiLogger.Debug("Suppressed stale deferred page navigation: " + page.Id
+                        + ", current=" + (current == null ? "<null>" : current.Id));
+                    return;
+                }
+
                 _navigateOnUiThread?.Invoke(host, new object[] { page });
             }
             catch (Exception ex)
