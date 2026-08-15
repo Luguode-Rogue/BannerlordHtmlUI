@@ -7,15 +7,13 @@ namespace BannerlordHtmlUI
     internal static class HtmlUiRequestCancellationPatch
     {
         private const string Marker = "__bannerlordHtmlUiRequestCancellationPatched";
-
         private const string Script = @"
 (() => {
   const install = () => {
     const game = window.game;
-    if (!game || game[\"" + Marker + @"\"] || typeof game.request !== 'function' || !window.chrome?.webview) return false;
+    if (!game || game['" + Marker + @"'] || typeof game.request !== 'function' || !window.chrome?.webview) return false;
 
     const activeCancels = new Set();
-
     const makeAbortError = (reason, requestName = null) => {
       const error = new Error(reason || 'Request aborted.');
       error.name = 'BannerlordHtmlUiError';
@@ -29,7 +27,6 @@ namespace BannerlordHtmlUI
     const patchRequestOwner = owner => {
       if (!owner || typeof owner.request !== 'function' || owner.requestCancellable) return;
       const originalRequest = owner.request.bind(owner);
-
       owner.requestCancellable = (name, payload = {}, timeoutMs = 10000, signal = null) => {
         if (signal?.aborted) return Promise.reject(makeAbortError('Request aborted: ' + name, name));
 
@@ -45,16 +42,9 @@ namespace BannerlordHtmlUI
           if (cancelSent || !requestId) return;
           cancelSent = true;
           try {
-            originalPostMessage.call(webview, {
-              version: 1,
-              type: 'cancel',
-              id: requestId,
-              name: '',
-              payload: null
-            });
+            originalPostMessage.call(webview, { version: 1, type: 'cancel', id: requestId, name: '', payload: null });
           } catch (_) {}
         };
-
         const cleanup = () => {
           if (settled) return;
           settled = true;
@@ -72,11 +62,8 @@ namespace BannerlordHtmlUI
         };
 
         let requestPromise;
-        try {
-          requestPromise = originalRequest(name, payload, timeoutMs);
-        } finally {
-          webview.postMessage = originalPostMessage;
-        }
+        try { requestPromise = originalRequest(name, payload, timeoutMs); }
+        finally { webview.postMessage = originalPostMessage; }
 
         const result = new Promise((resolve, reject) => {
           abortHandler = () => {
@@ -86,7 +73,6 @@ namespace BannerlordHtmlUI
           };
 
           requestPromise.then(resolve, reject).finally(cleanup);
-
           if (signal) {
             signal.addEventListener('abort', abortHandler, { once: true });
             if (signal.aborted) abortHandler();
@@ -94,19 +80,15 @@ namespace BannerlordHtmlUI
         });
 
         if (settled) return result;
-
         activeCancels.add(sendCancel);
         const safeTimeout = Math.max(1, Number(timeoutMs) || 10000);
-        timeoutHandle = setTimeout(() => {
-          if (!settled) sendCancel();
-        }, Math.max(0, safeTimeout - 25));
+        timeoutHandle = setTimeout(() => { if (!settled) sendCancel(); }, Math.max(0, safeTimeout - 25));
         return result;
       };
     };
 
     patchRequestOwner(game);
     patchRequestOwner(game.app);
-
     if (typeof game.scope === 'function' && !game.__bannerlordHtmlUiRequestCancellationScopePatched) {
       const originalScope = game.scope;
       game.scope = (...args) => {
@@ -127,7 +109,7 @@ namespace BannerlordHtmlUI
       game.__bannerlordHtmlUiRequestCancellationPageLifecycleInstalled = true;
     }
 
-    game[\"" + Marker + @"\"] = true;
+    game['" + Marker + @"'] = true;
     return true;
   };
 
