@@ -23,6 +23,14 @@ export interface BannerlordHtmlUiI18n {
 }
 
 declare namespace BannerlordHtmlUI {
+  interface BindingSchedulerOptions {
+    debounce?: number;
+    throttle?: number;
+    event?: string;
+    read?: (element: Element) => unknown;
+    listenerOptions?: AddEventListenerOptions | boolean;
+  }
+
   interface BindingApi {
     text(target: string | Element, key: string): () => void;
     value(target: string | Element, key: string): () => void;
@@ -33,7 +41,12 @@ declare namespace BannerlordHtmlUI {
     class(target: string | Element, className: string, key: string, truthy?: unknown): () => void;
     attr(target: string | Element, attribute: string, key: string): () => void;
     form(target: string | Element, map: Record<string, string>): () => void;
-    list<T = unknown>(target: string | Element, key: string, render: (item: T, index: number, generation: number) => Element | { element: Element; dispose?: () => void } | null, options?: { clearOnDispose?: boolean; diff?: boolean; key?: (item: T, index: number) => string | number }): () => void;
+    twoWayValue(target: string | Element, key: string, writer: (value: unknown, event: Event, element: Element) => void, options?: BindingSchedulerOptions): () => void;
+    twoWayChecked(target: string | Element, key: string, writer: (value: unknown, event: Event, element: Element) => void, options?: BindingSchedulerOptions): () => void;
+    group(...disposers: Array<(() => void) | Array<() => void>>): () => void;
+    debounce(writer: (value: unknown, event: Event, element: Element) => void, milliseconds: number): (value: unknown, event: Event, element: Element) => void;
+    throttle(writer: (value: unknown, event: Event, element: Element) => void, milliseconds: number): (value: unknown, event: Event, element: Element) => void;
+    list<T = unknown>(target: string | Element, key: string, render: (item: T, index: number, generation: number) => Element | { element: Element; dispose?: () => void; update?: (item: T, index: number, generation: number) => void } | null, options?: { clearOnDispose?: boolean; diff?: boolean; key?: (item: T, index: number) => string | number }): () => void;
     component(target: string | Element, factory: (props: Record<string, unknown>, root: Element) => Element | { element: Element; update?: (props: Record<string, unknown>) => void; dispose?: () => void } | null, props?: Record<string, unknown>): { element: Element | null; update(props?: Record<string, unknown>): void; dispose(): void };
     template<T = unknown>(target: string | Element, key: string, render: (item: T, index: number) => Element | { element: Element; update?: (item: T, index: number) => void; dispose?: () => void } | null, options?: { key?: (item: T, index: number) => string | number }): () => void;
     delegate(root: string | Element | Document, eventName: string, selector: string, handler: (event: Event, target: Element) => void, options?: AddEventListenerOptions): () => void;
@@ -58,8 +71,9 @@ declare namespace BannerlordHtmlUI {
     readonly events: { on<T = unknown>(name: string, handler: (payload: T) => void): () => void };
     readonly page: BannerlordHtmlUiPageContext | null;
     readonly lifecycle: { readonly state: string | undefined; on(handler: (info: unknown) => void): () => void };
+    readonly pageLifecycle?: { on(handler: (info: unknown) => void): () => void };
     readonly errors: { readonly last: unknown; on(handler: (error: unknown) => void): () => void };
-    readonly input: WindowApi['input'];
+    readonly input: WindowApi['input'] | null;
     readonly pages: BannerlordHtmlUiScopePages;
     readonly i18n: BannerlordHtmlUiI18n;
     readonly app: GameApp;
