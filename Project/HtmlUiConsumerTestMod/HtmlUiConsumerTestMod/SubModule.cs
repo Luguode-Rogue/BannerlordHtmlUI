@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BannerlordHtmlUI;
@@ -22,6 +23,10 @@ namespace HtmlUiConsumerTestMod
         private int _counter;
         private string _name = "BannerlordHtmlUI";
         private bool _enabled = true;
+        private bool _f12Down;
+
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
 
         protected override void OnSubModuleLoad()
         {
@@ -105,7 +110,7 @@ namespace HtmlUiConsumerTestMod
 
                 _scope.RegisterCommand("emitTestEvent", payload =>
                 {
-                    var message = payload?["message"]?.Value<string>() ?? "bridge event";
+                    var message = payload?["message"]?.Value<string>() ?? "Event round-trip";
                     _scope.SendEvent("testEvent", new
                     {
                         message,
@@ -186,6 +191,18 @@ namespace HtmlUiConsumerTestMod
         protected override void OnApplicationTick(float dt)
         {
             base.OnApplicationTick(dt);
+
+            var f12Pressed = (GetAsyncKeyState(0x7B) & 0x8000) != 0;
+            if (f12Pressed && !_f12Down)
+            {
+                _f12Down = true;
+                Log("F12 fallback detected. closing current page.");
+                CloseCurrent();
+            }
+            else if (!f12Pressed)
+            {
+                _f12Down = false;
+            }
 
             if (Input.IsKeyPressed(InputKey.F11))
             {
