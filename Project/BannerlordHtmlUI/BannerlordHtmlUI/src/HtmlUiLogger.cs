@@ -19,6 +19,18 @@ namespace BannerlordHtmlUI
             if (string.IsNullOrWhiteSpace(moduleDirectory)) return;
             Directory.CreateDirectory(moduleDirectory);
             _logPath = Path.Combine(moduleDirectory, "BannerlordHtmlUI.log");
+
+            // Start every game/session with a clean log so analysis is based only on the
+            // current run. Logging remains append-only for the lifetime of this process.
+            try
+            {
+                lock (Sync)
+                {
+                    File.WriteAllText(_logPath, string.Empty);
+                }
+            }
+            catch { }
+
             Write("=== BannerlordHtmlUI started ===");
         }
 
