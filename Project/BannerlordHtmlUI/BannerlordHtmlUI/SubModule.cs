@@ -32,6 +32,7 @@ namespace BannerlordHtmlUI
             {
                 HtmlUiService.NotifyGameContext("application", true);
                 HtmlUiHotReloadPatch.Install(HtmlUiService.Host);
+                HtmlUiStateRemovalPatch.Install(HtmlUiService.Host);
 
                 if (!HtmlUiCommands.CommandExists("runtime.error"))
                 {
