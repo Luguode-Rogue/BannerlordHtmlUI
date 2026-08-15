@@ -77,11 +77,21 @@ namespace BannerlordHtmlUI
         public int UnregisterByOwner(string ownerId)
         {
             if (string.IsNullOrWhiteSpace(ownerId)) return 0;
+            var normalizedOwner = NormalizeOwner(ownerId);
             var count = 0;
+
             foreach (var pair in _commands)
-                if (string.Equals(pair.Value.OwnerId, ownerId, StringComparison.OrdinalIgnoreCase) && _commands.TryRemove(pair.Key, out _)) count++;
+            {
+                if (!string.Equals(pair.Value.OwnerId, normalizedOwner, StringComparison.OrdinalIgnoreCase)) continue;
+                if (((ICollection<KeyValuePair<string, CommandEntry>>)_commands).Remove(pair)) count++;
+            }
+
             foreach (var pair in _requests)
-                if (string.Equals(pair.Value.OwnerId, ownerId, StringComparison.OrdinalIgnoreCase) && _requests.TryRemove(pair.Key, out _)) count++;
+            {
+                if (!string.Equals(pair.Value.OwnerId, normalizedOwner, StringComparison.OrdinalIgnoreCase)) continue;
+                if (((ICollection<KeyValuePair<string, RequestEntry>>)_requests).Remove(pair)) count++;
+            }
+
             return count;
         }
 
