@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading;
 using Newtonsoft.Json.Linq;
 using System.Threading.Tasks;
@@ -128,7 +129,7 @@ namespace BannerlordHtmlUI
             if (_preCanceledRequests.Count >= MaxPreCanceledRequests)
                 CleanupPreCanceledRequests(forceTrim: true);
 
-            _preCanceledRequests[id] = Environment.TickCount64;
+            _preCanceledRequests[id] = GetMonotonicMilliseconds();
             return true;
         }
 
@@ -218,6 +219,11 @@ namespace BannerlordHtmlUI
             return string.IsNullOrWhiteSpace(ownerId) ? "framework" : ownerId;
         }
 
+        private static long GetMonotonicMilliseconds()
+        {
+            return Stopwatch.GetTimestamp() * 1000L / Stopwatch.Frequency;
+        }
+
         private void RegisterCommandCore(string name, Action<JToken> handler, string ownerId)
         {
             if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Command name is required.", nameof(name));
@@ -283,7 +289,7 @@ namespace BannerlordHtmlUI
 
         private void CleanupPreCanceledRequests(bool forceTrim = false)
         {
-            var now = Environment.TickCount64;
+            var now = GetMonotonicMilliseconds();
             foreach (var pair in _preCanceledRequests)
             {
                 if (forceTrim || now - pair.Value >= PreCanceledRequestTtlMs)
