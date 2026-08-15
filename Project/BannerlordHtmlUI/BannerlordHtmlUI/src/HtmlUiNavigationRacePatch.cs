@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using Microsoft.Web.WebView2.Core;
 
@@ -14,9 +14,14 @@ namespace BannerlordHtmlUI
     /// </summary>
     internal static class HtmlUiNavigationRacePatch
     {
+        private sealed class NavigationState
+        {
+            public long NavigationId;
+        }
+
         private static readonly object Sync = new object();
-        private static readonly ConcurrentDictionary<HtmlUiHost, long> CurrentNavigationIds =
-            new ConcurrentDictionary<HtmlUiHost, long>();
+        private static readonly ConditionalWeakTable<HtmlUiHost, NavigationState> NavigationStates =
+            new ConditionalWeakTable<HtmlUiHost, NavigationState>();
 
         private static bool _installed;
         private static Harmony _harmony;
@@ -57,7 +62,7 @@ namespace BannerlordHtmlUI
             if (__instance == null || e == null || e.Cancel)
                 return;
 
-            CurrentNavigationIds[__instance] = e.NavigationId;
+            NavigationStates.GetOrCreateValue(__instance).NavigationId = e.NavigationId;
         }
 
         private static bool OnNavigationCompletedPrefix(
@@ -67,17 +72,17 @@ namespace BannerlordHtmlUI
             if (__instance == null || e == null)
                 return true;
 
-            if (!CurrentNavigationIds.TryGetValue(__instance, out var currentId))
+            if (!NavigationStates.TryGetValue(__instance, out var state))
                 return true;
 
-            if (currentId != e.NavigationId)
+            if (state.NavigationId != e.NavigationId)
             {
                 // A newer navigation is already in flight. Suppress the old completion
                 // so HtmlUiHost cannot publish the newer Pages.Current as ready early.
                 return false;
             }
 
-            CurrentNavigationIds.TryRemove(__instance, out _);
+            state.NavigationId = 0;
             return true;
         }
     }
