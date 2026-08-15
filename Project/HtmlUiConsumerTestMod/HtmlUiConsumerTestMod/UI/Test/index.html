@@ -26,6 +26,7 @@ pre{background:#0d0f12;padding:12px;min-height:80px;white-space:pre-wrap}
 <div class="card">
   <button id="release" data-bhui-i18n="HtmlUiConsumer_Release"></button>
   <button id="capture" data-bhui-i18n="HtmlUiConsumer_Capture"></button>
+  <button id="reloadRace">Rapid Open/Reload Race</button>
   <button id="close" data-bhui-i18n="HtmlUiConsumer_Close"></button>
   <div class="muted" data-bhui-i18n="HtmlUiConsumer_EscHint"></div>
 </div>
@@ -67,6 +68,16 @@ document.getElementById('commandErrorTest').onclick=async()=>{try{await app.call
 document.getElementById('requestErrorTest').onclick=async()=>{try{await app.request('throwRequest');log({unexpected:'request did not fail'})}catch(e){log({expectedRequestError:String(e)})}};
 document.getElementById('release').onclick=()=>app.input.release();
 document.getElementById('capture').onclick=()=>app.input.capture();
+document.getElementById('reloadRace').onclick=async()=>{
+  try{
+    const pageId=app.page&&app.page.id;
+    if(!pageId){log({reloadRace:'no current page'});return;}
+    const first=app.pages.open(pageId);
+    const second=app.pages.open(pageId);
+    const results=await Promise.allSettled([first,second]);
+    log({reloadRace:'completed',results:results.map(r=>r.status==='fulfilled'?{status:r.status,value:r.value}:{status:r.status,reason:String(r.reason)})});
+  }catch(e){log({reloadRaceError:String(e)})}
+};
 document.getElementById('close').onclick=()=>app.pages.close();
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();app.pages.close();}});
 
