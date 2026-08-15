@@ -110,7 +110,7 @@ declare namespace BannerlordHtmlUI {
     on<T = unknown>(name: string, handler: (payload: T) => void): () => void;
     readonly state: GameState;
     readonly bind: BindingApi;
-    readonly i18n: BannerlordHtmlUII18n;
+    readonly i18n: BannerlordHtmlUiI18n;
   }
 
   interface WindowApi {
