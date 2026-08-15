@@ -92,13 +92,15 @@ namespace BannerlordHtmlUI
           }
         });
 
-        activeCancels.add(sendCancel);
+        if (settled) {
+          return result;
+        }
 
+        activeCancels.add(sendCancel);
         const safeTimeout = Math.max(1, Number(timeoutMs) || 10000);
         timeoutHandle = setTimeout(() => {
           if (!settled) sendCancel();
         }, Math.max(0, safeTimeout - 25));
-
         return result;
       };
     };
