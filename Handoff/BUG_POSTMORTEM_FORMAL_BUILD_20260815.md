@@ -39,7 +39,6 @@ C# 逐字字符串中反斜杠没有转义双引号的作用；双引号必须�
 - `HtmlUiI18nBindingPatch.cs`
 - `HtmlUiBindingSchedulerPatch.cs`
 - `HtmlUiErrorModelPatch.cs`
-- `HtmlUiErrorModelPatch.cs`
 - `HtmlUiRequestCancellationPatch.cs`
 
 `HtmlUiHost.cs` 检查后未发现同类逐字字符串转义错误；其被错误列表列出属于前述文件解析失步导致的级联诊断，不是已确认的独立根因。
@@ -49,7 +48,7 @@ C# 逐字字符串中反斜杠没有转义双引号的作用；双引号必须�
 后续新增 C# → JavaScript 注入脚本时：
 
 1. C# `@"..."` 内禁止使用 `\"`。
-2. 如果必须使用双引号，应写为 `""`。
+2. 如果必须使用双引号，应写成 `""`。
 3. 优先让注入 JavaScript 使用单引号属性/字符串，减少 C# 字符串层级转义。
 4. 修改 Patch 注入文件后必须先完成 C# 语法级编译验证，再进入 Bannerlord 实机测试。
 5. 不得通过提高 `LangVersion` 来规避本问题；项目目标语言版本继续保持 C# 10。
