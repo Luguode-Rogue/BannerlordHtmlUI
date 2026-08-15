@@ -67,11 +67,23 @@ Framework shutdown 时主动：
 
 ### HWND=0 稳定性
 
-曾确认：Bannerlord 主窗口 HWND 临时解析失败时，旧代码可能直接 Hide Overlay。这是此前 UI“突然消失/打不开”等问题的重要风险。
+**已完成代码收口，待实机回归。**
 
-当前审查目标是确保 HWND 暂时为 0 只代表暂时无法同步位置，不代表应该关闭页面。
+原问题：Bannerlord 主窗口句柄临时解析失败时，`FollowBannerlordWindow()` 会直接 `Hide()` Overlay；这会错误改变用户请求的可见性。
 
-注意：最近检查发现代码中仍可能存在 `HWND == 0 -> Hide()` 的残留路径，因此这是下一轮需要实际收口的项目，不应认为已经彻底完成。
+当前实现增加 `HtmlUiWindowTrackingPatch`：
+
+- requested visibility 已为 false 时保持原关闭路径。
+- requested visibility 为 true 且 Bannerlord HWND 暂时无效时，跳过本轮窗口跟随。
+- 不调用 `Hide()`。
+- 不修改 `_requestedVisible`。
+- 下一次 HWND 恢复后自动回到正常同步路径。
+- 诊断日志保持低频，不恢复逐帧 tracking 日志。
+
+相关提交：
+
+- `92ed46afebbbe8f35f2c218f077e05623ee1ea73` — `fix: install HWND=0 overlay visibility guard`
+- `3c3d6cc6e68487093bee44ef692e4af316a26864` — guard implementation update
 
 ### HotReload / Navigation guard
 
@@ -84,6 +96,31 @@ Framework shutdown 时主动：
 `CoreWebView2.Settings.AreDefaultContextMenusEnabled = false`
 
 因此该功能已经处理，不要重复实现。
+
+### WebView2 ProcessFailed Recovery
+
+**已完成第一版恢复状态机代码，待真实 ProcessFailed 实机回归。**
+
+新增：`src/HtmlUiProcessRecovery.cs`
+
+提交：
+
+- `f0977634ac08c97d9ddfe1b10a390ab669029d36` — `feat: add WebView2 process recovery`
+- `90aca808dbdd7037ae9527b85c796997c7426a34` — `feat: enable WebView2 process recovery`
+
+当前恢复流程：
+
+`ProcessFailed -> Recovery lock -> 保留当前 Page -> _webViewReady=false -> 移除旧 WebView2 -> 创建 replacement WebView2 -> 重用环境 -> 失败时重建 Environment -> EnsureCoreWebView2Async -> 调用既有 ConfigureAfterWebViewReady -> Runtime/Bridge/Patch 重新绑定 -> 恢复 pending Page -> 恢复 InputMode -> Running`
+
+额外约束：
+
+- Recovery 期间重复 `ProcessFailed` 只处理一次。
+- 恢复时暂时抑制 `Ready` 回调，避免 Consumer 因浏览器重建被误判为 Framework 首次 Ready。
+- 恢复失败不伪造 `_webViewReady=true`。
+- 恢复失败进入 `Pages.CloseCurrent()` 安全关闭路径。
+- 当前实现保持原有 `WinForms STA + Form.Load + BeginInvoke + UI-thread WebView2` 架构，不替换冻结的 Runtime Baseline。
+
+注意：目前没有真实 Bannerlord + WebView2 ProcessFailed 回归证据，因此不能把 Recovery 标记为“验证完成”。
 
 ## 5. State Remove
 
@@ -109,17 +146,18 @@ Framework shutdown 时主动：
 
 ### P0/P1 优先
 
-1. **HWND=0 残留 Hide 路径**
-   - 临时 HWND 不可解析不能改变 requested visibility。
-   - 只有真正 shutdown/dispose 才允许关闭。
+1. **HWND=0 实机回归**
+   - 代码收口完成。
+   - 待 Bannerlord 实机验证：短暂 MainWindowHandle 不可解析时 UI 不应被隐藏；恢复后应自动继续跟随。
 
-2. **WebView2 ProcessFailed Recovery**
-   - 当前已有 ProcessFailed 记录/通知能力。
-   - 还没有完整的 WebView2 重建恢复状态机。
-   - 目标：
-     `Running -> Recovering -> 重建 WebView2 -> Configure -> Bridge/Runtime/Patch 重新绑定 -> 恢复当前 Page -> Running`
-   - 恢复失败才进入安全关闭/Failed。
-   - 不允许假装 `_webViewReady=true`。
+2. **WebView2 ProcessFailed Recovery 实机回归**
+   - 恢复代码已接入。
+   - 待真实 ProcessFailed 触发验证：
+     - 当前 Page 保留
+     - Runtime / Bridge / i18n / Binding 恢复
+     - InputMode 恢复
+     - 多 Page 不丢失
+     - 恢复失败才进入安全关闭
 
 3. **Owner Dispose -> Cancel owned requests**
    - Consumer Scope Dispose 当前会注销 Request，但需要主动取消正在运行的 cancellable handler。
@@ -192,9 +230,9 @@ Consumer TestMod：
 
 严格按以下顺序：
 
-1. 收口 HWND=0 残留 Hide 路径。
-2. 实现 WebView2 ProcessFailed Recovery。
-3. 回归单页面 + 多页面 + ESC + 焦点 + i18n。
+1. ~~收口 HWND=0 残留 Hide 路径~~ **代码完成，待实机回归**。
+2. ~~实现 WebView2 ProcessFailed Recovery~~ **代码完成，待真实 ProcessFailed 回归**。
+3. **完整回归单页面 + 多页面 + ESC + 焦点 + i18n + HWND=0 + ProcessFailed Recovery。**
 4. Owner Dispose -> Request cancellation。
 5. 清理 preCanceledRequests 生命周期。
 6. 修正 requestCancellable requestId 捕获竞态。
@@ -218,10 +256,10 @@ Consumer TestMod：
 
 ## 11. 下一步交接点
 
-**当前真正的下一步不是继续二分，而是修复 HWND=0 残留路径，然后实现 ProcessFailed Recovery。**
+**当前真正的下一步是做真实回归，而不是继续改架构：**
 
-完成后必须做实际回归：
-
+- Framework 编译
+- Consumer TestMod 编译
 - F11 打开
 - ESC 关闭
 - 连续打开/关闭
@@ -229,7 +267,8 @@ Consumer TestMod：
 - i18n 文本与按钮点击
 - 失焦/恢复焦点
 - Bannerlord 主窗口短暂不可解析
-- WebView2 ProcessFailed（可用专门测试路径触发）
+- WebView2 ProcessFailed Recovery（专门测试路径）
+- Recovery 后再次打开/关闭
 - StressLab
 
 只有这些通过，才继续 Request 生命周期和剩余功能开发。
