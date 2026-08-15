@@ -113,6 +113,16 @@ namespace BannerlordHtmlUI
             return true;
         }
 
+        internal void CancelAllRequests()
+        {
+            foreach (var pair in _requestCancellation)
+            {
+                try { pair.Value.Cancel(); } catch (ObjectDisposedException) { }
+            }
+
+            _preCanceledRequests.Clear();
+        }
+
         public void RegisterCommand(string name, Action<JToken> handler, string ownerId)
         {
             RegisterCommandCore(name, handler, ownerId);
