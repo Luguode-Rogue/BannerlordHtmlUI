@@ -5,9 +5,9 @@ Branch: `dev`
 
 ## Confirmed behavior
 
-`HtmlUiHost.OnNavigationCompleted()` currently uses `Pages.Current` when publishing `framework.page.lifecycle = ready`, but does not associate the callback with the `NavigationId` that started the navigation.
+`HtmlUiHost.OnNavigationCompleted()` previously used `Pages.Current` when publishing `framework.page.lifecycle = ready`, but did not associate the callback with the `NavigationId` that started the navigation.
 
-This creates a race during rapid page navigation:
+This created a race during rapid page navigation:
 
 ```text
 Open(A)
@@ -26,19 +26,30 @@ The issue is limited to rapid overlapping navigation / reload lifecycle reportin
 
 ## Regression harness
 
-The Consumer Test page now contains a `Rapid Open/Reload Race` control. It starts two consecutive opens of the same registered page without waiting between them, allowing the NavigationCompleted ordering to be observed.
+The Consumer Test page contains a `Rapid Open/Reload Race` control. It starts two consecutive opens of the same registered page without waiting between them, allowing NavigationCompleted ordering to be exercised.
 
 The harness is intentionally non-invasive: normal F11/F9 behavior is unchanged.
 
-## Planned fix
+## Production fix
 
-The host should associate each navigation with its `NavigationId` and target page. `NavigationCompleted` must publish `ready` only when its `NavigationId` matches the currently tracked navigation for the active page.
+`HtmlUiNavigationRacePatch` now installs a narrow Harmony guard around the existing private host navigation callbacks:
 
-Do not solve this by hiding the race in Diagnostics or by changing Overlay/WebView2 window styles.
+```text
+NavigationStarting
+  -> record current NavigationId
+
+NavigationCompleted
+  -> compare NavigationId
+  -> matching current navigation: allow original handler
+  -> stale navigation: suppress original handler
+```
+
+The original `HtmlUiHost` navigation implementation remains unchanged. This prevents an older completion callback from publishing the newer `Pages.Current` page as `ready` early.
 
 ## Current status
 
 - Regression harness: implemented.
 - Root cause: confirmed by source audit.
-- Production fix: pending a minimal `HtmlUiHost.cs` change so the navigation ID is recorded at `NavigationStarting` and validated at `NavigationCompleted`.
-- No real-device test is required yet; existing non-navigation test runs should continue uninterrupted.
+- Production guard: implemented and installed from `SubModule.RegisterFrameworkPages()`.
+- CI/status checks: no repository status entries reported for commit `a31a091a9749234b1f07825c23bd6113615bfd68`.
+- Real-device regression: still pending; run the `Rapid Open/Reload Race` control before declaring this fixed.
