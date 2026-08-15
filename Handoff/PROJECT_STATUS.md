@@ -35,6 +35,7 @@ Bridge 已具备 Command / Request / Response / Event / State 的基础实现。
 - Bridge 协议异常与未知消息类型进入明确的错误路径，不再静默丢弃。
 - Handler 返回结果时的 Response 发送失败已隔离；WebView 已关闭等情况下不会把二次发送异常继续逸出到回调线程。
 - 页面切换、ConsumerScope Dispose 与 Request/Command 注销发生竞态时，旧 handler 不再静默丢弃请求；有效注册消失后会尽早返回明确错误，过期异步结果不会覆盖后续注册。
+- Bridge 按名称注销已增加 owner 校验，并使用 owner + entry identity 的原子删除路径，避免误删其他 Consumer/Framework 注册以及检查后换绑造成的竞态删除。
 - `HtmlUiPageManager.Count` / `Reload()` 已与文档 API 对齐。
 - `HtmlUiStateStore.Count` 已开放给诊断层。
 - `HtmlUiConsumerScope.RemoveState(key)` 已提供 Consumer 自有 State 的主动删除路径，并同步移除 Scope 的拥有记录。
@@ -53,11 +54,12 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - `TranslateMany` 对每个 key 的变量对象显式解析。
 - JavaScript Runtime 的 i18n API 已有对应的 TypeScript `.d.ts` 声明，包含 `i18n.t/getLocale/getLanguages/bind/formatDate/formatTime/onLocaleChanged`。
 - 缺失 Localization key 的 WARN 按“语言 + key”去重，避免页面重复渲染刷屏。
+- `i18n.bind()` 生命周期已具备 disposer、pagehide 自动清理、locale generation 防旧结果回写，并对同一刷新周期的同 key 翻译请求做合并。
 
 当前继续处理：
-- `i18n.bind()` 生命周期与 disposer
 - Language Switch 后 DOM 自动刷新
-- 异步翻译结果在页面销毁后的防回写
+- 动态 DOM / binding 生命周期
+- 异步翻译结果在页面销毁后的防回写边界
 
 ### API 边界
 - `HtmlUiPage.RelativePath` 已明确拒绝 rooted/absolute path，并继续拒绝 `..` 越界路径，保持 Page 资源只能落在声明的 ContentRoot 内。
