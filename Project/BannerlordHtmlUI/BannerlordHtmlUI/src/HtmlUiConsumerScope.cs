@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace BannerlordHtmlUI
@@ -89,6 +90,17 @@ namespace BannerlordHtmlUI
         }
 
         public void RegisterRequest(string name, Func<JToken, Task<object>> handler)
+        {
+            lock (_sync)
+            {
+                ThrowIfDisposedOrDisposingLocked();
+                var fullName = HtmlUiService.MakeScopedName(OwnerId, name);
+                HtmlUiService.RegisterRequest(fullName, handler, OwnerId);
+                _requestNames.Add(fullName);
+            }
+        }
+
+        public void RegisterRequest(string name, Func<JToken, CancellationToken, Task<object>> handler)
         {
             lock (_sync)
             {
@@ -243,8 +255,8 @@ namespace BannerlordHtmlUI
 
         private void ThrowIfDisposedOrDisposingLocked()
         {
-            if (_disposed) throw new ObjectDisposedException("HtmlUiConsumerScope");
-            if (_disposing) throw new ObjectDisposedException("HtmlUiConsumerScope", "The scope is disposing and can no longer accept registrations.");
+            if (_disposed) throw new ObjectDisposedException(nameof(HtmlUiConsumerScope));
+            if (_disposing) throw new InvalidOperationException("HtmlUiConsumerScope is disposing.");
         }
     }
 }
