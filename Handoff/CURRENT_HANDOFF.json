@@ -1,9 +1,9 @@
 {
-  "baseline": "v0.46",
+  "baseline": "dev",
   "framework": "BannerlordHtmlUI",
   "consumer": "HtmlUiConsumerTestMod",
   "engine": "Mount & Blade II: Bannerlord",
   "template": "BUTR Team Bannerlord Module",
   "runtime_target": "net472",
-  "status": "Stability hardening in progress; P0 ESC/HWND guards landed, request owner cancellation and hot-reload lifecycle hardening landed; State.Remove protocol and WebView2 ProcessFailed recovery remain pending; real-device acceptance not yet performed."
+  "status": "Stability hardening in progress. State.Remove, owner request cancellation, pre-cancel TTL, HotReload lifecycle, ESC/HWND guards, and cancellable requestId race hardening are landed. Remaining major work: WebView2 ProcessFailed recovery state machine, EnsureUiThread disposed-host semantics, and Page/WebView2 reinitialize lifecycle audit. Real-device acceptance is still pending."
 }
