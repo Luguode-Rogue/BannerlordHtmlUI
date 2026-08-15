@@ -7,6 +7,7 @@ namespace BannerlordHtmlUI
     {
         private readonly Dictionary<string, HtmlUiPage> _pages = new Dictionary<string, HtmlUiPage>(StringComparer.OrdinalIgnoreCase);
         private readonly object _sync = new object();
+        private readonly object _transitionSync = new object();
         private HtmlUiHost _host;
         private string _openId;
 
@@ -44,46 +45,50 @@ namespace BannerlordHtmlUI
         public bool Unregister(string id)
         {
             if (string.IsNullOrWhiteSpace(id)) return false;
-            HtmlUiPage page = null;
-            var wasOpen = false;
-            lock (_sync)
-            {
-                if (!_pages.TryGetValue(id, out page)) return false;
-                wasOpen = string.Equals(_openId, id, StringComparison.OrdinalIgnoreCase);
-                _pages.Remove(id);
-                if (wasOpen) _openId = null;
-            }
 
-            if (wasOpen)
+            lock (_transitionSync)
             {
-                try { page.Closed?.Invoke(); }
-                catch (Exception ex) { HtmlUiLogger.Error("Page close callback failed: " + id, ex); }
-
-                try
+                HtmlUiPage page = null;
+                var wasOpen = false;
+                lock (_sync)
                 {
-                    _host.State.Set("framework.page.lifecycle", new
-                    {
-                        state = "closed",
-                        pageId = page.Id,
-                        ownerId = page.OwnerId ?? ""
-                    });
-                    _host.SendEvent("framework.page.lifecycle", new
-                    {
-                        state = "closed",
-                        pageId = page.Id,
-                        ownerId = page.OwnerId ?? ""
-                    });
-                }
-                catch (Exception ex)
-                {
-                    HtmlUiLogger.Error("Failed to publish page closed lifecycle: " + id, ex);
+                    if (!_pages.TryGetValue(id, out page)) return false;
+                    wasOpen = string.Equals(_openId, id, StringComparison.OrdinalIgnoreCase);
+                    _pages.Remove(id);
+                    if (wasOpen) _openId = null;
                 }
 
-                _host.Hide();
-            }
+                if (wasOpen)
+                {
+                    try { page.Closed?.Invoke(); }
+                    catch (Exception ex) { HtmlUiLogger.Error("Page close callback failed: " + id, ex); }
 
-            HtmlUiLogger.Info("Page unregistered: " + id);
-            return true;
+                    try
+                    {
+                        _host.State.Set("framework.page.lifecycle", new
+                        {
+                            state = "closed",
+                            pageId = page.Id,
+                            ownerId = page.OwnerId ?? ""
+                        });
+                        _host.SendEvent("framework.page.lifecycle", new
+                        {
+                            state = "closed",
+                            pageId = page.Id,
+                            ownerId = page.OwnerId ?? ""
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        HtmlUiLogger.Error("Failed to publish page closed lifecycle: " + id, ex);
+                    }
+
+                    _host.Hide();
+                }
+
+                HtmlUiLogger.Info("Page unregistered: " + id);
+                return true;
+            }
         }
 
         public int UnregisterByOwner(string ownerId)
@@ -110,104 +115,140 @@ namespace BannerlordHtmlUI
             if (_host == null) throw new InvalidOperationException("HTML UI page manager is not attached to a host.");
             if (string.IsNullOrWhiteSpace(id)) return false;
 
-            HtmlUiPage page;
-            lock (_sync)
+            lock (_transitionSync)
             {
-                if (!_pages.TryGetValue(id, out page))
+                HtmlUiPage page;
+                lock (_sync)
                 {
-                    HtmlUiLogger.Warn("Page open failed: page not registered: " + id);
+                    if (!_pages.TryGetValue(id, out page))
+                    {
+                        HtmlUiLogger.Warn("Page open failed: page not registered: " + id);
+                        return false;
+                    }
+                }
+
+                try
+                {
+                    _host.ValidatePage(page);
+                }
+                catch (Exception ex)
+                {
+                    HtmlUiLogger.Error("Page validation failed: " + id, ex);
                     return false;
                 }
-            }
 
-            try
-            {
-                _host.ValidatePage(page);
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("Page validation failed: " + id, ex);
-                return false;
-            }
+                HtmlUiLogger.Info("Page open requested: " + id + ", hostReady=" + _host.IsWebViewReady + ", currentBefore=" + (CurrentId ?? "<null>"));
+                CloseCurrent();
+                lock (_sync) _openId = page.Id;
+                try
+                {
+                    _host.State.Set("framework.page.lifecycle", new
+                    {
+                        state = "opening",
+                        pageId = page.Id,
+                        ownerId = page.OwnerId,
+                        path = page.RelativePath
+                    });
+                    _host.SendEvent("framework.page.lifecycle", new
+                    {
+                        state = "opening",
+                        pageId = page.Id,
+                        ownerId = page.OwnerId,
+                        path = page.RelativePath
+                    });
+                }
+                catch (Exception ex) { HtmlUiLogger.Error("Failed to publish page opening lifecycle: " + page.Id, ex); }
 
-            HtmlUiLogger.Info("Page open requested: " + id + ", hostReady=" + _host.IsWebViewReady + ", currentBefore=" + (CurrentId ?? "<null>"));
-            CloseCurrent();
-            lock (_sync) _openId = page.Id;
-            try
-            {
-                _host.State.Set("framework.page.lifecycle", new
+                try
                 {
-                    state = "opening",
-                    pageId = page.Id,
-                    ownerId = page.OwnerId,
-                    path = page.RelativePath
-                });
-                _host.SendEvent("framework.page.lifecycle", new
+                    _host.Navigate(page);
+                    _host.SetInputMode(page.DefaultInputMode);
+                    try { page.Opened?.Invoke(); }
+                    catch (Exception ex) { HtmlUiLogger.Error("Page open callback failed: " + page.Id, ex); }
+                }
+                catch
                 {
-                    state = "opening",
-                    pageId = page.Id,
-                    ownerId = page.OwnerId,
-                    path = page.RelativePath
-                });
+                    lock (_sync)
+                    {
+                        if (string.Equals(_openId, page.Id, StringComparison.OrdinalIgnoreCase))
+                            _openId = null;
+                    }
+
+                    try
+                    {
+                        _host.State.Set("framework.page.lifecycle", new
+                        {
+                            state = "closed",
+                            pageId = page.Id,
+                            ownerId = page.OwnerId ?? ""
+                        });
+                    }
+                    catch { }
+
+                    _host.Hide();
+                    throw;
+                }
+
+                HtmlUiLogger.Info("Page open state committed: " + page.Id + ", inputMode=" + _host.InputMode + ", requestedVisible=" + _host.IsVisible);
+                return true;
             }
-            catch (Exception ex) { HtmlUiLogger.Error("Failed to publish page opening lifecycle: " + page.Id, ex); }
-            _host.Navigate(page);
-            _host.SetInputMode(page.DefaultInputMode);
-            try { page.Opened?.Invoke(); }
-            catch (Exception ex) { HtmlUiLogger.Error("Page open callback failed: " + page.Id, ex); }
-            HtmlUiLogger.Info("Page open state committed: " + page.Id + ", inputMode=" + _host.InputMode + ", requestedVisible=" + _host.IsVisible);
-            return true;
         }
 
         public void Close(string id)
         {
-            HtmlUiLogger.Info("Page Close requested: id=" + (id ?? "<null>") + ", current=" + (CurrentId ?? "<null>"));
-            if (string.Equals(_openId, id, StringComparison.OrdinalIgnoreCase)) CloseCurrent();
+            lock (_transitionSync)
+            {
+                HtmlUiLogger.Info("Page Close requested: id=" + (id ?? "<null>") + ", current=" + (CurrentId ?? "<null>"));
+                if (string.Equals(_openId, id, StringComparison.OrdinalIgnoreCase)) CloseCurrent();
+            }
         }
 
         public void CloseCurrent()
         {
-            string openId;
-            HtmlUiPage page = null;
-            lock (_sync)
+            lock (_transitionSync)
             {
-                openId = _openId;
-                if (openId == null)
+                string openId;
+                HtmlUiPage page = null;
+                lock (_sync)
                 {
-                    HtmlUiLogger.Info("Page CloseCurrent ignored: no open page.");
-                    return;
+                    openId = _openId;
+                    if (openId == null)
+                    {
+                        HtmlUiLogger.Info("Page CloseCurrent ignored: no open page.");
+                        return;
+                    }
+                    _pages.TryGetValue(openId, out page);
+                    _openId = null;
                 }
-                _pages.TryGetValue(openId, out page);
-                _openId = null;
-            }
 
-            HtmlUiLogger.Info("Page CloseCurrent executing: page=" + openId + ", resolvedPage=" + (page == null ? "<null>" : page.Id));
+                HtmlUiLogger.Info("Page CloseCurrent executing: page=" + openId + ", resolvedPage=" + (page == null ? "<null>" : page.Id));
 
-            if (page != null)
-            {
-                try { page.Closed?.Invoke(); }
-                catch (Exception ex) { HtmlUiLogger.Error("Page close callback failed: " + openId, ex); }
-            }
-
-            try
-            {
-                _host.State.Set("framework.page.lifecycle", new
+                if (page != null)
                 {
-                    state = "closed",
-                    pageId = openId,
-                    ownerId = page == null ? "" : page.OwnerId
-                });
-                _host.SendEvent("framework.page.lifecycle", new
+                    try { page.Closed?.Invoke(); }
+                    catch (Exception ex) { HtmlUiLogger.Error("Page close callback failed: " + openId, ex); }
+                }
+
+                try
                 {
-                    state = "closed",
-                    pageId = openId,
-                    ownerId = page == null ? "" : page.OwnerId
-                });
+                    _host.State.Set("framework.page.lifecycle", new
+                    {
+                        state = "closed",
+                        pageId = openId,
+                        ownerId = page == null ? "" : page.OwnerId
+                    });
+                    _host.SendEvent("framework.page.lifecycle", new
+                    {
+                        state = "closed",
+                        pageId = openId,
+                        ownerId = page == null ? "" : page.OwnerId
+                    });
+                }
+                catch (Exception ex) { HtmlUiLogger.Error("Failed to publish page closed lifecycle: " + openId, ex); }
+                HtmlUiLogger.Info("Page closed: " + openId);
+                _host.Hide();
+                HtmlUiLogger.Info("Page CloseCurrent finished: page=" + openId + ", currentAfter=" + (CurrentId ?? "<null>") + ", hostVisible=" + _host.IsVisible + ", inputMode=" + _host.InputMode);
             }
-            catch (Exception ex) { HtmlUiLogger.Error("Failed to publish page closed lifecycle: " + openId, ex); }
-            HtmlUiLogger.Info("Page closed: " + openId);
-            _host.Hide();
-            HtmlUiLogger.Info("Page CloseCurrent finished: page=" + openId + ", currentAfter=" + (CurrentId ?? "<null>") + ", hostVisible=" + _host.IsVisible + ", inputMode=" + _host.InputMode);
         }
 
         public bool Reload()
