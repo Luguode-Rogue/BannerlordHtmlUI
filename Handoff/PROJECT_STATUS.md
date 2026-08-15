@@ -56,15 +56,15 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - 缺失 Localization key 的 WARN 按“语言 + key”去重，避免页面重复渲染刷屏。
 - `i18n.bind()` 生命周期已具备 disposer、pagehide 自动清理、locale generation 防旧结果回写，并对同一刷新周期的同 key 翻译请求做合并。
 - Keyed `bind.list()` 复用已有 child 时现在会调用 child `update(item, index, generation)`，不再出现 key 相同但数据变化后 DOM 停留在旧内容的问题。
-- `i18n.bind()` 已支持动态 DOM：新增匹配节点自动加入绑定，Localization 属性变化自动重新绑定，dispose/pagehide 会断开 MutationObserver。
+- `i18n.bind()` 已支持动态 DOM：新增匹配节点自动加入绑定，Localization 属性变化自动重新绑定，删除节点/子树会回收对应 binding，dispose/pagehide 会断开 MutationObserver。
+- 同一 `root` 重复调用 `i18n.bind()` 时会先自动 dispose 旧 binding，避免重复 locale listener / MutationObserver 累积。
+- 多个连续 DOM mutation 会在 microtask 内合并为一次 refresh pass，减少重复翻译和 DOM 写回。
 
 当前继续处理：
 - Language Switch 后 DOM 自动刷新实机验收
 - 动态 DOM / binding 生命周期压力场景
-- `bind.apply()` 重复调用的幂等与旧订阅替换
-- 多次 `i18n.bind/dispose` 的订阅去重与 root 生命周期
-- 异步翻译结果在页面销毁后的防回写边界
 - Template / List binding 的长期运行压力与 disposer 完整性
+- 大量 DOM binding 下的批量刷新性能
 
 ### State Bootstrap
 - Framework 内置 `framework.getStateSnapshot` 已用于页面 Runtime 初始 hydration。
@@ -74,6 +74,7 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 ### API 边界
 - `HtmlUiPage.RelativePath` 已明确拒绝 rooted/absolute path，并继续拒绝 `..` 越界路径，保持 Page 资源只能落在声明的 ContentRoot 内。
 - Public API 文档已同步 `PageManager.Count/Current/Reload`、`StateStore.Count/GetSnapshot`、`ConsumerScope.RemoveState`。
+- Command / Request / timeout / lifecycle 语义已开始固化到 Protocol/API 文档。
 - Public API 下一阶段需要冻结 v0.44 对外语义：错误码、timeout、disposer、页面生命周期和 ownership 规则必须写成稳定契约。
 
 ### Diagnostics
@@ -91,15 +92,18 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 
 ## 后续里程碑
 ### M3 收口
-- [ ] `i18n.bind()` 多次调用幂等 / root 级 disposer 去重
-- [ ] 动态 DOM 删除节点后的 binding 清理
+- [x] `i18n.bind()` 多次调用幂等 / root 级 disposer 去重
+- [x] 动态 DOM 删除节点后的 binding 清理
+- [x] 连续 DOM mutation refresh 合并
 - [ ] Binding locale refresh / disposal 压力验证
 - [ ] Template / List 长期运行与 key diff 验收
+- [ ] 大量 DOM Binding 性能检查
 
 ### M4 API / Protocol Stabilization
+- [x] Command 基础成功/错误语义与 fire-and-forget runtime.error 区分写入文档
+- [x] Owner / Scope 生命周期主要规则已有文档
 - [ ] 完整统一错误模型（Command/Request/Timeout/Protocol）
-- [ ] Timeout、取消、页面卸载语义写入 API 契约
-- [ ] Owner / Scope 生命周期契约冻结
+- [ ] Timeout、取消、页面卸载语义最终冻结
 - [ ] Page / ContentRoot / Reload 资源安全边界最终审计
 - [ ] TypeScript `.d.ts` 与实际 Runtime API 一致性审计
 
