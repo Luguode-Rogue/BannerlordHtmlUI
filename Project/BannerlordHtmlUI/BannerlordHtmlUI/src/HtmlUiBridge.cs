@@ -36,8 +36,31 @@ namespace BannerlordHtmlUI
 
         public bool CommandExists(string name) => _commands.ContainsKey(name);
 
-        public bool UnregisterCommand(string name) => _commands.TryRemove(name, out _);
-        public bool UnregisterRequest(string name) => _requests.TryRemove(name, out _);
+        public bool UnregisterCommand(string name)
+        {
+            return UnregisterCommand(name, "framework");
+        }
+
+        public bool UnregisterCommand(string name, string ownerId)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return false;
+            if (!_commands.TryGetValue(name, out var existing)) return false;
+            if (!string.Equals(existing.OwnerId, NormalizeOwner(ownerId), StringComparison.OrdinalIgnoreCase)) return false;
+            return _commands.TryRemove(new KeyValuePair<string, CommandEntry>(name, existing));
+        }
+
+        public bool UnregisterRequest(string name)
+        {
+            return UnregisterRequest(name, "framework");
+        }
+
+        public bool UnregisterRequest(string name, string ownerId)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return false;
+            if (!_requests.TryGetValue(name, out var existing)) return false;
+            if (!string.Equals(existing.OwnerId, NormalizeOwner(ownerId), StringComparison.OrdinalIgnoreCase)) return false;
+            return _requests.TryRemove(new KeyValuePair<string, RequestEntry>(name, existing));
+        }
 
         public void RegisterCommand(string name, Action<JToken> handler, string ownerId)
         {
@@ -65,11 +88,16 @@ namespace BannerlordHtmlUI
             RegisterCommandCore(name, handler, "framework");
         }
 
+        private static string NormalizeOwner(string ownerId)
+        {
+            return string.IsNullOrWhiteSpace(ownerId) ? "framework" : ownerId;
+        }
+
         private void RegisterCommandCore(string name, Action<JToken> handler, string ownerId)
         {
             if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Command name is required.", nameof(name));
             if (handler == null) throw new ArgumentNullException(nameof(handler));
-            if (string.IsNullOrWhiteSpace(ownerId)) ownerId = "framework";
+            ownerId = NormalizeOwner(ownerId);
 
             var entry = new CommandEntry { OwnerId = ownerId, Handler = handler };
             if (_commands.TryAdd(name, entry)) return;
@@ -84,7 +112,7 @@ namespace BannerlordHtmlUI
         {
             if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Request name is required.", nameof(name));
             if (handler == null) throw new ArgumentNullException(nameof(handler));
-            if (string.IsNullOrWhiteSpace(ownerId)) ownerId = "framework";
+            ownerId = NormalizeOwner(ownerId);
 
             var entry = new RequestEntry { OwnerId = ownerId, Handler = handler };
             if (_requests.TryAdd(name, entry)) return;
