@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 
@@ -54,7 +55,7 @@ namespace BannerlordHtmlUI
             }
 
             var state = States.GetOrCreateValue(__instance);
-            var now = Environment.TickCount64;
+            var now = GetMonotonicMilliseconds();
             lock (state)
             {
                 if (now - state.LastReloadTick < DebounceMilliseconds)
@@ -67,6 +68,11 @@ namespace BannerlordHtmlUI
             }
 
             return true;
+        }
+
+        private static long GetMonotonicMilliseconds()
+        {
+            return Stopwatch.GetTimestamp() * 1000L / Stopwatch.Frequency;
         }
     }
 }
