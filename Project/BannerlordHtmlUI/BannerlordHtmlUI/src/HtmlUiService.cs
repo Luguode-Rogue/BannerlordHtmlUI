@@ -198,6 +198,7 @@ namespace BannerlordHtmlUI
             _lifecycleState = HtmlUiLifecycleState.Unloading;
             try
             {
+                HtmlUiBridgeShutdownPatch.CancelAll(HtmlUiBridge.Current);
                 if (_host != null) _host.WindowStateChanged -= OnWindowStateChanged;
                 _host?.Dispose();
             }
