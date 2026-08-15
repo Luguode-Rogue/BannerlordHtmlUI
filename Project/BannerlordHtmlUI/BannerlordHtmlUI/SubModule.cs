@@ -31,6 +31,22 @@ namespace BannerlordHtmlUI
             try
             {
                 HtmlUiService.NotifyGameContext("application", true);
+
+                if (!HtmlUiCommands.CommandExists("runtime.error"))
+                {
+                    HtmlUiService.RegisterCommand("runtime.error", payload =>
+                    {
+                        try
+                        {
+                            HtmlUiLogger.Error("Browser runtime error: " + (payload == null ? "<null>" : payload.ToString(Newtonsoft.Json.Formatting.None)));
+                        }
+                        catch (Exception ex)
+                        {
+                            HtmlUiLogger.Error("Failed to log browser runtime error payload.", ex);
+                        }
+                    });
+                }
+
                 if (!HtmlUiService.Pages.Contains("framework"))
                     HtmlUiService.Pages.Register(new HtmlUiPage("framework", "index.html") { HotReload = true });
                 if (!HtmlUiService.Pages.Contains("diagnostics"))
