@@ -56,11 +56,13 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - 缺失 Localization key 的 WARN 按“语言 + key”去重，避免页面重复渲染刷屏。
 - `i18n.bind()` 生命周期已具备 disposer、pagehide 自动清理、locale generation 防旧结果回写，并对同一刷新周期的同 key 翻译请求做合并。
 - Keyed `bind.list()` 复用已有 child 时现在会调用 child `update(item, index, generation)`，不再出现 key 相同但数据变化后 DOM 停留在旧内容的问题。
+- `i18n.bind()` 已支持动态 DOM：新增匹配节点自动加入绑定，Localization 属性变化自动重新绑定，dispose/pagehide 会断开 MutationObserver。
 
 当前继续处理：
 - Language Switch 后 DOM 自动刷新
-- 动态 DOM / binding 生命周期
+- 动态 DOM / binding 生命周期的压力场景
 - `bind.apply()` 重复调用的幂等与旧订阅替换
+- 多次 `i18n.bind()` / disposer 叠加时的订阅去重策略
 - 异步翻译结果在页面销毁后的防回写边界
 
 ### API 边界
@@ -92,6 +94,7 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - Localization
 - Language Switch
 - i18n DOM bind 生命周期与语言切换自动刷新
+- 多次 i18n.bind/dispose 的生命周期压力场景
 - Bridge 竞态下的旧 handler / 过期 response 行为
 
 ## 已解决的历史问题
