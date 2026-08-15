@@ -35,6 +35,10 @@ namespace HtmlUiConsumerTestMod
             {
                 var moduleDirectory = Path.GetDirectoryName(typeof(SubModule).Assembly.Location);
                 _logPath = Path.Combine(moduleDirectory ?? ".", "HtmlUiConsumerTestMod.log");
+
+                // Start every game/session with a clean consumer log.
+                try { File.WriteAllText(_logPath, string.Empty); } catch { }
+
                 Log("=== HtmlUiConsumerTestMod loaded ===");
                 Log("Assembly=" + typeof(SubModule).Assembly.Location);
                 Log("F11/F12/F8/F7 test hooks are active.");
