@@ -97,7 +97,17 @@ Binding Component 包装曾经使用对象展开复制：
 - Framework Shutdown 后 ESC filter、NavigationCompleted handler、ConsumerScope 等必须释放。
 - 重新启动下一次游戏时不得受到上一实例残留状态影响。
 
-## 9. 日志约束
+## 9. HotReload / Page Reload 生命周期
+
+### 验收
+- 手动 `Pages.Reload()` 仅允许在当前 Page、Host Visible、WebView2 Ready 时执行。
+- Reload 开始时发布 `framework.page.lifecycle = reloading`。
+- NavigationCompleted 成功后再次发布 `framework.page.lifecycle = ready`。
+- Reload 过程中立即 `CloseCurrent()`，不得让旧页面的 reload 完成后把生命周期重新写回 `ready`。
+- Reload 过程中快速再次触发文件变化，应被 75ms debounce；不能产生多次并发 Reload。
+- 页面关闭后残留 FileSystemWatcher 触发的 reload 必须被忽略。
+
+## 10. 日志约束
 
 正式版本不要恢复逐帧 Window tracking 日志。仅在状态实际变化、异常或明确诊断模式下记录。
 
