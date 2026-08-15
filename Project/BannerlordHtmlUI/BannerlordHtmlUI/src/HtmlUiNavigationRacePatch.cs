@@ -31,32 +31,75 @@ namespace BannerlordHtmlUI
 
             lock (Sync)
             {
-                if (_installed) return;
+                if (!_installed)
+                {
+                    _harmony = new Harmony("BannerlordHtmlUI.NavigationRace");
 
-                _harmony = new Harmony("BannerlordHtmlUI.NavigationRace");
+                    var starting = AccessTools.Method(typeof(HtmlUiHost), "OnNavigationStarting");
+                    var completed = AccessTools.Method(typeof(HtmlUiHost), "OnNavigationCompleted");
+                    _navigateOnUiThread = AccessTools.Method(typeof(HtmlUiHost), "NavigateOnUiThread");
+                    if (starting == null || completed == null || _navigateOnUiThread == null)
+                        throw new MissingMethodException("HtmlUiHost navigation handlers were not found.");
 
-                var starting = AccessTools.Method(typeof(HtmlUiHost), "OnNavigationStarting");
-                var completed = AccessTools.Method(typeof(HtmlUiHost), "OnNavigationCompleted");
-                _navigateOnUiThread = AccessTools.Method(typeof(HtmlUiHost), "NavigateOnUiThread");
-                if (starting == null || completed == null || _navigateOnUiThread == null)
-                    throw new MissingMethodException("HtmlUiHost navigation handlers were not found.");
+                    _harmony.Patch(
+                        starting,
+                        postfix: new HarmonyMethod(typeof(HtmlUiNavigationRacePatch), nameof(OnNavigationStartingPostfix)));
 
-                _harmony.Patch(
-                    starting,
-                    postfix: new HarmonyMethod(typeof(HtmlUiNavigationRacePatch), nameof(OnNavigationStartingPostfix)));
+                    _harmony.Patch(
+                        completed,
+                        prefix: new HarmonyMethod(typeof(HtmlUiNavigationRacePatch), nameof(OnNavigationCompletedPrefix)));
 
-                _harmony.Patch(
-                    completed,
-                    prefix: new HarmonyMethod(typeof(HtmlUiNavigationRacePatch), nameof(OnNavigationCompletedPrefix)));
+                    _harmony.Patch(
+                        _navigateOnUiThread,
+                        prefix: new HarmonyMethod(typeof(HtmlUiNavigationRacePatch), nameof(OnNavigateOnUiThreadPrefix)));
 
-                _harmony.Patch(
-                    _navigateOnUiThread,
-                    prefix: new HarmonyMethod(typeof(HtmlUiNavigationRacePatch), nameof(OnNavigateOnUiThreadPrefix)));
+                    _installed = true;
+                    HtmlUiLogger.Info("Navigation race guard installed.");
+                }
 
-                RuntimeRegistrationBarriers.Add(host, CreateRuntimeRegistrationBarrier(host));
+                // The barrier belongs to the host instance, not to the static Harmony patch.
+                // This matters if the WebView2 host is destroyed and recreated in the same
+                // process: a new host must get its own document-created runtime barrier.
+                if (!RuntimeRegistrationBarriers.TryGetValue(host, out _))
+                    RuntimeRegistrationBarriers.Add(host, CreateRuntimeRegistrationBarrier(host));
+            }
+        }
 
-                _installed = true;
-                HtmlUiLogger.Info("Navigation race guard installed. Runtime registration barrier armed.");
+        public static void Uninstall(HtmlUiHost host)
+        {
+            lock (Sync)
+            {
+                if (host != null)
+                    RuntimeRegistrationBarriers.Remove(host);
+
+                if (!_installed || _harmony == null) return;
+
+                try
+                {
+                    _harmony.Unpatch(
+                        AccessTools.Method(typeof(HtmlUiHost), "OnNavigationStarting"),
+                        HarmonyPatchType.Postfix,
+                        _harmony.Id);
+                    _harmony.Unpatch(
+                        AccessTools.Method(typeof(HtmlUiHost), "OnNavigationCompleted"),
+                        HarmonyPatchType.Prefix,
+                        _harmony.Id);
+                    _harmony.Unpatch(
+                        AccessTools.Method(typeof(HtmlUiHost), "NavigateOnUiThread"),
+                        HarmonyPatchType.Prefix,
+                        _harmony.Id);
+                }
+                catch (Exception ex)
+                {
+                    HtmlUiLogger.Debug("Navigation race guard uninstall failed: " + ex.GetBaseException().Message);
+                }
+                finally
+                {
+                    _harmony = null;
+                    _navigateOnUiThread = null;
+                    _installed = false;
+                    HtmlUiLogger.Info("Navigation race guard uninstalled.");
+                }
             }
         }
 
@@ -107,9 +150,6 @@ namespace BannerlordHtmlUI
 
             try
             {
-                // The PageManager may have switched pages while the runtime-registration
-                // barrier was pending. Never replay an obsolete navigation after a newer
-                // Open/Close transition has already committed.
                 var current = host.Pages.Current;
                 if (current == null || !string.Equals(current.Id, page.Id, StringComparison.OrdinalIgnoreCase))
                 {
@@ -118,7 +158,14 @@ namespace BannerlordHtmlUI
                     return;
                 }
 
-                _navigateOnUiThread?.Invoke(host, new object[] { page });
+                var navigate = _navigateOnUiThread;
+                if (navigate == null)
+                {
+                    HtmlUiLogger.Warn("Suppressed deferred navigation because navigation method is unavailable: " + page.Id);
+                    return;
+                }
+
+                navigate.Invoke(host, new object[] { page });
             }
             catch (Exception ex)
             {
