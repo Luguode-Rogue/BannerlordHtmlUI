@@ -35,8 +35,6 @@ namespace HtmlUiConsumerTestMod
             {
                 var moduleDirectory = Path.GetDirectoryName(typeof(SubModule).Assembly.Location);
                 _logPath = Path.Combine(moduleDirectory ?? ".", "HtmlUiConsumerTestMod.log");
-
-                // Start every game/session with a clean consumer log.
                 try { File.WriteAllText(_logPath, string.Empty); } catch { }
 
                 Log("=== HtmlUiConsumerTestMod loaded ===");
@@ -128,6 +126,18 @@ namespace HtmlUiConsumerTestMod
                     throw new InvalidOperationException("Intentional consumer command failure.");
                 });
 
+                _scope.RegisterCommand("logI18nDiagnostics", payload =>
+                {
+                    try
+                    {
+                        Log("i18n diagnostics=" + (payload == null ? "<null>" : payload.ToString(Newtonsoft.Json.Formatting.None)));
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("i18n diagnostics logging failed: " + ex);
+                    }
+                });
+
                 _scope.RegisterRequest("getData", payload =>
                 {
                     var echo = payload?["echo"]?.Value<string>() ?? string.Empty;
@@ -177,7 +187,7 @@ namespace HtmlUiConsumerTestMod
                 _scope.SetState("loaded", true);
                 _registered = true;
                 Log("Consumer UI registration completed successfully.");
-                Log("M5/M6 diagnostics registered: getDataDelayed, getDataCancellable, emitTestEvent, throwCommand, throwRequest, removeNameState.");
+                Log("M5/M6 diagnostics registered: getDataDelayed, getDataCancellable, emitTestEvent, throwCommand, throwRequest, removeNameState, logI18nDiagnostics.");
             }
             catch (Exception ex)
             {
@@ -200,7 +210,7 @@ namespace HtmlUiConsumerTestMod
             if (f12Pressed && !_f12Down)
             {
                 _f12Down = true;
-                Log("F12 fallback detected. closing current page.");
+                Log("F12 fallback detected. registered=" + _registered + ", currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>") + ", inputMode=" + HtmlUiService.Host.InputMode + ". closing current page.");
                 CloseCurrent();
             }
             else if (!f12Pressed)
@@ -216,7 +226,7 @@ namespace HtmlUiConsumerTestMod
 
             if (Input.IsKeyPressed(InputKey.F12))
             {
-                Log("F12 pressed. registered=" + _registered + ", frameworkReady=" + HtmlUiService.IsReady + ", page=" + (_pageId ?? "<null>"));
+                Log("F12 pressed through Bannerlord Input. registered=" + _registered + ", currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>") + ", inputMode=" + HtmlUiService.Host.InputMode);
                 Close();
             }
 
@@ -228,7 +238,7 @@ namespace HtmlUiConsumerTestMod
 
             if (Input.IsKeyPressed(InputKey.F7))
             {
-                Log("F7 pressed. closing StressLab/current page.");
+                Log("F7 pressed. closing StressLab/current page. currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>"));
                 CloseCurrent();
             }
         }
@@ -244,7 +254,7 @@ namespace HtmlUiConsumerTestMod
                 }
 
                 var result = HtmlUiService.Pages.Open(_pageId);
-                Log("Pages.Open result=" + result + ", currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>"));
+                Log("Pages.Open result=" + result + ", currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>") + ", inputMode=" + HtmlUiService.Host.InputMode + ", visible=" + HtmlUiService.Host.IsVisible);
             }
             catch (Exception ex)
             {
@@ -275,6 +285,7 @@ namespace HtmlUiConsumerTestMod
         {
             try
             {
+                Log("Close requested for page=" + (_pageId ?? "<null>") + ", currentPageBefore=" + (HtmlUiService.Pages.CurrentId ?? "<null>"));
                 if (!_registered || !HtmlUiService.IsReady)
                 {
                     Log("Close skipped: consumer not registered or Framework not ready.");
@@ -282,6 +293,7 @@ namespace HtmlUiConsumerTestMod
                 }
 
                 HtmlUiService.Pages.Close(_pageId);
+                Log("Close completed. currentPageAfter=" + (HtmlUiService.Pages.CurrentId ?? "<null>") + ", inputMode=" + HtmlUiService.Host.InputMode + ", visible=" + HtmlUiService.Host.IsVisible);
             }
             catch (Exception ex)
             {
@@ -293,6 +305,8 @@ namespace HtmlUiConsumerTestMod
         {
             try
             {
+                var before = HtmlUiService.Pages.CurrentId;
+                Log("CloseCurrent requested. currentPageBefore=" + (before ?? "<null>") + ", inputMode=" + HtmlUiService.Host.InputMode + ", visible=" + HtmlUiService.Host.IsVisible);
                 if (!_registered || !HtmlUiService.IsReady)
                 {
                     Log("CloseCurrent skipped: consumer not registered or Framework not ready.");
@@ -300,6 +314,7 @@ namespace HtmlUiConsumerTestMod
                 }
 
                 HtmlUiService.Pages.CloseCurrent();
+                Log("CloseCurrent completed. currentPageAfter=" + (HtmlUiService.Pages.CurrentId ?? "<null>") + ", inputMode=" + HtmlUiService.Host.InputMode + ", visible=" + HtmlUiService.Host.IsVisible);
             }
             catch (Exception ex)
             {
