@@ -41,12 +41,12 @@ Bridge 已具备 Command / Request / Response / Event / State 的基础实现。
 - `HtmlUiConsumerScope.RemoveState(key)` 已提供 Consumer 自有 State 的主动删除路径，并同步移除 Scope 的拥有记录。
 - Consumer 测试页已加入 State 删除回归入口，并监听 `name` State 变化验证 `null` 删除传播。
 
-当前重点是完整实机绿灯验收与边界错误传播验证。
+当前重点：Bridge 实机绿灯验收，以及跨页面/Reload/Shutdown 的边界错误传播验收。
 
 已知技术债：
 - StateStore 当前按“对象引用 + 内容比较”的混合语义工作。如果 Consumer 原地修改同一个复杂对象实例后再次 `Set`，由于 Store 保留的是同一引用，可能无法观察到这类原地突变。是否改为完全 value-semantics 需要单独定义并评估序列化/性能影响，当前不作为普通修复顺手修改。
 
-### M3 Localization
+### M3 Localization / Binding
 Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 
 已完成的静态加固：
@@ -59,27 +59,69 @@ Bannerlord 原生 Localization -> Framework -> `game.app.i18n` -> HTML。
 - `i18n.bind()` 已支持动态 DOM：新增匹配节点自动加入绑定，Localization 属性变化自动重新绑定，dispose/pagehide 会断开 MutationObserver。
 
 当前继续处理：
-- Language Switch 后 DOM 自动刷新
-- 动态 DOM / binding 生命周期的压力场景
+- Language Switch 后 DOM 自动刷新实机验收
+- 动态 DOM / binding 生命周期压力场景
 - `bind.apply()` 重复调用的幂等与旧订阅替换
-- 多次 `i18n.bind()` / disposer 叠加时的订阅去重策略
+- 多次 `i18n.bind/dispose` 的订阅去重与 root 生命周期
 - 异步翻译结果在页面销毁后的防回写边界
+- Template / List binding 的长期运行压力与 disposer 完整性
+
+### State Bootstrap
+- Framework 内置 `framework.getStateSnapshot` 已用于页面 Runtime 初始 hydration。
+- document-created bootstrap 已改为短时间重试等待 `window.game` / `game.request` 建立，不再依赖单次 microtask，避免首次导航出现 Runtime 注入时序导致的 State hydration 丢失。
+- 当前代码不新增高频运行日志；失败只在实际异常时通过页面 console 诊断。
 
 ### API 边界
 - `HtmlUiPage.RelativePath` 已明确拒绝 rooted/absolute path，并继续拒绝 `..` 越界路径，保持 Page 资源只能落在声明的 ContentRoot 内。
 - Public API 文档已同步 `PageManager.Count/Current/Reload`、`StateStore.Count/GetSnapshot`、`ConsumerScope.RemoveState`。
+- Public API 下一阶段需要冻结 v0.44 对外语义：错误码、timeout、disposer、页面生命周期和 ownership 规则必须写成稳定契约。
 
 ### Diagnostics
 - Framework version 已与 v0.44 文档对齐为 `0.44.0`。
 - F10 Diagnostics 可报告 PageCount / StateCount，避免诊断页面只显示部分运行态。
 - F10 Diagnostics 页面已改为 500ms 轻量自动刷新，并带 in-flight 防重入与 unload disposer，方便观察窗口、输入模式、Page 生命周期变化而不产生框架级高频日志。
 - Diagnostics snapshot 新增 `SnapshotUtc`、`CurrentPageOwner`、`CurrentPagePath`，便于多 Page / 多 Consumer 生命周期排查。
+- 下一阶段增加 Bridge/Binding 运行态计数与失败摘要，但继续避免逐帧日志。
 
 ### Overlay / WebView2
 - 当前已有经过实机验证的正常基线：`debug/test-root-transparent`。
 - 该基线不是冻结状态；后续允许继续优化 Overlay、窗口层级、透明度、输入与 WebView2 渲染行为。
 - 已知“画面不可见但点击区域存在”的复现与修复已经记录，不需要作为后续每轮普通开发的阻塞条件。
 - 只有再次修改 Overlay/WebView2 渲染、窗口样式、D3D/Chromium 子窗口层级等相关代码时，才重新执行对应的已知回归测试。
+
+## 后续里程碑
+### M3 收口
+- [ ] `i18n.bind()` 多次调用幂等 / root 级 disposer 去重
+- [ ] 动态 DOM 删除节点后的 binding 清理
+- [ ] Binding locale refresh / disposal 压力验证
+- [ ] Template / List 长期运行与 key diff 验收
+
+### M4 API / Protocol Stabilization
+- [ ] 完整统一错误模型（Command/Request/Timeout/Protocol）
+- [ ] Timeout、取消、页面卸载语义写入 API 契约
+- [ ] Owner / Scope 生命周期契约冻结
+- [ ] Page / ContentRoot / Reload 资源安全边界最终审计
+- [ ] TypeScript `.d.ts` 与实际 Runtime API 一致性审计
+
+### M5 Consumer / Diagnostics
+- [ ] Consumer TestMod 覆盖 Command / Request / Event / State / Binding / i18n / Page 切换
+- [ ] Diagnostics 增加非高频的运行态摘要：注册数、pending request、binding scope 数、错误摘要
+- [ ] 新增明确的 smoke / lifecycle 回归入口，尽量一次操作覆盖一组生命周期
+
+### M6 Stability / Performance
+- [ ] 高频 State / Event 压力场景
+- [ ] 大量 DOM Binding 场景
+- [ ] 多 Page 快速切换 / Reload
+- [ ] Request timeout / late response / shutdown race
+- [ ] 长时间运行的 disposer / observer / timer 泄漏审计
+- [ ] Framework 主线程 / WebView2 UI thread 边界最终审计
+
+### M7 Release Baseline
+- [ ] 清理遗留 debug 分支与实验开关
+- [ ] 冻结正常 Overlay/WebView2 基线后对应回归矩阵
+- [ ] 发布版日志默认低噪声，仅错误、生命周期和关键诊断输出
+- [ ] API / Protocol / Consumer 接入文档完成
+- [ ] 形成 v0.44 release checklist
 
 ## 待验收
 - Command
