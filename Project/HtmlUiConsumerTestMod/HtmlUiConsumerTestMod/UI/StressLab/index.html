@@ -18,6 +18,8 @@ pre{background:#080a0d;padding:12px;white-space:pre-wrap;min-height:120px}
   <button id="one">Run 1</button>
   <button id="ten">Run 10</button>
   <button id="fifty">Run 50</button>
+  <button id="highfreq">高频 State/Event</button>
+  <button id="binding">大量 DOM Binding</button>
   <button id="binder">Binder 生命周期</button>
   <button id="stop">Stop</button>
   <button id="snapshot">Snapshot</button>
@@ -84,8 +86,6 @@ async function binderLifecycleRound(){
     return {element:root,dispose(){componentDisposed=true;child.remove()}};
   },{});
 
-  // The default consumer test State does not necessarily contain an array on every
-  // page, so list/template are still exercised through their empty-state lifecycle.
   binder.list(listHost,'stressItems',item=>{
     const child=document.createElement('span');
     child.textContent=String(item?.id ?? item ?? 'item');
@@ -121,6 +121,49 @@ async function binderLifecycleRound(){
   templateHost.remove();
   return {before,after};
 }
+async function highFrequencyRound(count=250){
+  const before=await snapshot();
+  let eventCount=0;
+  const off=app.on('counterChanged',()=>{eventCount++});
+  for(let i=0;i<count;i++){
+    if(stopRequested) break;
+    await app.call('increment',{});
+  }
+  await sleep(0);
+  const after=await snapshot();
+  off();
+  return {
+    target:count,
+    eventCount,
+    beforeActiveRequests:before.activeRequestCount,
+    afterActiveRequests:after.activeRequestCount,
+    counter:app.state.get('HtmlUiConsumerTestMod.counter')
+  };
+}
+
+async function bindingRound(count=500, stateUpdates=25){
+  const binder=window.game.scope('HtmlUiConsumerTestMod').bind;
+  const host=document.createElement('div');
+  bench.appendChild(host);
+  const disposers=[];
+  for(let i=0;i<count;i++){
+    const el=document.createElement('span');
+    el.textContent='0';
+    host.appendChild(el);
+    disposers.push(binder.text(el,'counter'));
+  }
+  for(let i=0;i<stateUpdates;i++){
+    if(stopRequested) break;
+    await app.call('increment',{});
+  }
+  await sleep(0);
+  const updated=Array.from(host.children).filter(el=>el.textContent===String(app.state.get('HtmlUiConsumerTestMod.counter'))).length;
+  binder.dispose();
+  const result={count,stateUpdates,updated,domChildrenBeforeDispose:host.childElementCount};
+  host.remove();
+  return result;
+}
+
 async function cancellableRound(count){
   const jobs=[];
   for(let i=0;i<count;i++){
@@ -182,6 +225,8 @@ async function run(count){
 document.getElementById('one').onclick=()=>run(1);
 document.getElementById('ten').onclick=()=>run(10);
 document.getElementById('fifty').onclick=()=>run(50);
+document.getElementById('highfreq').onclick=async()=>{try{log({status:'high frequency',result:await highFrequencyRound()})}catch(e){log({status:'high frequency error',name:e.name,code:e.code,message:e.message})}};
+document.getElementById('binding').onclick=async()=>{try{log({status:'binding pressure',result:await bindingRound()})}catch(e){log({status:'binding pressure error',name:e.name,code:e.code,message:e.message})}};
 document.getElementById('binder').onclick=async()=>{try{log({status:'binder lifecycle',result:await binderLifecycleRound()})}catch(e){log({status:'binder lifecycle error',name:e.name,code:e.code,message:e.message})}};
 document.getElementById('stop').onclick=()=>{stopRequested=true};
 document.getElementById('snapshot').onclick=async()=>{try{log(await snapshot())}catch(e){log({error:{name:e.name,code:e.code,message:e.message}})}};
