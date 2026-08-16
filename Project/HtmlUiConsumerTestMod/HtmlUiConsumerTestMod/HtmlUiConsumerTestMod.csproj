@@ -106,7 +106,7 @@
   -->
   <Target Name="DeployConsumerRuntimeAssets"
           AfterTargets="Build"
-          Condition="'$(TargetFramework)' == 'net472' and '$(DesignTimeBuild)' != 'true' and Exists('$(GameFolder)') and Exists('$(GameBinariesFolder)')">
+          Condition="'$(TargetFramework)' == 'net472' and '$(DesignTimeBuild)' != 'true' and Exists('$(GameFolder)\bin\$(GameBinariesFolder)')">
     <Message Importance="High" Text="[BannerlordHtmlUI] Consumer runtime module: '$(ConsumerModuleDeployDir)'" />
     <Message Importance="High" Text="[BannerlordHtmlUI] Consumer binary directory: '$(ConsumerBinaryDeployDir)'" />
     <Message Importance="High" Text="[BannerlordHtmlUI] Deploy UI: '$(ConsumerUiSourceDir)' -> '$(ConsumerUiDeployDir)'" />
