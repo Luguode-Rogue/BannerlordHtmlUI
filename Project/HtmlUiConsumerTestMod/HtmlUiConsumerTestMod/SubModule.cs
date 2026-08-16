@@ -168,7 +168,19 @@ namespace HtmlUiConsumerTestMod
                 _scope.RegisterRequest("getDataCancellable", async (payload, cancellationToken) =>
                 {
                     var echo = payload?["echo"]?.Value<string>() ?? string.Empty;
-                    await Task.Delay(5000, cancellationToken).ConfigureAwait(false);
+                    // Bannerlord/.NET cancellation of Task.Delay(token) produced native
+                    // SEHException noise in the host during stress runs. Poll the token
+                    // instead so this consumer test isolates Framework cancellation semantics.
+                    const int totalWaitMs = 5000;
+                    const int pollMs = 25;
+                    var elapsed = 0;
+                    while (elapsed < totalWaitMs)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await Task.Delay(pollMs).ConfigureAwait(false);
+                        elapsed += pollMs;
+                    }
+
                     cancellationToken.ThrowIfCancellationRequested();
                     return new
                     {
