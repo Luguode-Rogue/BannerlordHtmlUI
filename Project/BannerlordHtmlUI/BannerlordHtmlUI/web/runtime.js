@@ -29,6 +29,7 @@
 
     loadScriptSynchronously('./runtime-bootstrap.js');
     loadScriptSynchronously('./runtime-core.js');
+    window.__bannerlordHtmlUiRuntime.runtimeCoreLoaded = true;
     loadScriptSynchronously('./runtime-i18n.js');
   } catch (error) {
     console.error('BannerlordHtmlUI modular runtime bootstrap failed:', error);
