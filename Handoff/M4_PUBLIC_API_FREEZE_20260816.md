@@ -1,7 +1,7 @@
 # M4 / v0.44 Public API Freeze Checklist
 
 日期：2026-08-16
-分支：`feature/framework-finalization-m3-m4`
+主开发分支：`dev`
 
 ## 冻结目标
 
