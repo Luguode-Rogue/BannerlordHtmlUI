@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<base xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/BUTR/Bannerlord.XmlSchemas/master/ModuleLanguage.xsd"
+      type="string">
+  <tags>
+    <tag language="简体中文" />
+  </tags>
+  <strings>
+    <string id="HtmlUiConsumer_Title" text="HTML UI 框架测试" />
+    <string id="HtmlUiConsumer_Increment" text="增加计数" />
+    <string id="HtmlUiConsumer_GetData" text="获取数据" />
+    <string id="HtmlUiConsumer_Name" text="名称" />
+    <string id="HtmlUiConsumer_Enabled" text="启用" />
+    <string id="HtmlUiConsumer_RemoveNameState" text="移除名称状态" />
+    <string id="HtmlUiConsumer_Release" text="释放输入" />
+    <string id="HtmlUiConsumer_Capture" text="捕获输入" />
+    <string id="HtmlUiConsumer_ReloadRace" text="快速打开/重载竞态测试" />
+    <string id="HtmlUiConsumer_Close" text="关闭界面" />
+    <string id="HtmlUiConsumer_EscHint" text="按 ESC 也可以关闭界面。" />
+    <string id="HtmlUiConsumer_M5Title" text="M5 Bridge / 生命周期验收" />
+    <string id="HtmlUiConsumer_Event" text="事件" />
+    <string id="HtmlUiConsumer_DelayedRequest" text="异步 Request" />
+    <string id="HtmlUiConsumer_CancellableRequest" text="可取消 Request" />
+    <string id="HtmlUiConsumer_CommandError" text="Command 异常" />
+    <string id="HtmlUiConsumer_RequestError" text="Request 异常" />
+    <string id="HtmlUiConsumer_DiagnosticsSnapshot" text="Diagnostics 快照" />
+    <string id="HtmlUiConsumer_Counter" text="计数：{COUNT}" />
+  </strings>
+</base>
