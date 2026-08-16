@@ -16,10 +16,13 @@
     <GameBinariesFolder Condition="Exists('$(GameFolder)\bin\Win64_Shipping_Client\Bannerlord.exe')">Win64_Shipping_Client</GameBinariesFolder>
     <GameBinariesFolder Condition="Exists('$(GameFolder)\bin\Gaming.Desktop.x64_Shipping_Client\Bannerlord.exe')">Gaming.Desktop.x64_Shipping_Client</GameBinariesFolder>
 
-    <!-- Runtime deployment can be overridden with /p:ConsumerModuleDeployDir=... -->
+    <!-- The installed Mod root is the module directory. Runtime binaries/resources live below bin\<game-binary-dir>. -->
     <ConsumerModuleDeployDir Condition="'$(ConsumerModuleDeployDir)' == ''">$(GameFolder)\Modules\$(ModuleId)</ConsumerModuleDeployDir>
+    <ConsumerBinaryDeployDir Condition="'$(ConsumerBinaryDeployDir)' == ''">$(ConsumerModuleDeployDir)\bin\$(GameBinariesFolder)</ConsumerBinaryDeployDir>
     <ConsumerUiSourceDir Condition="'$(ConsumerUiSourceDir)' == ''">$(MSBuildProjectDirectory)\UI</ConsumerUiSourceDir>
-    <ConsumerUiDeployDir Condition="'$(ConsumerUiDeployDir)' == ''">$(ConsumerModuleDeployDir)\UI</ConsumerUiDeployDir>
+    <ConsumerUiDeployDir Condition="'$(ConsumerUiDeployDir)' == ''">$(ConsumerBinaryDeployDir)\UI</ConsumerUiDeployDir>
+    <ConsumerModuleDataSourceDir Condition="'$(ConsumerModuleDataSourceDir)' == ''">$(MSBuildProjectDirectory)\ModuleData</ConsumerModuleDataSourceDir>
+    <ConsumerModuleDataDeployDir Condition="'$(ConsumerModuleDataDeployDir)' == ''">$(ConsumerModuleDeployDir)\ModuleData</ConsumerModuleDataDeployDir>
   </PropertyGroup>
 
   <PropertyGroup Condition="$(TargetFramework) == 'net472'">
@@ -78,22 +81,53 @@
     <PackageReference Include="BUTR.Harmony.Analyzer" Version="1.0.1.50" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" />
   </ItemGroup>
 
+  <!-- Keep the repository project files in the source tree. Deployment is handled explicitly below. -->
   <ItemGroup>
-    <None Include="_Module\SubModule.xml" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="UI\**\*" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="ModuleData\Languages\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="_Module\SubModule.xml" />
+    <None Include="UI\**\*" />
+    <None Include="ModuleData\**\*" />
   </ItemGroup>
 
-  <!-- Keep IDE/solution builds focused on the normal project build, then mirror the source UI into the actual game module. -->
-  <Target Name="DeployConsumerUi" AfterTargets="Build" Condition="'$(TargetFramework)' == 'net472' and '$(DesignTimeBuild)' != 'true' and Exists('$(GameFolder)') and Exists('$(ConsumerUiSourceDir)')">
-    <Message Importance="High" Text="[BannerlordHtmlUI] Deploy Consumer UI: '$(ConsumerUiSourceDir)' -> '$(ConsumerUiDeployDir)'" />
-    <MakeDir Directories="$(ConsumerUiDeployDir)" />
+  <!--
+    Runtime deployment layout:
+      Modules\HtmlUiConsumerTestMod\
+        SubModule.xml
+        ModuleData\...
+        bin\Win64_Shipping_Client\
+          HtmlUiConsumerTestMod.dll
+          UI\...
+
+    The game's loaded assembly lives in bin\<GameBinariesFolder>, and the Consumer runtime
+    resolves its UI root from the directory containing that assembly.
+  -->
+  <Target Name="DeployConsumerRuntimeAssets"
+          AfterTargets="Build"
+          Condition="'$(TargetFramework)' == 'net472' and '$(DesignTimeBuild)' != 'true' and Exists('$(GameFolder)') and Exists('$(GameBinariesFolder)')">
+    <Message Importance="High" Text="[BannerlordHtmlUI] Consumer runtime module: '$(ConsumerModuleDeployDir)'" />
+    <Message Importance="High" Text="[BannerlordHtmlUI] Consumer binary directory: '$(ConsumerBinaryDeployDir)'" />
+    <Message Importance="High" Text="[BannerlordHtmlUI] Deploy UI: '$(ConsumerUiSourceDir)' -> '$(ConsumerUiDeployDir)'" />
+    <Message Importance="High" Text="[BannerlordHtmlUI] Deploy ModuleData: '$(ConsumerModuleDataSourceDir)' -> '$(ConsumerModuleDataDeployDir)'" />
+
+    <MakeDir Directories="$(ConsumerModuleDeployDir);$(ConsumerBinaryDeployDir);$(ConsumerUiDeployDir);$(ConsumerModuleDataDeployDir)" />
+
     <ItemGroup>
       <_ConsumerUiFiles Include="$(ConsumerUiSourceDir)\**\*" />
+      <_ConsumerModuleDataFiles Include="$(ConsumerModuleDataSourceDir)\**\*" />
     </ItemGroup>
+
     <Copy
       SourceFiles="@(_ConsumerUiFiles)"
       DestinationFiles="@(_ConsumerUiFiles->'$(ConsumerUiDeployDir)\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+
+    <Copy
+      SourceFiles="@(_ConsumerModuleDataFiles)"
+      DestinationFiles="@(_ConsumerModuleDataFiles->'$(ConsumerModuleDataDeployDir)\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+
+    <Copy
+      SourceFiles="$(MSBuildProjectDirectory)\_Module\SubModule.xml"
+      DestinationFiles="$(ConsumerModuleDeployDir)\SubModule.xml"
       SkipUnchangedFiles="true" />
   </Target>
 
