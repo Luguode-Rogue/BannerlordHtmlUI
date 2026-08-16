@@ -151,7 +151,7 @@ async function highFrequencyRound(count=250){
     eventCount,
     beforeActiveRequests:before.activeRequestCount,
     afterActiveRequests:after.activeRequestCount,
-    counter:app.state.get('HtmlUiConsumerTestMod.counter')
+    counter:app.state.get('counter')
   };
 }
 
@@ -171,12 +171,19 @@ async function bindingRound(count=500, stateUpdates=25){
     await app.call('increment',{});
   }
   await sleep(0);
-  const currentCounter=String(app.state.get('HtmlUiConsumerTestMod.counter'));
+  const currentCounter=String(app.state.get('counter'));
   const updated=Array.from(host.children).filter(el=>el.textContent===currentCounter).length;
   binder.dispose();
   const domChildrenAfterDispose=host.childElementCount;
   host.remove();
-  return {count,stateUpdates,updated,domChildrenBeforeDispose,domChildrenAfterDispose};
+  return {
+    count,
+    stateUpdates,
+    updated,
+    domChildrenBeforeDispose,
+    domChildrenAfterDispose,
+    bindingDisposePreservesCallerDom: domChildrenAfterDispose === domChildrenBeforeDispose
+  };
 }
 
 async function cancellableRound(count){
