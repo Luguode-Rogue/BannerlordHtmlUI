@@ -36,6 +36,7 @@ namespace BannerlordHtmlUI
                 HtmlUiWindowTrackingPatch.Install(HtmlUiService.Host);
                 HtmlUiProcessRecovery.Install(HtmlUiService.Host);
                 HtmlUiContextMenuPatch.Install(HtmlUiService.Host);
+                HtmlUiBindingLifecyclePatch.Install(HtmlUiService.Host);
 
                 if (!HtmlUiCommands.CommandExists("runtime.error"))
                 {
