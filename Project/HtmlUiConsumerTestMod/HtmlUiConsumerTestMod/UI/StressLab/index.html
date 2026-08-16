@@ -28,13 +28,14 @@ pre{background:#080a0d;padding:12px;white-space:pre-wrap;min-height:120px}
 <pre id="log">idle</pre>
 <script>
 const app=window.game.app;
+const framework=window.game;
 const logEl=document.getElementById('log');
 const bench=document.getElementById('bench');
 let stopRequested=false;
 let running=false;
 const log=v=>logEl.textContent=JSON.stringify(v,null,2);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-const snapshot=()=>app.request('framework.getDiagnostics');
+const snapshot=()=>framework.request('framework.getDiagnostics');
 function renderCells(count){
   bench.textContent='';
   for(let i=0;i<count;i++){
@@ -159,7 +160,7 @@ async function bindingRound(count=500, stateUpdates=25){
   await sleep(0);
   const updated=Array.from(host.children).filter(el=>el.textContent===String(app.state.get('HtmlUiConsumerTestMod.counter'))).length;
   binder.dispose();
-  const result={count,stateUpdates,updated,domChildrenBeforeDispose:host.childElementCount};
+  const result={count,stateUpdates,updated,domChildrenBeforeDispose:host.childElementCount,domChildrenAfterDispose:host.childElementCount};
   host.remove();
   return result;
 }
