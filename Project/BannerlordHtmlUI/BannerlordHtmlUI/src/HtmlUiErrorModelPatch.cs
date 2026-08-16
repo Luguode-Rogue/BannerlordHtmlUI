@@ -44,21 +44,60 @@ namespace BannerlordHtmlUI
       return target;
     };
 
-    const wrap = operation => {
-      const original = game[operation];
-      if (typeof original !== 'function' || original.__bannerlordHtmlUiErrorWrapped) return;
+    const wrap = (api, operation) => {
+      if (!api || typeof api[operation] !== 'function') return;
+      const marker = '__bannerlordHtmlUiErrorWrapped_' + operation;
+      if (api[marker]) return;
+      const original = api[operation];
       const wrapped = function(name, payload, timeoutMs) {
         let result;
         try { result = original.call(this, name, payload, timeoutMs); }
-        catch (error) { throw decorate(operation, name, error); }
-        return Promise.resolve(result).catch(error => { throw decorate(operation, name, error); });
+        catch (error) { throw decorate(operation === 'call' ? 'command' : 'request', name, error); }
+        return Promise.resolve(result).catch(error => {
+          throw decorate(operation === 'call' ? 'command' : 'request', name, error);
+        });
       };
-      wrapped.__bannerlordHtmlUiErrorWrapped = true;
-      game[operation] = wrapped;
+      wrapped[marker] = true;
+      api[operation] = wrapped;
     };
 
-    wrap('call');
-    wrap('request');
+    const wrapCancellable = api => {
+      if (!api || typeof api.requestCancellable !== 'function' || api.__bannerlordHtmlUiErrorWrapped_requestCancellable) return;
+      const original = api.requestCancellable;
+      const wrapped = function(name, payload, timeoutMs, signal) {
+        let result;
+        try { result = original.call(this, name, payload, timeoutMs, signal); }
+        catch (error) { throw decorate('request', name, error); }
+        return Promise.resolve(result).catch(error => {
+          throw decorate('request', name, error);
+        });
+      };
+      wrapped.__bannerlordHtmlUiErrorWrapped_requestCancellable = true;
+      api.requestCancellable = wrapped;
+    };
+
+    const installApi = api => {
+      if (!api || api['" + Marker + @"']) return;
+      wrap(api, 'call');
+      wrap(api, 'request');
+      wrapCancellable(api);
+      Object.defineProperty(api, 'BannerlordHtmlUiError', { value: Error, configurable: false });
+      Object.defineProperty(api, '" + Marker + @"', { value: true, configurable: false });
+    };
+
+    installApi(game);
+    installApi(game.app);
+
+    if (!game.__bannerlordHtmlUiErrorScopeWrapped && typeof game.scope === 'function') {
+      const originalScope = game.scope;
+      game.scope = function (...args) {
+        const scope = originalScope.apply(this, args);
+        installApi(scope);
+        return scope;
+      };
+      Object.defineProperty(game, '__bannerlordHtmlUiErrorScopeWrapped', { value: true, configurable: false });
+    }
+
     game['" + Marker + @"'] = true;
     return true;
   };
