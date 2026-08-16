@@ -15,6 +15,7 @@ namespace BannerlordHtmlUI
         private static HtmlUiHost _host;
         private static IMessageFilter _filter;
         private static CoreWebView2 _core;
+        private static WebView2 _web;
 
         public static void Install(HtmlUiHost host)
         {
@@ -54,9 +55,17 @@ namespace BannerlordHtmlUI
                 var core = web?.CoreWebView2;
                 if (core != null && !ReferenceEquals(_core, core))
                 {
+                    if (_web != null)
+                    {
+                        try { _web.AcceleratorKeyPressed -= OnWebViewAcceleratorKeyPressed; }
+                        catch { }
+                    }
+
+                    _web = web;
                     _core = core;
+                    _web.AcceleratorKeyPressed += OnWebViewAcceleratorKeyPressed;
                     core.NavigationCompleted += OnNavigationCompleted;
-                    HtmlUiLogger.Info("UI navigation diagnostics hook installed for current WebView2 instance.");
+                    HtmlUiLogger.Info("UI navigation/accelerator diagnostics hooks installed for current WebView2 instance.");
                 }
 
                 InstallRuntimeStateRemovalPatch(host);
@@ -75,6 +84,13 @@ namespace BannerlordHtmlUI
                 try { Application.RemoveMessageFilter(_filter); }
                 catch (Exception ex) { HtmlUiLogger.Debug("Failed to remove global UI ESC close filter: " + ex.GetBaseException().Message); }
                 _filter = null;
+            }
+
+            if (_web != null)
+            {
+                try { _web.AcceleratorKeyPressed -= OnWebViewAcceleratorKeyPressed; }
+                catch { }
+                _web = null;
             }
 
             if (_core != null)
@@ -97,6 +113,28 @@ namespace BannerlordHtmlUI
 
             if (ReferenceEquals(_host, host)) _host = null;
             HtmlUiLogger.Info("Global UI ESC close diagnostics uninstalled.");
+        }
+
+        private static void OnWebViewAcceleratorKeyPressed(object sender, CoreWebView2AcceleratorKeyPressedEventArgs e)
+        {
+            if (e == null || e.VirtualKey != VkEscape) return;
+            if (e.KeyEventKind != CoreWebView2KeyEventKind.KeyDown &&
+                e.KeyEventKind != CoreWebView2KeyEventKind.SystemKeyDown) return;
+
+            var host = _host;
+            if (host == null || !host.IsVisible) return;
+
+            try
+            {
+                e.Handled = true;
+                HtmlUiLogger.Info("WebView2 AcceleratorKeyPressed detected Escape. Closing current page: "
+                    + (host.Pages.CurrentId ?? "<null>"));
+                host.Pages.CloseCurrent();
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Error("WebView2 Escape close failed.", ex);
+            }
         }
 
         private static void InstallRuntimeStateRemovalPatch(HtmlUiHost host)
@@ -203,7 +241,7 @@ namespace BannerlordHtmlUI
                 if (m.Msg != WmKeyDown && m.Msg != WmSysKeyDown) return false;
 
                 var host = _host;
-                if (host == null || !host.IsVisible || host.InputMode != HtmlUiInputMode.Captured) return false;
+                if (host == null || !host.IsVisible) return false;
 
                 var key = unchecked((int)m.WParam.ToInt64());
                 if (key != VkEscape) return false;
