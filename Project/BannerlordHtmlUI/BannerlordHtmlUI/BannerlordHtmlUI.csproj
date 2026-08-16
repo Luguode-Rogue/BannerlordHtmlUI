@@ -114,6 +114,26 @@
       SourceFiles="@(_FrameworkWebFiles)"
       DestinationFiles="@(_FrameworkWebFiles->'$(FrameworkWebDeployDir)\%(RecursiveDir)%(Filename)%(Extension)')"
       SkipUnchangedFiles="true" />
+
+    <!--
+      Source runtime modules stay split for maintainability, but Bannerlord WebView2 must
+      receive one already-built DocumentCreated script. Do not load sibling JS files from
+      inside runtime.js with sync XHR: that is not reliable during WebView2 document creation.
+    -->
+    <ReadLinesFromFile File="$(FrameworkWebSourceDir)\runtime-bootstrap.js">
+      <Output TaskParameter="Lines" ItemName="_RuntimeBootstrapLines" />
+    </ReadLinesFromFile>
+    <ReadLinesFromFile File="$(FrameworkWebSourceDir)\runtime-core.js">
+      <Output TaskParameter="Lines" ItemName="_RuntimeCoreLines" />
+    </ReadLinesFromFile>
+    <ReadLinesFromFile File="$(FrameworkWebSourceDir)\runtime-i18n.js">
+      <Output TaskParameter="Lines" ItemName="_RuntimeI18nLines" />
+    </ReadLinesFromFile>
+    <WriteLinesToFile
+      File="$(FrameworkWebDeployDir)\runtime.js"
+      Lines="@(_RuntimeBootstrapLines);@(_RuntimeCoreLines);@(_RuntimeI18nLines)"
+      Overwrite="true"
+      Encoding="UTF-8" />
   </Target>
 
 </Project>
