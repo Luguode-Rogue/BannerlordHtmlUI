@@ -36,16 +36,16 @@ namespace BannerlordHtmlUI
         {
             var form = HostFormField.GetValue(host) as System.Windows.Forms.Form;
             var web = HostWebField.GetValue(host) as WebView2;
-            if (form == null || web == null || web.CoreWebView2 == null)
+            if (form == null || web == null || web.CoreWebView2 == null || web.CoreWebView2Controller == null)
                 throw new InvalidOperationException("WebView2 host is not ready for transparent overlay mode.");
 
             form.BackColor = KeyColor;
             form.TransparencyKey = KeyColor;
             form.Opacity = 1.0;
 
-            // WebView2 supports a fully transparent background (alpha=0).
-            // Transparent HTML pixels then reveal the host window background, which is color-keyed away.
-            web.CoreWebView2.DefaultBackgroundColor = Color.Transparent;
+            // DefaultBackgroundColor belongs to the WebView2 controller, not CoreWebView2.
+            // Full transparency (alpha = 0) lets transparent HTML pixels reveal the host game.
+            web.CoreWebView2Controller.DefaultBackgroundColor = Color.Transparent;
         }
     }
 }
