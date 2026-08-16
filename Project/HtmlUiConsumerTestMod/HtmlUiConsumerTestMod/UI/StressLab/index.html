@@ -35,7 +35,20 @@ let stopRequested=false;
 let running=false;
 const log=v=>logEl.textContent=JSON.stringify(v,null,2);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-const snapshot=()=>framework.request('framework.getDiagnostics');
+const pick=(obj,pascal,camel)=>obj?.[pascal] ?? obj?.[camel];
+const normalizeDiagnostics=d=>({
+  pageCount:pick(d,'PageCount','pageCount'),
+  stateCount:pick(d,'StateCount','stateCount'),
+  contentRootCount:pick(d,'ContentRootCount','contentRootCount'),
+  bridgeCommandCount:pick(d,'BridgeCommandCount','bridgeCommandCount'),
+  bridgeRequestCount:pick(d,'BridgeRequestCount','bridgeRequestCount'),
+  activeRequestCount:pick(d,'ActiveRequestCount','activeRequestCount'),
+  navigationInProgress:pick(d,'NavigationInProgress','navigationInProgress'),
+  webViewReady:pick(d,'WebViewReady','webViewReady'),
+  lifecycle:pick(d,'Lifecycle','lifecycle'),
+  inputMode:pick(d,'InputMode','inputMode')
+});
+const snapshot=async()=>normalizeDiagnostics(await framework.request('framework.getDiagnostics'));
 function renderCells(count){
   bench.textContent='';
   for(let i=0;i<count;i++){
@@ -146,23 +159,24 @@ async function bindingRound(count=500, stateUpdates=25){
   const binder=window.game.scope('HtmlUiConsumerTestMod').bind;
   const host=document.createElement('div');
   bench.appendChild(host);
-  const disposers=[];
   for(let i=0;i<count;i++){
     const el=document.createElement('span');
     el.textContent='0';
     host.appendChild(el);
-    disposers.push(binder.text(el,'counter'));
+    binder.text(el,'counter');
   }
+  const domChildrenBeforeDispose=host.childElementCount;
   for(let i=0;i<stateUpdates;i++){
     if(stopRequested) break;
     await app.call('increment',{});
   }
   await sleep(0);
-  const updated=Array.from(host.children).filter(el=>el.textContent===String(app.state.get('HtmlUiConsumerTestMod.counter'))).length;
+  const currentCounter=String(app.state.get('HtmlUiConsumerTestMod.counter'));
+  const updated=Array.from(host.children).filter(el=>el.textContent===currentCounter).length;
   binder.dispose();
-  const result={count,stateUpdates,updated,domChildrenBeforeDispose:host.childElementCount,domChildrenAfterDispose:host.childElementCount};
+  const domChildrenAfterDispose=host.childElementCount;
   host.remove();
-  return result;
+  return {count,stateUpdates,updated,domChildrenBeforeDispose,domChildrenAfterDispose};
 }
 
 async function cancellableRound(count){
@@ -192,11 +206,13 @@ async function runRound(round){
   await requestRound(20);
   const canceled=await cancellableRound(20);
   const after=await snapshot();
+  const testDomChildren=bench.querySelectorAll('.componentHost').length;
+  bench.textContent='';
   return {
     round,
-    domChildren:bench.childElementCount,
-    before:{pages:before.pageCount,states:before.stateCount,commands:before.bridgeCommandCount,requests:before.bridgeRequestCount,activeRequests:before.activeRequestCount},
-    after:{pages:after.pageCount,states:after.stateCount,commands:after.bridgeCommandCount,requests:after.bridgeRequestCount,activeRequests:after.activeRequestCount},
+    testDomChildren,
+    before,
+    after,
     canceled:canceled.filter(x=>x&&x.aborted).length
   };
 }
@@ -214,7 +230,13 @@ async function run(count){
       await sleep(10);
     }
     const final=await snapshot();
-    log({status:stopRequested?'stopped':'complete',elapsedMs:Math.round(performance.now()-started),domChildren:bench.childElementCount,final:{pages:final.pageCount,states:final.stateCount,commands:final.bridgeCommandCount,requests:final.bridgeRequestCount,activeRequests:final.activeRequestCount},results});
+    log({
+      status:stopRequested?'stopped':'complete',
+      elapsedMs:Math.round(performance.now()-started),
+      domChildren:bench.childElementCount,
+      final,
+      results
+    });
   }catch(e){
     log({status:'error',name:e.name,code:e.code,message:e.message,results});
   }finally{
