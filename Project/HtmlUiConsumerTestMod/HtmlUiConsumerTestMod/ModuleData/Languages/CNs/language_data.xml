@@ -6,5 +6,5 @@
               subtitle_extension="zh-CN"
               supported_iso="zh-CN,zh-Hans,zh-cn,zh-hans"
               under_development="false">
-  <LanguageFile xml_path="CNs/strings.xml" />
+  <LanguageFile xml_path="CNs/std_module_strings_xml.xml" />
 </LanguageData>
