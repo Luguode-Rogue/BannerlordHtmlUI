@@ -15,7 +15,9 @@ namespace BannerlordHtmlUI
         private static HtmlUiHost _host;
         private static IMessageFilter _filter;
         private static CoreWebView2 _core;
-        private static WebView2 _web;
+        private static object _controller;
+        private static EventInfo _acceleratorEvent;
+        private static Delegate _acceleratorHandler;
 
         public static void Install(HtmlUiHost host)
         {
@@ -55,15 +57,9 @@ namespace BannerlordHtmlUI
                 var core = web?.CoreWebView2;
                 if (core != null && !ReferenceEquals(_core, core))
                 {
-                    if (_web != null)
-                    {
-                        try { _web.AcceleratorKeyPressed -= OnWebViewAcceleratorKeyPressed; }
-                        catch { }
-                    }
-
-                    _web = web;
+                    DetachWebViewAccelerator();
                     _core = core;
-                    _web.AcceleratorKeyPressed += OnWebViewAcceleratorKeyPressed;
+                    AttachWebViewAccelerator(web);
                     core.NavigationCompleted += OnNavigationCompleted;
                     HtmlUiLogger.Info("UI navigation/accelerator diagnostics hooks installed for current WebView2 instance.");
                 }
@@ -86,12 +82,7 @@ namespace BannerlordHtmlUI
                 _filter = null;
             }
 
-            if (_web != null)
-            {
-                try { _web.AcceleratorKeyPressed -= OnWebViewAcceleratorKeyPressed; }
-                catch { }
-                _web = null;
-            }
+            DetachWebViewAccelerator();
 
             if (_core != null)
             {
@@ -113,6 +104,66 @@ namespace BannerlordHtmlUI
 
             if (ReferenceEquals(_host, host)) _host = null;
             HtmlUiLogger.Info("Global UI ESC close diagnostics uninstalled.");
+        }
+
+        private static void AttachWebViewAccelerator(WebView2 web)
+        {
+            if (web == null) return;
+
+            try
+            {
+                var fields = web.GetType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic);
+                object controller = null;
+                foreach (var field in fields)
+                {
+                    if (!typeof(CoreWebView2Controller).IsAssignableFrom(field.FieldType)) continue;
+                    controller = field.GetValue(web);
+                    if (controller != null) break;
+                }
+
+                if (controller == null)
+                {
+                    HtmlUiLogger.Warn("WebView2 controller could not be resolved; keeping WinForms ESC fallback.");
+                    return;
+                }
+
+                var eventInfo = controller.GetType().GetEvent("AcceleratorKeyPressed", BindingFlags.Instance | BindingFlags.Public);
+                var method = typeof(HtmlUiKeyboardAndDiagnosticsPatch).GetMethod(
+                    nameof(OnWebViewAcceleratorKeyPressed),
+                    BindingFlags.Static | BindingFlags.NonPublic);
+                if (eventInfo == null || method == null)
+                {
+                    HtmlUiLogger.Warn("WebView2 AcceleratorKeyPressed event is unavailable; keeping WinForms ESC fallback.");
+                    return;
+                }
+
+                var handler = Delegate.CreateDelegate(eventInfo.EventHandlerType, method);
+                eventInfo.AddEventHandler(controller, handler);
+                _controller = controller;
+                _acceleratorEvent = eventInfo;
+                _acceleratorHandler = handler;
+                HtmlUiLogger.Info("WebView2 controller AcceleratorKeyPressed hook installed.");
+            }
+            catch (Exception ex)
+            {
+                _controller = null;
+                _acceleratorEvent = null;
+                _acceleratorHandler = null;
+                HtmlUiLogger.Warn("WebView2 controller accelerator hook failed: " + ex.GetBaseException().Message);
+            }
+        }
+
+        private static void DetachWebViewAccelerator()
+        {
+            if (_controller != null && _acceleratorEvent != null && _acceleratorHandler != null)
+            {
+                try { _acceleratorEvent.RemoveEventHandler(_controller, _acceleratorHandler); }
+                catch { }
+            }
+
+            _controller = null;
+            _acceleratorEvent = null;
+            _acceleratorHandler = null;
         }
 
         private static void OnWebViewAcceleratorKeyPressed(object sender, CoreWebView2AcceleratorKeyPressedEventArgs e)
