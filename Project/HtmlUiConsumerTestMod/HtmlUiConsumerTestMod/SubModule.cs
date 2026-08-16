@@ -16,6 +16,7 @@ namespace HtmlUiConsumerTestMod
         private const string PageName = "consumer.test";
         private const string StressPageName = "consumer.stress";
         private HtmlUiConsumerScope _scope;
+        private HtmlUiConsumerLifecycleStress _lifecycleStress;
         private string _pageId;
         private string _stressPageId;
         private bool _registered;
@@ -39,7 +40,7 @@ namespace HtmlUiConsumerTestMod
 
                 Log("=== HtmlUiConsumerTestMod loaded ===");
                 Log("Assembly=" + typeof(SubModule).Assembly.Location);
-                Log("F11/F12/F8/F7 test hooks are active.");
+                Log("F11/F12/F8/F7/F6 test hooks are active.");
                 HtmlUiService.OnReady(RegisterUi);
                 Log("Registered HtmlUiService.OnReady callback.");
             }
@@ -185,6 +186,7 @@ namespace HtmlUiConsumerTestMod
 
                 PublishState();
                 _scope.SetState("loaded", true);
+                _lifecycleStress = new HtmlUiConsumerLifecycleStress(_scope, _pageId, _stressPageId, Log);
                 _registered = true;
                 Log("Consumer UI registration completed successfully.");
                 Log("M5/M6 diagnostics registered: getDataDelayed, getDataCancellable, emitTestEvent, throwCommand, throwRequest, removeNameState, logI18nDiagnostics.");
@@ -205,6 +207,12 @@ namespace HtmlUiConsumerTestMod
         protected override void OnApplicationTick(float dt)
         {
             base.OnApplicationTick(dt);
+
+            if (_lifecycleStress != null && _lifecycleStress.IsRunning)
+            {
+                try { _lifecycleStress.Tick(); }
+                catch (Exception ex) { Log("Lifecycle stress tick ERROR: " + ex); }
+            }
 
             var f12Pressed = (GetAsyncKeyState(0x7B) & 0x8000) != 0;
             if (f12Pressed && !_f12Down)
@@ -240,6 +248,24 @@ namespace HtmlUiConsumerTestMod
             {
                 Log("F7 pressed. closing StressLab/current page. currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>"));
                 CloseCurrent();
+            }
+
+            if (Input.IsKeyPressed(InputKey.F6))
+            {
+                if (_lifecycleStress == null)
+                {
+                    Log("F6 lifecycle stress skipped: controller is not initialized.");
+                }
+                else if (_lifecycleStress.IsRunning)
+                {
+                    Log("F6 lifecycle stress stop requested.");
+                    _lifecycleStress.Stop();
+                }
+                else
+                {
+                    Log("F6 lifecycle stress start requested.");
+                    _lifecycleStress.Start();
+                }
             }
         }
 
@@ -327,6 +353,8 @@ namespace HtmlUiConsumerTestMod
             try
             {
                 Log("=== HtmlUiConsumerTestMod unloading ===");
+                try { _lifecycleStress?.Stop(); } catch { }
+                _lifecycleStress = null;
                 _scope?.Dispose();
                 _scope = null;
                 _registered = false;
