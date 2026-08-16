@@ -15,6 +15,11 @@
     <GameFolder>$(BANNERLORD_GAME_DIR)</GameFolder>
     <GameBinariesFolder Condition="Exists('$(GameFolder)\bin\Win64_Shipping_Client\Bannerlord.exe')">Win64_Shipping_Client</GameBinariesFolder>
     <GameBinariesFolder Condition="Exists('$(GameFolder)\bin\Gaming.Desktop.x64_Shipping_Client\Bannerlord.exe')">Gaming.Desktop.x64_Shipping_Client</GameBinariesFolder>
+
+    <!-- Runtime deployment can be overridden with /p:ConsumerModuleDeployDir=... -->
+    <ConsumerModuleDeployDir Condition="'$(ConsumerModuleDeployDir)' == ''">$(GameFolder)\Modules\$(ModuleId)</ConsumerModuleDeployDir>
+    <ConsumerUiSourceDir Condition="'$(ConsumerUiSourceDir)' == ''">$(MSBuildProjectDirectory)\UI</ConsumerUiSourceDir>
+    <ConsumerUiDeployDir Condition="'$(ConsumerUiDeployDir)' == ''">$(ConsumerModuleDeployDir)\UI</ConsumerUiDeployDir>
   </PropertyGroup>
 
   <PropertyGroup Condition="$(TargetFramework) == 'net472'">
@@ -78,5 +83,18 @@
     <None Include="UI\**\*" CopyToOutputDirectory="PreserveNewest" />
     <None Include="ModuleData\Languages\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- Keep IDE/solution builds focused on the normal project build, then mirror the source UI into the actual game module. -->
+  <Target Name="DeployConsumerUi" AfterTargets="Build" Condition="'$(TargetFramework)' == 'net472' and '$(DesignTimeBuild)' != 'true' and Exists('$(GameFolder)') and Exists('$(ConsumerUiSourceDir)')">
+    <Message Importance="High" Text="[BannerlordHtmlUI] Deploy Consumer UI: '$(ConsumerUiSourceDir)' -> '$(ConsumerUiDeployDir)'" />
+    <MakeDir Directories="$(ConsumerUiDeployDir)" />
+    <ItemGroup>
+      <_ConsumerUiFiles Include="$(ConsumerUiSourceDir)\**\*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(_ConsumerUiFiles)"
+      DestinationFiles="@(_ConsumerUiFiles->'$(ConsumerUiDeployDir)\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
