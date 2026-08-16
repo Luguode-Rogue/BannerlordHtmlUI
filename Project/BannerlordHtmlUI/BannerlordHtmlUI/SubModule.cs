@@ -36,8 +36,9 @@ namespace BannerlordHtmlUI
                 HtmlUiWindowTrackingPatch.Install(HtmlUiService.Host);
                 HtmlUiProcessRecovery.Install(HtmlUiService.Host);
                 HtmlUiContextMenuPatch.Install(HtmlUiService.Host);
-                HtmlUiBindingLifecyclePatch.Install(HtmlUiService.Host);
-                HtmlUiErrorModelPatch.Install(HtmlUiService.Host);
+
+                // WebView2-dependent Runtime patches are installed by HtmlUiHost.ConfigureAfterWebViewReady()
+                // on the dedicated WebView2 UI thread. Do not reinstall them from Bannerlord's game thread.
 
                 if (!HtmlUiCommands.CommandExists("runtime.error"))
                 {
