@@ -16,6 +16,15 @@
     <GameBinariesFolder Condition="Exists('$(GameFolder)\bin\Win64_Shipping_Client\Bannerlord.exe')">Win64_Shipping_Client</GameBinariesFolder>
     <GameBinariesFolder Condition="Exists('$(GameFolder)\bin\Gaming.Desktop.x64_Shipping_Client\Bannerlord.exe')">Gaming.Desktop.x64_Shipping_Client</GameBinariesFolder>
     <UseWindowsForms>true</UseWindowsForms>
+
+    <!-- Installed Mod root is the module directory; runtime binaries/resources live below bin\<game-binary-dir>. -->
+    <FrameworkModuleDeployDir Condition="'$(FrameworkModuleDeployDir)' == ''">$(GameFolder)\Modules\$(ModuleId)</FrameworkModuleDeployDir>
+    <FrameworkBinaryDeployDir Condition="'$(FrameworkBinaryDeployDir)' == ''">$(FrameworkModuleDeployDir)\bin\$(GameBinariesFolder)</FrameworkBinaryDeployDir>
+    <FrameworkWebSourceDir Condition="'$(FrameworkWebSourceDir)' == ''">$(MSBuildProjectDirectory)\web</FrameworkWebSourceDir>
+    <FrameworkWebDeployDir Condition="'$(FrameworkWebDeployDir)' == ''">$(FrameworkBinaryDeployDir)\web</FrameworkWebDeployDir>
+
+    <!-- Path created by the earlier implicit output deployment. -->
+    <LegacyFrameworkWebDir Condition="'$(LegacyFrameworkWebDir)' == ''">$(FrameworkModuleDeployDir)\web</LegacyFrameworkWebDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -63,9 +72,48 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2849.39" />
   </ItemGroup>
 
+  <!-- Keep source assets in the repository. Runtime deployment is explicit below. -->
   <ItemGroup>
-    <None Include="_Module\SubModule.xml" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="web\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="_Module\SubModule.xml" />
+    <None Include="web\**\*" />
   </ItemGroup>
+
+  <!--
+    Runtime deployment layout:
+      Modules\BannerlordHtmlUI\
+        SubModule.xml
+        bin\Win64_Shipping_Client\
+          BannerlordHtmlUI.dll
+          web\...
+
+    SubModule.cs resolves its web root from Assembly.Location, so the web folder must be
+    beside the loaded Framework assembly inside bin\<GameBinariesFolder>.
+  -->
+  <Target Name="DeployFrameworkRuntimeAssets"
+          AfterTargets="Build"
+          Condition="'$(DesignTimeBuild)' != 'true' and Exists('$(GameFolder)') and Exists('$(GameFolder)\bin\$(GameBinariesFolder)') and Exists('$(FrameworkWebSourceDir)')">
+    <Message Importance="High" Text="[BannerlordHtmlUI] Framework module: '$(FrameworkModuleDeployDir)'" />
+    <Message Importance="High" Text="[BannerlordHtmlUI] Framework binary directory: '$(FrameworkBinaryDeployDir)'" />
+    <Message Importance="High" Text="[BannerlordHtmlUI] Deploy web: '$(FrameworkWebSourceDir)' -> '$(FrameworkWebDeployDir)'" />
+
+    <RemoveDir Directories="$(LegacyFrameworkWebDir)"
+              Condition="Exists('$(LegacyFrameworkWebDir)')" />
+
+    <MakeDir Directories="$(FrameworkModuleDeployDir);$(FrameworkBinaryDeployDir);$(FrameworkWebDeployDir)" />
+
+    <Copy
+      SourceFiles="$(MSBuildProjectDirectory)\_Module\SubModule.xml"
+      DestinationFiles="$(FrameworkModuleDeployDir)\SubModule.xml"
+      SkipUnchangedFiles="true" />
+
+    <ItemGroup>
+      <_FrameworkWebFiles Include="$(FrameworkWebSourceDir)\**\*" />
+    </ItemGroup>
+
+    <Copy
+      SourceFiles="@(_FrameworkWebFiles)"
+      DestinationFiles="@(_FrameworkWebFiles->'$(FrameworkWebDeployDir)\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
