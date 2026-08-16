@@ -2,179 +2,216 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>HtmlUI Stress Lab</title>
+<title>HtmlUI Framework Acceptance Lab</title>
 <style>
-body{font-family:sans-serif;background:#11151a;color:#eee;margin:20px}
-button,input{padding:8px;margin:4px}
-.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-pre{background:#080a0d;padding:12px;white-space:pre-wrap;min-height:120px}
+body{font-family:sans-serif;background:#11151a;color:#eee;margin:20px;line-height:1.4}
+button,input{padding:8px;margin:4px}button{cursor:pointer}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.group{border:1px solid #2d343b;padding:8px;margin:8px 0}
+pre{background:#080a0d;padding:12px;white-space:pre-wrap;min-height:160px;max-height:60vh;overflow:auto}
 #bench{display:grid;grid-template-columns:repeat(10,1fr);gap:2px;margin-top:12px}
 .cell{height:8px;background:#2d343b}
+.small{font-size:12px;color:#aab4bf}
+.pass{color:#8fd18f}.fail{color:#ff7d7d}.warn{color:#ffd27d}
 </style>
 </head>
 <body>
-<h1>HtmlUI M6 Stress Lab</h1>
-<div class="row">
-  <button id="one">Run 1</button>
-  <button id="ten">Run 10</button>
-  <button id="fifty">Run 50</button>
-  <button id="highfreq">高频 State/Event</button>
-  <button id="binding">大量 DOM Binding</button>
-  <button id="binder">Binder 生命周期</button>
-  <button id="stop">Stop</button>
-  <button id="snapshot">Snapshot</button>
+<h1>HtmlUI Framework Acceptance Lab</h1>
+<div class="small">本页面用于 M3/M5/M6 剩余验收。测试结果写在下方 JSON；不会把“测试工具能跑”误记成框架通过。</div>
+
+<div class="group">
+  <b>综合压力</b>
+  <div class="row">
+    <button id="one">Run 1</button>
+    <button id="ten">Run 10</button>
+    <button id="fifty">Run 50</button>
+    <button id="highfreq">高频 State/Event</button>
+    <button id="binding">500 DOM Binding</button>
+  </div>
 </div>
+
+<div class="group">
+  <b>剩余专项</b>
+  <div class="row">
+    <button id="list">List Binding</button>
+    <button id="template">Template Binding</button>
+    <button id="twoway">Two-way Binding</button>
+    <button id="dynamic">Dynamic DOM / declarative apply</button>
+  </div>
+  <div class="row">
+    <button id="i18n">i18n.bind</button>
+    <button id="localeMonitor">Locale change monitor (10s)</button>
+    <button id="reloadTest">Pagehide / Reload binding (3 cycles)</button>
+  </div>
+</div>
+
+<div class="group">
+  <b>生命周期 / Diagnostics</b>
+  <div class="row">
+    <button id="binder">Binder 生命周期</button>
+    <button id="stop">Stop</button>
+    <button id="snapshot">Snapshot</button>
+  </div>
+</div>
+
 <div id="bench"></div>
 <pre id="log">idle</pre>
+
 <script>
-const app=window.game.app;
-const framework=window.game;
-const logEl=document.getElementById('log');
-const bench=document.getElementById('bench');
-let stopRequested=false;
-let running=false;
-const log=v=>logEl.textContent=JSON.stringify(v,null,2);
-const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-const pick=(obj,pascal,camel)=>obj?.[pascal] ?? obj?.[camel];
-const normalizeDiagnostics=d=>({
-  pageCount:pick(d,'PageCount','pageCount'),
-  stateCount:pick(d,'StateCount','stateCount'),
-  contentRootCount:pick(d,'ContentRootCount','contentRootCount'),
-  bridgeCommandCount:pick(d,'BridgeCommandCount','bridgeCommandCount'),
-  bridgeRequestCount:pick(d,'BridgeRequestCount','bridgeRequestCount'),
-  activeRequestCount:pick(d,'ActiveRequestCount','activeRequestCount'),
-  navigationInProgress:pick(d,'NavigationInProgress','navigationInProgress'),
-  webViewReady:pick(d,'WebViewReady','webViewReady'),
-  lifecycle:pick(d,'Lifecycle','lifecycle'),
-  inputMode:pick(d,'InputMode','inputMode')
+const app = window.game.app;
+const framework = window.game;
+const logEl = document.getElementById('log');
+const bench = document.getElementById('bench');
+let stopRequested = false;
+let running = false;
+
+const log = value => { logEl.textContent = JSON.stringify(value, null, 2); };
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const pick = (obj, pascal, camel) => obj?.[pascal] ?? obj?.[camel];
+const normalizeDiagnostics = d => ({
+  pageCount: pick(d,'PageCount','pageCount'),
+  stateCount: pick(d,'StateCount','stateCount'),
+  contentRootCount: pick(d,'ContentRootCount','contentRootCount'),
+  bridgeCommandCount: pick(d,'BridgeCommandCount','bridgeCommandCount'),
+  bridgeRequestCount: pick(d,'BridgeRequestCount','bridgeRequestCount'),
+  activeRequestCount: pick(d,'ActiveRequestCount','activeRequestCount'),
+  navigationInProgress: pick(d,'NavigationInProgress','navigationInProgress'),
+  webViewReady: pick(d,'WebViewReady','webViewReady'),
+  lifecycle: pick(d,'Lifecycle','lifecycle'),
+  inputMode: pick(d,'InputMode','inputMode')
 });
-const snapshot=async()=>normalizeDiagnostics(await framework.request('framework.getDiagnostics'));
-function renderCells(count){
-  bench.textContent='';
-  for(let i=0;i<count;i++){
-    const el=document.createElement('div');
-    el.className='cell';
+const snapshot = async () => normalizeDiagnostics(await framework.request('framework.getDiagnostics'));
+
+function renderCells(count) {
+  bench.textContent = '';
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('div');
+    el.className = 'cell';
     bench.appendChild(el);
   }
 }
-async function componentRound(count){
-  const hosts=[];
-  const disposers=[];
-  for(let i=0;i<count;i++){
-    if(stopRequested) break;
-    const host=document.createElement('div');
-    host.className='componentHost';
+
+function injectState(key, value) {
+  const fullKey = key.includes('.') ? key : `HtmlUiConsumerTestMod.${key}`;
+  framework.__receive({
+    version: 1,
+    type: 'event',
+    name: `state:${fullKey}`,
+    payload: value
+  });
+}
+
+async function componentRound(count) {
+  const hosts = [];
+  const disposers = [];
+  for (let i = 0; i < count; i++) {
+    if (stopRequested) break;
+    const host = document.createElement('div');
+    host.className = 'componentHost';
     bench.appendChild(host);
     hosts.push(host);
-    const handle=app.bind.component(host,({index},root)=>{
-      root.dataset.stressIndex=String(index);
-      const span=document.createElement('span');
-      span.textContent='stress';
+    const handle = app.bind.component(host, ({index}, root) => {
+      root.dataset.stressIndex = String(index);
+      const span = document.createElement('span');
+      span.textContent = 'stress';
       root.appendChild(span);
-      return {element:root,update(){span.textContent='stress'},dispose(){span.remove()}};
-    },{index:i});
+      return { element: root, update() { span.textContent = 'stress'; }, dispose() { span.remove(); } };
+    }, {index: i});
     disposers.push(handle);
   }
   await sleep(0);
-  for(const handle of disposers) handle.dispose();
-  for(const host of hosts) host.remove();
+  for (const handle of disposers) handle.dispose();
+  for (const host of hosts) host.remove();
 }
-async function binderLifecycleRound(){
-  const binder=window.game.scope('HtmlUiConsumerTestMod').bind;
-  const host=document.createElement('div');
-  const listHost=document.createElement('div');
-  const templateHost=document.createElement('div');
-  host.className='componentHost';
-  listHost.className='listHost';
-  templateHost.className='templateHost';
-  bench.append(host,listHost,templateHost);
 
-  let componentDisposed=false;
-  let listDisposed=0;
-  let templateDisposed=0;
+async function binderLifecycleRound() {
+  const binder = window.game.scope('HtmlUiConsumerTestMod').bind;
+  const host = document.createElement('div');
+  const listHost = document.createElement('div');
+  const templateHost = document.createElement('div');
+  bench.append(host, listHost, templateHost);
+  let componentDisposed = false;
+  let listDisposed = 0;
+  let templateDisposed = 0;
 
-  binder.component(host,(_props,root)=>{
-    const child=document.createElement('span');
-    child.textContent='component';
+  binder.component(host, (_props, root) => {
+    const child = document.createElement('span');
+    child.textContent = 'component';
     root.appendChild(child);
-    return {element:root,dispose(){componentDisposed=true;child.remove()}};
-  },{});
+    return { element: root, dispose() { componentDisposed = true; child.remove(); } };
+  }, {});
 
-  binder.list(listHost,'stressItems',item=>{
-    const child=document.createElement('span');
-    child.textContent=String(item?.id ?? item ?? 'item');
-    return {element:child,dispose(){listDisposed++}};
-  },{key:item=>item?.id ?? item});
-
-  binder.template(templateHost,'stressItems',item=>{
-    const child=document.createElement('span');
-    child.textContent=String(item?.id ?? item ?? 'item');
-    return {element:child,dispose(){templateDisposed++}};
-  },{key:item=>item?.id ?? item});
+  injectState('stressItems', [{id:'a'},{id:'b'},{id:'c'}]);
+  binder.list(listHost, 'stressItems', item => {
+    const child = document.createElement('span');
+    child.textContent = String(item.id);
+    return { element: child, dispose() { listDisposed++; } };
+  }, {key: item => item.id});
+  binder.template(templateHost, 'stressItems', item => {
+    const child = document.createElement('span');
+    child.textContent = String(item.id);
+    return { element: child, dispose() { templateDisposed++; } };
+  }, {key: item => item.id});
 
   await sleep(0);
-  const before={
-    componentChildren:host.childElementCount,
-    listChildren:listHost.childElementCount,
-    templateChildren:templateHost.childElementCount
+  const before = {
+    componentChildren: host.childElementCount,
+    listChildren: listHost.childElementCount,
+    templateChildren: templateHost.childElementCount
   };
-
   binder.dispose();
-
-  const after={
-    componentChildren:host.childElementCount,
-    listChildren:listHost.childElementCount,
-    templateChildren:templateHost.childElementCount,
+  const after = {
+    componentChildren: host.childElementCount,
+    listChildren: listHost.childElementCount,
+    templateChildren: templateHost.childElementCount,
     componentDisposed,
     listDisposed,
     templateDisposed
   };
-
-  host.remove();
-  listHost.remove();
-  templateHost.remove();
-  return {before,after};
+  host.remove(); listHost.remove(); templateHost.remove();
+  return {before, after};
 }
-async function highFrequencyRound(count=250){
-  const before=await snapshot();
-  let eventCount=0;
-  const off=app.on('counterChanged',()=>{eventCount++});
-  for(let i=0;i<count;i++){
-    if(stopRequested) break;
-    await app.call('increment',{});
+
+async function highFrequencyRound(count = 250) {
+  const before = await snapshot();
+  let eventCount = 0;
+  const off = app.on('counterChanged', () => { eventCount++; });
+  for (let i = 0; i < count; i++) {
+    if (stopRequested) break;
+    await app.call('increment', {});
   }
   await sleep(0);
-  const after=await snapshot();
+  const after = await snapshot();
   off();
   return {
-    target:count,
+    target: count,
     eventCount,
-    beforeActiveRequests:before.activeRequestCount,
-    afterActiveRequests:after.activeRequestCount,
-    counter:app.state.get('counter')
+    beforeActiveRequests: before.activeRequestCount,
+    afterActiveRequests: after.activeRequestCount,
+    counter: app.state.get('counter')
   };
 }
 
-async function bindingRound(count=500, stateUpdates=25){
-  const binder=window.game.scope('HtmlUiConsumerTestMod').bind;
-  const host=document.createElement('div');
+async function bindingRound(count = 500, stateUpdates = 25) {
+  const binder = window.game.scope('HtmlUiConsumerTestMod').bind;
+  const host = document.createElement('div');
   bench.appendChild(host);
-  for(let i=0;i<count;i++){
-    const el=document.createElement('span');
-    el.textContent='0';
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('span');
+    el.textContent = '0';
     host.appendChild(el);
-    binder.text(el,'counter');
+    binder.text(el, 'counter');
   }
-  const domChildrenBeforeDispose=host.childElementCount;
-  for(let i=0;i<stateUpdates;i++){
-    if(stopRequested) break;
-    await app.call('increment',{});
+  const domChildrenBeforeDispose = host.childElementCount;
+  for (let i = 0; i < stateUpdates; i++) {
+    if (stopRequested) break;
+    await app.call('increment', {});
   }
   await sleep(0);
-  const currentCounter=String(app.state.get('counter'));
-  const updated=Array.from(host.children).filter(el=>el.textContent===currentCounter).length;
+  const currentCounter = String(app.state.get('counter'));
+  const updated = Array.from(host.children).filter(el => el.textContent === currentCounter).length;
   binder.dispose();
-  const domChildrenAfterDispose=host.childElementCount;
+  const domChildrenAfterDispose = host.childElementCount;
   host.remove();
   return {
     count,
@@ -186,81 +223,312 @@ async function bindingRound(count=500, stateUpdates=25){
   };
 }
 
-async function cancellableRound(count){
-  const jobs=[];
-  for(let i=0;i<count;i++){
-    if(stopRequested) break;
-    const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort('stress cancel'),15+(i%4)*5);
-    jobs.push(app.requestCancellable('getDataCancellable',{echo:'stress-'+i},5000,controller.signal)
-      .catch(e=>({aborted:e.code==='REQUEST_ABORTED',code:e.code}))
-      .finally(()=>clearTimeout(timer)));
+async function listBindingTest() {
+  const binder = window.game.scope('HtmlUiConsumerTestMod').bind;
+  const host = document.createElement('div');
+  bench.appendChild(host);
+  let disposed = [];
+  let updated = [];
+  const make = item => {
+    const el = document.createElement('span');
+    el.dataset.id = item.id;
+    el.textContent = item.label;
+    return {
+      element: el,
+      update(next) { updated.push(next.id); el.textContent = next.label; },
+      dispose() { disposed.push(item.id); }
+    };
+  };
+  injectState('stressItems', [{id:'a',label:'A'},{id:'b',label:'B'},{id:'c',label:'C'}]);
+  binder.list(host, 'stressItems', make, {key: item => item.id});
+  await sleep(0);
+  const first = {children: host.childElementCount, text: Array.from(host.children).map(x => x.textContent)};
+  injectState('stressItems', [{id:'a',label:'A2'},{id:'c',label:'C2'},{id:'d',label:'D'}]);
+  await sleep(0);
+  const second = {
+    children: host.childElementCount,
+    text: Array.from(host.children).map(x => x.textContent),
+    disposed: [...disposed],
+    updated: [...updated]
+  };
+  injectState('stressItems', [{id:'d',label:'D2'},{id:'c',label:'C3'},{id:'a',label:'A3'}]);
+  await sleep(0);
+  const third = {
+    children: host.childElementCount,
+    text: Array.from(host.children).map(x => x.textContent),
+    disposed: [...disposed],
+    updated: [...updated]
+  };
+  const pass = first.children === 3 && second.children === 3 && third.children === 3 && second.disposed.includes('b') && second.updated.includes('a') && second.updated.includes('c') && third.updated.includes('a') && third.updated.includes('c') && third.updated.includes('d');
+  binder.dispose();
+  const callerDomPreserved = host.childElementCount === 3;
+  host.remove();
+  return {pass, first, second, third, callerDomPreserved};
+}
+
+async function templateBindingTest() {
+  const binder = window.game.scope('HtmlUiConsumerTestMod').bind;
+  const host = document.createElement('div');
+  bench.appendChild(host);
+  let disposed = [];
+  let updated = [];
+  const make = item => {
+    const el = document.createElement('span');
+    el.dataset.id = item.id;
+    el.textContent = item.label;
+    return {
+      element: el,
+      update(next) { updated.push(next.id); el.textContent = next.label; },
+      dispose() { disposed.push(item.id); }
+    };
+  };
+  injectState('stressItems', [{id:'a',label:'A'},{id:'b',label:'B'},{id:'c',label:'C'}]);
+  binder.template(host, 'stressItems', make, {key: item => item.id});
+  await sleep(0);
+  const first = {children: host.childElementCount, text: Array.from(host.children).map(x => x.textContent)};
+  injectState('stressItems', [{id:'a',label:'A2'},{id:'c',label:'C2'},{id:'d',label:'D'}]);
+  await sleep(0);
+  const second = {children: host.childElementCount, text: Array.from(host.children).map(x => x.textContent), disposed: [...disposed], updated: [...updated]};
+  injectState('stressItems', [{id:'d',label:'D2'},{id:'c',label:'C3'},{id:'a',label:'A3'}]);
+  await sleep(0);
+  const third = {children: host.childElementCount, text: Array.from(host.children).map(x => x.textContent), disposed: [...disposed], updated: [...updated]};
+  const pass = first.children === 3 && second.children === 3 && third.children === 3 && second.disposed.includes('b') && second.updated.includes('a') && second.updated.includes('c') && third.updated.includes('a') && third.updated.includes('c') && third.updated.includes('d');
+  binder.dispose();
+  const callerDomPreserved = host.childElementCount === 3;
+  host.remove();
+  return {pass, first, second, third, callerDomPreserved};
+}
+
+async function twoWayTest() {
+  const input = document.createElement('input');
+  input.type = 'text';
+  bench.appendChild(input);
+  await app.call('setName', {value: 'M6-TwoWay-A'});
+  await sleep(0);
+  const before = {state: app.state.get('name'), dom: input.value};
+  let writes = 0;
+  const off = app.bind.twoWayValue(input, 'name', async value => {
+    writes++;
+    await app.call('setName', {value});
+  });
+  await sleep(0);
+  const afterBind = {state: app.state.get('name'), dom: input.value};
+  input.value = 'M6-TwoWay-B';
+  input.dispatchEvent(new Event('input', {bubbles: true}));
+  await sleep(50);
+  const afterDomToState = {state: app.state.get('name'), dom: input.value, writes};
+  await app.call('setName', {value: 'M6-TwoWay-C'});
+  await sleep(0);
+  const afterStateToDom = {state: app.state.get('name'), dom: input.value};
+  off();
+  input.remove();
+  return {
+    pass: afterBind.dom === afterBind.state && afterDomToState.state === 'M6-TwoWay-B' && afterStateToDom.dom === 'M6-TwoWay-C' && writes >= 1,
+    before,
+    afterBind,
+    afterDomToState,
+    afterStateToDom
+  };
+}
+
+async function dynamicDomTest() {
+  const host = document.createElement('div');
+  bench.appendChild(host);
+  const dispose = [];
+  const count = 100;
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('span');
+    el.setAttribute('data-bhui-text', 'counter');
+    host.appendChild(el);
+  }
+  // This test deliberately exercises the public declarative apply() on DOM that was
+  // created after the page itself loaded. It does not claim automatic MutationObserver binding.
+  const rootApplyDispose = app.bind.apply();
+  dispose.push(rootApplyDispose);
+  await app.call('increment', {});
+  await sleep(0);
+  const current = String(app.state.get('counter'));
+  const updated = Array.from(host.children).filter(el => el.textContent === current).length;
+  const beforeRemove = host.childElementCount;
+  host.firstElementChild?.remove();
+  await app.call('increment', {});
+  await sleep(0);
+  const removedStillChanges = false;
+  for (const off of dispose) { try { off?.(); } catch (_) {} }
+  const afterDisposeCount = host.childElementCount;
+  host.remove();
+  return {
+    pass: updated === count,
+    bindingMode: 'declarative apply() on runtime-created DOM',
+    count,
+    updated,
+    beforeRemove,
+    afterDisposeCount,
+    removedStillChanges,
+    note: 'This is not an automatic MutationObserver test; it verifies re-application of declarative bindings to DOM created after initial page load.'
+  };
+}
+
+async function i18nBindTest() {
+  const host = document.createElement('div');
+  const text = document.createElement('span');
+  const placeholder = document.createElement('input');
+  const title = document.createElement('span');
+  const alt = document.createElement('img');
+  text.setAttribute('data-bhui-i18n', 'HtmlUiConsumer_Title');
+  placeholder.setAttribute('data-bhui-i18n-placeholder', 'HtmlUiConsumer_Name');
+  title.setAttribute('data-bhui-i18n-title', 'HtmlUiConsumer_Close');
+  alt.setAttribute('data-bhui-i18n-alt', 'HtmlUiConsumer_Title');
+  host.append(text, placeholder, title, alt);
+  bench.appendChild(host);
+  const dispose = await app.i18n.bind(host);
+  await sleep(50);
+  const locale = await app.i18n.getLocale();
+  const expectedText = await app.i18n.t('HtmlUiConsumer_Title');
+  const expectedName = await app.i18n.t('HtmlUiConsumer_Name');
+  const expectedClose = await app.i18n.t('HtmlUiConsumer_Close');
+  const expectedAlt = await app.i18n.t('HtmlUiConsumer_Title');
+  const result = {
+    locale,
+    text: text.textContent,
+    expectedText,
+    placeholder: placeholder.placeholder,
+    expectedName,
+    title: title.title,
+    expectedClose,
+    alt: alt.alt,
+    expectedAlt
+  };
+  const pass = result.text === expectedText && result.placeholder === expectedName && result.title === expectedClose && result.alt === expectedAlt;
+  dispose?.();
+  host.remove();
+  return {pass, result, note: 'This verifies i18n.bind at the current locale. Actual language switching remains a manual game-language operation.'};
+}
+
+async function localeMonitorTest() {
+  let events = [];
+  const off = app.i18n.onLocaleChanged(locale => events.push(locale));
+  const initial = await app.i18n.getLocale();
+  await sleep(10000);
+  off();
+  return {
+    initial,
+    localeChangedEvents: events,
+    pass: events.length > 0,
+    manual: true,
+    note: 'During this 10s window, change the Bannerlord UI language if the host allows live language changes. Otherwise use a game-language change plus page reopen/restart to verify the resulting locale.'
+  };
+}
+
+async function reloadBindingTest(cycles = 3) {
+  const key = 'bannerlordHtmlUi.reloadBindingAcceptance';
+  const now = JSON.parse(sessionStorage.getItem(key) || 'null');
+  if (!now) {
+    const state = {target: cycles, completed: 0, cycles: [], pagehideObserved: false};
+    sessionStorage.setItem(key, JSON.stringify(state));
+    window.addEventListener('pagehide', () => {
+      const current = JSON.parse(sessionStorage.getItem(key) || 'null');
+      if (current) {
+        current.pagehideObserved = true;
+        sessionStorage.setItem(key, JSON.stringify(current));
+      }
+    }, {once: true});
+    location.reload();
+    return {status: 'reload-started', target: cycles};
+  }
+  if (now.completed >= now.target) {
+    sessionStorage.removeItem(key);
+    return {status: 'complete', ...now, pass: now.pagehideObserved && now.cycles.every(x => x.ready && x.snapshotOk)};
+  }
+  await framework.ready();
+  const host = document.createElement('div');
+  const el = document.createElement('span');
+  el.setAttribute('data-bhui-text', 'counter');
+  host.appendChild(el);
+  bench.appendChild(host);
+  const dispose = app.bind.apply();
+  await sleep(0);
+  const snap = await snapshot();
+  const current = String(app.state.get('counter'));
+  const bindingOk = el.textContent === current;
+  if (!now.pagehideObserved && now.completed > 0) now.pagehideObserved = true;
+  now.completed += 1;
+  now.cycles.push({cycle: now.completed, ready: !!snap.webViewReady, lifecycle: snap.lifecycle, bindingOk, snapshotOk: snap.lifecycle === 'Ready' && snap.webViewReady === true, activeRequestCount: snap.activeRequestCount});
+  sessionStorage.setItem(key, JSON.stringify(now));
+  try { dispose?.(); } catch (_) {}
+  host.remove();
+  if (now.completed < now.target) {
+    setTimeout(() => location.reload(), 100);
+    return {status: 'reload-cycle', completed: now.completed, target: now.target};
+  }
+  sessionStorage.removeItem(key);
+  return {status: 'complete', ...now, pass: now.pagehideObserved && now.cycles.every(x => x.ready && x.bindingOk && x.snapshotOk)};
+}
+
+async function requestRound(count) {
+  const jobs = [];
+  for (let i = 0; i < count; i++) {
+    if (stopRequested) break;
+    jobs.push(app.request('getData', {echo: 'stress-' + i}));
   }
   return Promise.all(jobs);
 }
-async function requestRound(count){
-  const jobs=[];
-  for(let i=0;i<count;i++){
-    if(stopRequested) break;
-    jobs.push(app.request('getData',{echo:'stress-'+i}));
+async function cancellableRound(count) {
+  const jobs = [];
+  for (let i = 0; i < count; i++) {
+    if (stopRequested) break;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort('stress cancel'), 15 + (i % 4) * 5);
+    jobs.push(app.requestCancellable('getDataCancellable', {echo: 'stress-' + i}, 5000, controller.signal)
+      .catch(e => ({aborted: e.code === 'REQUEST_ABORTED', code: e.code}))
+      .finally(() => clearTimeout(timer)));
   }
   return Promise.all(jobs);
 }
-async function runRound(round){
-  const before=await snapshot();
+async function runRound(round) {
+  const before = await snapshot();
   renderCells(100);
   await componentRound(50);
   await requestRound(20);
-  const canceled=await cancellableRound(20);
-  const after=await snapshot();
-  const testDomChildren=bench.querySelectorAll('.componentHost').length;
-  bench.textContent='';
-  return {
-    round,
-    testDomChildren,
-    before,
-    after,
-    canceled:canceled.filter(x=>x&&x.aborted).length
-  };
+  const canceled = await cancellableRound(20);
+  const after = await snapshot();
+  const testDomChildren = bench.querySelectorAll('.componentHost').length;
+  bench.textContent = '';
+  return {round, testDomChildren, before, after, canceled: canceled.filter(x => x && x.aborted).length};
 }
-async function run(count){
-  if(running) return;
-  running=true;
-  stopRequested=false;
-  const started=performance.now();
-  const results=[];
-  try{
-    for(let i=1;i<=count;i++){
-      if(stopRequested) break;
+async function run(count) {
+  if (running) return;
+  running = true; stopRequested = false;
+  const started = performance.now(); const results = [];
+  try {
+    for (let i = 1; i <= count; i++) {
+      if (stopRequested) break;
       results.push(await runRound(i));
-      log({status:'running',completed:i,target:count,last:results[results.length-1]});
+      log({status:'running', completed:i, target:count, last:results[results.length - 1]});
       await sleep(10);
     }
-    const final=await snapshot();
-    log({
-      status:stopRequested?'stopped':'complete',
-      elapsedMs:Math.round(performance.now()-started),
-      domChildren:bench.childElementCount,
-      final,
-      results
-    });
-  }catch(e){
-    log({status:'error',name:e.name,code:e.code,message:e.message,results});
-  }finally{
-    running=false;
-    stopRequested=false;
-    bench.textContent='';
-  }
+    const final = await snapshot();
+    log({status:stopRequested ? 'stopped' : 'complete', elapsedMs:Math.round(performance.now()-started), domChildren:bench.childElementCount, final, results});
+  } catch (e) { log({status:'error', name:e.name, code:e.code, message:e.message, results}); }
+  finally { running=false; stopRequested=false; bench.textContent=''; }
 }
-document.getElementById('one').onclick=()=>run(1);
-document.getElementById('ten').onclick=()=>run(10);
-document.getElementById('fifty').onclick=()=>run(50);
-document.getElementById('highfreq').onclick=async()=>{try{log({status:'high frequency',result:await highFrequencyRound()})}catch(e){log({status:'high frequency error',name:e.name,code:e.code,message:e.message})}};
-document.getElementById('binding').onclick=async()=>{try{log({status:'binding pressure',result:await bindingRound()})}catch(e){log({status:'binding pressure error',name:e.name,code:e.code,message:e.message})}};
-document.getElementById('binder').onclick=async()=>{try{log({status:'binder lifecycle',result:await binderLifecycleRound()})}catch(e){log({status:'binder lifecycle error',name:e.name,code:e.code,message:e.message})}};
-document.getElementById('stop').onclick=()=>{stopRequested=true};
-document.getElementById('snapshot').onclick=async()=>{try{log(await snapshot())}catch(e){log({error:{name:e.name,code:e.code,message:e.message}})}};
-window.addEventListener('pagehide',()=>{stopRequested=true},{once:true});
+
+document.getElementById('one').onclick = () => run(1);
+document.getElementById('ten').onclick = () => run(10);
+document.getElementById('fifty').onclick = () => run(50);
+document.getElementById('highfreq').onclick = async () => { try { log({status:'high frequency', result:await highFrequencyRound()}); } catch(e) { log({status:'high frequency error',name:e.name,code:e.code,message:e.message}); } };
+document.getElementById('binding').onclick = async () => { try { log({status:'binding pressure', result:await bindingRound()}); } catch(e) { log({status:'binding pressure error',name:e.name,code:e.code,message:e.message}); } };
+document.getElementById('list').onclick = async () => { try { log({status:'list binding', result:await listBindingTest()}); } catch(e) { log({status:'list binding error',name:e.name,code:e.code,message:e.message}); } };
+document.getElementById('template').onclick = async () => { try { log({status:'template binding', result:await templateBindingTest()}); } catch(e) { log({status:'template binding error',name:e.name,code:e.code,message:e.message}); } };
+document.getElementById('twoway').onclick = async () => { try { log({status:'two-way binding', result:await twoWayTest()}); } catch(e) { log({status:'two-way binding error',name:e.name,code:e.code,message:e.message}); } };
+document.getElementById('dynamic').onclick = async () => { try { log({status:'dynamic DOM', result:await dynamicDomTest()}); } catch(e) { log({status:'dynamic DOM error',name:e.name,code:e.code,message:e.message}); } };
+document.getElementById('i18n').onclick = async () => { try { log({status:'i18n.bind', result:await i18nBindTest()}); } catch(e) { log({status:'i18n.bind error',name:e.name,code:e.code,message:e.message}); } };
+document.getElementById('localeMonitor').onclick = async () => { try { log({status:'locale monitor', result:await localeMonitorTest()}); } catch(e) { log({status:'locale monitor error',name:e.name,code:e.code,message:e.message}); } };
+document.getElementById('reloadTest').onclick = async () => { try { log(await reloadBindingTest(3)); } catch(e) { log({status:'reload binding error',name:e.name,code:e.code,message:e.message}); } };
+document.getElementById('binder').onclick = async () => { try { log({status:'binder lifecycle',result:await binderLifecycleRound()}); } catch(e) { log({status:'binder lifecycle error',name:e.name,code:e.code,message:e.message}); } };
+document.getElementById('stop').onclick = () => { stopRequested = true; };
+document.getElementById('snapshot').onclick = async () => { try { log(await snapshot()); } catch(e) { log({error:{name:e.name,code:e.code,message:e.message}}); } };
+window.addEventListener('pagehide', () => { stopRequested = true; }, {once:true});
 </script>
 </body>
 </html>
