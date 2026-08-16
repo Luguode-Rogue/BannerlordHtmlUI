@@ -119,11 +119,14 @@
       localeListeners.clear();
       cache.clear();
       if (game.i18n === i18n) game.i18n = null;
+      if (game.app && game.app.i18n === i18n) game.app.i18n = null;
     }
   };
 
   localeOff = game.on('framework.i18n.localeChanged', emitLocale);
   game.i18n = i18n;
-  window.addEventListener('pagehide', () => i18n.dispose(), { once: true });
+  if (game.app && game.app.i18n === legacy) {
+    game.app.i18n = i18n;
+  }
   runtime.i18nModuleLoaded = true;
 })();
