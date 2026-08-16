@@ -25,8 +25,8 @@ namespace BannerlordHtmlUI
       if (/^Request was unregistered while executing:/i.test(message)) return 'REQUEST_UNREGISTERED';
       if (/^Unsupported protocol version:/i.test(message)) return 'PROTOCOL_UNSUPPORTED_VERSION';
       if (/^Unknown message type:/i.test(message)) return 'PROTOCOL_UNKNOWN_TYPE';
-      if (/^BannerlordHtmlUI runtime is disposed\./i.test(message)) return 'RUNTIME_DISPOSED';
-      if (/^Page unloaded$/i.test(message)) return 'PAGE_UNLOADED';
+      if (/runtime is disposed/i.test(message)) return 'RUNTIME_DISPOSED';
+      if (/page unloaded/i.test(message)) return 'PAGE_UNLOADED';
       if (operation === 'command') return 'COMMAND_HANDLER_ERROR';
       if (operation === 'request') return 'REQUEST_HANDLER_ERROR';
       return 'BRIDGE_ERROR';
