@@ -175,13 +175,20 @@ namespace HtmlUiConsumerTestMod
         private void Finish(string reason)
         {
             _running = false;
+            var diagnostics = HtmlUiDiagnostics.Snapshot();
             _log?.Invoke("=== Lifecycle Stress END | reason=" + reason
                 + " | rounds=" + _round
                 + " | pass=" + _successes
                 + " | fail=" + _failures
                 + " | currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>")
-                + " | stateCount=" + HtmlUiService.State.Count
-                + " | pageCount=" + HtmlUiService.Pages.Count
+                + " | stateCount=" + diagnostics.StateCount
+                + " | pageCount=" + diagnostics.PageCount
+                + " | contentRootCount=" + diagnostics.ContentRootCount
+                + " | bridgeCommandCount=" + diagnostics.BridgeCommandCount
+                + " | bridgeRequestCount=" + diagnostics.BridgeRequestCount
+                + " | activeRequestCount=" + diagnostics.ActiveRequestCount
+                + " | navigationInProgress=" + diagnostics.NavigationInProgress
+                + " | webViewReady=" + diagnostics.WebViewReady
                 + " ===");
         }
     }
