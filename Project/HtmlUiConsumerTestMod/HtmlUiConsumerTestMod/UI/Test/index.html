@@ -9,10 +9,18 @@ button,input{padding:8px;margin:4px}
 .card{background:#222831;padding:16px;border-radius:8px;margin-bottom:12px}
 pre{background:#0d0f12;padding:12px;min-height:80px;white-space:pre-wrap}
 .muted{opacity:.7;font-size:12px}
+.ok{border-left:4px solid #4caf50;padding-left:10px}
+.bad{border-left:4px solid #f44336;padding-left:10px}
 </style>
 </head>
 <body>
 <h1 data-bhui-i18n="HtmlUiConsumer_Title"></h1>
+<div class="card" id="i18nStatusCard">
+  <strong>Localization</strong>
+  <div>当前语言：<span id="localeValue">检测中...</span></div>
+  <div>Title 翻译：<span id="titleTranslationValue">检测中...</span></div>
+  <div id="i18nStatus" class="muted">正在检查 Bannerlord Localization...</div>
+</div>
 <div class="card">
   <div id="counterText"></div>
   <button id="inc" data-bhui-i18n="HtmlUiConsumer_Increment"></button>
@@ -45,6 +53,10 @@ pre{background:#0d0f12;padding:12px;min-height:80px;white-space:pre-wrap}
 const app=window.game.app;
 const logEl=document.getElementById('log');
 const errEl=document.getElementById('err');
+const localeEl=document.getElementById('localeValue');
+const titleTranslationEl=document.getElementById('titleTranslationValue');
+const i18nStatusEl=document.getElementById('i18nStatus');
+const i18nStatusCard=document.getElementById('i18nStatusCard');
 const log=v=>logEl.textContent=JSON.stringify(v,null,2);
 const addLog=(entry)=>{
   try{
@@ -114,20 +126,24 @@ let i18nBindingDispose=null;
 async function auditI18n(){
   const elements=[...document.querySelectorAll('[data-bhui-i18n],[data-bhui-i18n-placeholder],[data-bhui-i18n-title],[data-bhui-i18n-alt]')];
   const entries=[];
+  let missing=0;
   for(const el of elements){
     for(const attribute of ['data-bhui-i18n','data-bhui-i18n-placeholder','data-bhui-i18n-title','data-bhui-i18n-alt']){
       if(!el.hasAttribute(attribute)) continue;
       const key=el.getAttribute(attribute);
       try{
         const value=await app.i18n.t(key);
-        entries.push({tag:el.tagName,id:el.id||null,attribute,key,value});
+        const unresolved=value===key;
+        if(unresolved) missing++;
+        entries.push({tag:el.tagName,id:el.id||null,attribute,key,value,unresolved});
       }catch(e){
+        missing++;
         entries.push({tag:el.tagName,id:el.id||null,attribute,key,error:{name:e.name,code:e.code,message:e.message}});
       }
     }
   }
   addLog({i18nAudit:entries});
-  try{ await app.call('logI18nDiagnostics',{entries}); }catch(_){ }
+  return {entries,missing};
 }
 async function applyLocalization(){
   if(i18nBindingDispose){
@@ -135,13 +151,22 @@ async function applyLocalization(){
     i18nBindingDispose=null;
   }
   try{
+    const locale=await app.i18n.getLocale();
+    const title=await app.i18n.t('HtmlUiConsumer_Title');
+    localeEl.textContent=locale||'<unknown>';
+    titleTranslationEl.textContent=title;
+    const audit=await auditI18n();
+    const passed=audit.missing===0 && title!=='HtmlUiConsumer_Title';
+    i18nStatusEl.textContent=passed ? 'Bannerlord Localization 已加载，全部测试 Key 均已解析。' : `Localization 有未解析 Key：${audit.missing}`;
+    i18nStatusCard.className=passed ? 'card ok' : 'card bad';
     i18nBindingDispose=await app.i18n.bind();
-    addLog({i18nBind:'success'});
+    addLog({i18nBind:'success',locale,title,missing:audit.missing});
   }catch(e){
+    i18nStatusEl.textContent='Localization 检查失败：'+e.message;
+    i18nStatusCard.className='card bad';
     addLog({i18nBindError:{name:e.name,code:e.code,message:e.message}});
   }
   await renderCounter(app.state.get('counter')||0);
-  await auditI18n();
 }
 applyLocalization().catch(e=>addLog({i18nFatal:{name:e.name,code:e.code,message:e.message}}));
 window.addEventListener('pagehide',()=>{
