@@ -15,6 +15,9 @@ namespace BannerlordHtmlUI
         private static HtmlUiHost _host;
         private static IMessageFilter _filter;
         private static CoreWebView2 _core;
+        private static object _controller;
+        private static EventInfo _acceleratorEvent;
+        private static Delegate _acceleratorHandler;
 
         public static void Install(HtmlUiHost host)
         {
@@ -54,9 +57,11 @@ namespace BannerlordHtmlUI
                 var core = web?.CoreWebView2;
                 if (core != null && !ReferenceEquals(_core, core))
                 {
+                    DetachWebViewAccelerator();
                     _core = core;
+                    AttachWebViewAccelerator(web);
                     core.NavigationCompleted += OnNavigationCompleted;
-                    HtmlUiLogger.Info("UI navigation diagnostics hook installed for current WebView2 instance.");
+                    HtmlUiLogger.Info("UI navigation/accelerator diagnostics hooks installed for current WebView2 instance.");
                 }
 
                 InstallRuntimeStateRemovalPatch(host);
@@ -76,6 +81,8 @@ namespace BannerlordHtmlUI
                 catch (Exception ex) { HtmlUiLogger.Debug("Failed to remove global UI ESC close filter: " + ex.GetBaseException().Message); }
                 _filter = null;
             }
+
+            DetachWebViewAccelerator();
 
             if (_core != null)
             {
@@ -97,6 +104,88 @@ namespace BannerlordHtmlUI
 
             if (ReferenceEquals(_host, host)) _host = null;
             HtmlUiLogger.Info("Global UI ESC close diagnostics uninstalled.");
+        }
+
+        private static void AttachWebViewAccelerator(WebView2 web)
+        {
+            if (web == null) return;
+
+            try
+            {
+                var fields = web.GetType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic);
+                object controller = null;
+                foreach (var field in fields)
+                {
+                    if (!typeof(CoreWebView2Controller).IsAssignableFrom(field.FieldType)) continue;
+                    controller = field.GetValue(web);
+                    if (controller != null) break;
+                }
+
+                if (controller == null)
+                {
+                    HtmlUiLogger.Warn("WebView2 controller could not be resolved; keeping WinForms ESC fallback.");
+                    return;
+                }
+
+                var eventInfo = controller.GetType().GetEvent("AcceleratorKeyPressed", BindingFlags.Instance | BindingFlags.Public);
+                var method = typeof(HtmlUiKeyboardAndDiagnosticsPatch).GetMethod(
+                    nameof(OnWebViewAcceleratorKeyPressed),
+                    BindingFlags.Static | BindingFlags.NonPublic);
+                if (eventInfo == null || method == null)
+                {
+                    HtmlUiLogger.Warn("WebView2 AcceleratorKeyPressed event is unavailable; keeping WinForms ESC fallback.");
+                    return;
+                }
+
+                var handler = Delegate.CreateDelegate(eventInfo.EventHandlerType, method);
+                eventInfo.AddEventHandler(controller, handler);
+                _controller = controller;
+                _acceleratorEvent = eventInfo;
+                _acceleratorHandler = handler;
+                HtmlUiLogger.Info("WebView2 controller AcceleratorKeyPressed hook installed.");
+            }
+            catch (Exception ex)
+            {
+                _controller = null;
+                _acceleratorEvent = null;
+                _acceleratorHandler = null;
+                HtmlUiLogger.Warn("WebView2 controller accelerator hook failed: " + ex.GetBaseException().Message);
+            }
+        }
+
+        private static void DetachWebViewAccelerator()
+        {
+            if (_controller != null && _acceleratorEvent != null && _acceleratorHandler != null)
+            {
+                try { _acceleratorEvent.RemoveEventHandler(_controller, _acceleratorHandler); }
+                catch { }
+            }
+
+            _controller = null;
+            _acceleratorEvent = null;
+            _acceleratorHandler = null;
+        }
+
+        private static void OnWebViewAcceleratorKeyPressed(object sender, CoreWebView2AcceleratorKeyPressedEventArgs e)
+        {
+            if (e == null || e.VirtualKey != VkEscape) return;
+            if (e.KeyEventKind != CoreWebView2KeyEventKind.KeyDown &&
+                e.KeyEventKind != CoreWebView2KeyEventKind.SystemKeyDown) return;
+
+            var host = _host;
+            if (host == null || !host.IsVisible) return;
+
+            try
+            {
+                e.Handled = true;
+                HtmlUiLogger.Info("WebView2 AcceleratorKeyPressed detected Escape. Closing current page: "
+                    + (host.Pages.CurrentId ?? "<null>"));
+                host.Pages.CloseCurrent();
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Error("WebView2 Escape close failed.", ex);
+            }
         }
 
         private static void InstallRuntimeStateRemovalPatch(HtmlUiHost host)
@@ -203,7 +292,7 @@ namespace BannerlordHtmlUI
                 if (m.Msg != WmKeyDown && m.Msg != WmSysKeyDown) return false;
 
                 var host = _host;
-                if (host == null || !host.IsVisible || host.InputMode != HtmlUiInputMode.Captured) return false;
+                if (host == null || !host.IsVisible) return false;
 
                 var key = unchecked((int)m.WParam.ToInt64());
                 if (key != VkEscape) return false;
