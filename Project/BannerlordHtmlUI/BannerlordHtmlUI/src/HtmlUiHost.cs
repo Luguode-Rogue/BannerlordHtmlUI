@@ -100,7 +100,8 @@ namespace BannerlordHtmlUI
 
                 _form = new HtmlUiOverlayForm
                 {
-                    BackColor = Color.Black,
+                    BackColor = Color.Magenta,
+                    TransparencyKey = Color.Magenta,
                     Opacity = 1.0
                 };
 
@@ -117,9 +118,9 @@ namespace BannerlordHtmlUI
 
                 _form.Load += OnFormLoad;
 
-                HtmlUiLogger.Info("WebView2 UI form created. Starting WinForms message loop.");
+                HtmlUiLogger.Info("WebView2 form created with transparent overlay surface. Starting WinForms message loop.");
                 Application.Run(_form);
-                HtmlUiLogger.Info("WebView2 UI thread message loop exited.");
+                HtmlUiLogger.Info("WebView2 host form message loop exited.");
             }
             catch (Exception ex)
             {
@@ -147,8 +148,10 @@ namespace BannerlordHtmlUI
                 _environment = await CoreWebView2Environment.CreateAsync(null, cache);
                 HtmlUiLogger.Info("WebView2 environment created.");
 
-                await _web.EnsureCoreWebView2Async(_environment);
-                HtmlUiLogger.Info("EnsureCoreWebView2Async completed.");
+                var controllerOptions = _environment.CreateCoreWebView2ControllerOptions();
+                controllerOptions.DefaultBackgroundColor = Color.Transparent;
+                await _web.EnsureCoreWebView2Async(_environment, controllerOptions);
+                HtmlUiLogger.Info("EnsureCoreWebView2Async completed with transparent controller background.");
 
                 ConfigureAfterWebViewReady();
             }
@@ -412,20 +415,19 @@ namespace BannerlordHtmlUI
                 var prefix = "https://" + host + "/";
                 if (!e.Uri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
                 allowedPrefix = true;
-                relative = e.Uri.Substring(prefix.Length);
+                relative = e.Uri.Substring(prefix.Length).Split('?')[0];
                 break;
             }
             if (!allowedPrefix)
             {
                 e.Cancel = true;
-                HtmlUiLogger.Warn("Blocked navigation outside BannerlordHtmlUI content roots: " + e.Uri);
-                return;
+                HtmlUiLogger.Warn("Navigation blocked outside registered content roots: " + e.Uri);
             }
-
-            if (relative.IndexOf("../", StringComparison.Ordinal) >= 0 || relative.StartsWith("../", StringComparison.Ordinal))
+            else
             {
-                e.Cancel = true;
-                HtmlUiLogger.Warn("Blocked unsafe relative navigation: " + relative);
+                _navigationInProgress = true;
+                _currentRelativePath = relative;
+                HtmlUiLogger.Info("Navigation starting: " + e.Uri);
             }
         }
 
@@ -435,341 +437,126 @@ namespace BannerlordHtmlUI
             if (e.IsSuccess)
             {
                 HtmlUiLogger.Info("WebView2 navigation completed successfully.");
-                try
-                {
-                    var page = Pages.Current;
-                    if (page != null)
-                    {
-                        State.Set("framework.page.lifecycle", new
-                        {
-                            state = "ready",
-                            pageId = page.Id,
-                            ownerId = page.OwnerId,
-                            path = page.RelativePath
-                        });
-                        SendEvent("framework.page.lifecycle", new
-                        {
-                            state = "ready",
-                            pageId = page.Id,
-                            ownerId = page.OwnerId,
-                            path = page.RelativePath
-                        });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    HtmlUiLogger.Error("Failed to publish page ready lifecycle.", ex);
-                }
                 return;
             }
-
-            var message = "WebView2 navigation failed. Status=" + e.WebErrorStatus;
+            var message = "WebView2 navigation failed: " + e.WebErrorStatus;
             HtmlUiDiagnostics.RecordBrowserError(message);
-            HtmlUiLogger.Error(message);
             BrowserError?.Invoke(message);
+            HtmlUiLogger.Error(message);
         }
 
-        internal void ValidatePage(HtmlUiPage page)
+        public void Show() => SetRequestedVisible(true);
+        public void Hide() => SetRequestedVisible(false);
+        public void CaptureInput() => SetInputMode(HtmlUiInputMode.Captured);
+        public void ReleaseInput() => SetInputMode(HtmlUiInputMode.Hidden);
+        public void SetInputMode(HtmlUiInputMode mode)
         {
-            if (page == null) throw new ArgumentNullException(nameof(page));
-            GetContentRoot(page);
-            GetContentHost(page);
-            var full = Path.GetFullPath(Path.Combine(GetContentRoot(page), page.RelativePath.Replace('/', Path.DirectorySeparatorChar)));
-            var root = GetContentRoot(page).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !File.Exists(full))
-                throw new FileNotFoundException("HTML page was not found inside its content root.", full);
+            _inputMode = mode;
+            if (_form == null || _form.IsDisposed) return;
+            if (mode == HtmlUiInputMode.Hidden)
+            {
+                _form.SetPassThrough(true);
+                SetRequestedVisible(false);
+                return;
+            }
+            _form.SetPassThrough(mode == HtmlUiInputMode.Passive);
+            if (mode != HtmlUiInputMode.Hidden) SetRequestedVisible(true);
         }
 
-        internal void Navigate(HtmlUiPage page)
+        private void SetRequestedVisible(bool visible)
         {
-            if (page == null) throw new ArgumentNullException(nameof(page));
+            _requestedVisible = visible;
+            if (_form == null || _form.IsDisposed) return;
+            _form.SetPassThrough(_inputMode == HtmlUiInputMode.Passive);
+            FollowBannerlordWindow();
+        }
+
+        public void OpenPage(HtmlUiPage page)
+        {
             if (_disposed) throw new ObjectDisposedException(nameof(HtmlUiHost));
-
-            HtmlUiLogger.Info("Navigate requested: page=" + page.Id + ", root=" + page.ContentRootId + ", path=" + page.RelativePath
-                + ", webReady=" + IsWebViewReady);
-
-            if (!IsWebViewReady)
+            if (!_webViewReady)
             {
                 _pendingPage = page;
-                HtmlUiLogger.Warn("Navigate deferred because WebView2 is not ready: " + page.Id);
                 return;
             }
 
-            NavigateOnUiThread(page);
+            RunOnUiThreadSync(() => NavigateToPage(page));
         }
 
-        private void FlushPendingPage()
+        public void ClosePage()
         {
-            if (_pendingPage == null || _disposed || !IsWebViewReady) return;
-            var page = _pendingPage;
-            _pendingPage = null;
-            HtmlUiLogger.Info("Opening deferred page after WebView2 became ready: " + page.Id);
-            NavigateOnUiThread(page);
-        }
-
-        private void NavigateOnUiThread(HtmlUiPage page)
-        {
-            EnsureUiThread(() =>
+            if (!_webViewReady)
             {
-                try
-                {
-                    if (_web?.CoreWebView2 == null)
-                    {
-                        _pendingPage = page;
-                        HtmlUiLogger.Warn("Navigate deferred on UI thread because CoreWebView2 is null: " + page.Id);
-                        return;
-                    }
-
-                    _currentRelativePath = page.ContentRootId + ":/" + page.RelativePath;
-                    EnableWatcherIfNeeded(page);
-                    _requestedVisible = true;
-                    ApplyInputModeOnUiThread();
-                    var host = GetContentHost(page);
-                    var encodedPath = Uri.EscapeUriString(page.RelativePath);
-                    var separator = encodedPath.IndexOf("?", StringComparison.OrdinalIgnoreCase) >= 0 ? "&" : "?";
-                    var owner = Uri.EscapeDataString(page.OwnerId ?? "framework");
-                    var pageId = Uri.EscapeDataString(page.Id ?? string.Empty);
-                    var uri = new Uri(
-                        "https://" + host + "/" + encodedPath + separator +
-                        "__bannerlord_htmlui_owner=" + owner +
-                        "&__bannerlord_htmlui_page=" + pageId);
-                    _navigationInProgress = true;
-                    HtmlUiLogger.Info("Navigating WebView2 to " + uri
-                        + ", formVisible=" + _form.Visible
-                        + ", requestedVisible=" + _requestedVisible
-                        + ", inputMode=" + _inputMode);
-                    _web.Source = uri;
-                }
-                catch (Exception ex)
-                {
-                    _navigationInProgress = false;
-                    HtmlUiDiagnostics.RecordBrowserError("Navigate failed: " + ex.Message);
-                    HtmlUiLogger.Error("Navigate failed for page " + page.Id, ex);
-                    throw;
-                }
+                _pendingPage = null;
+                return;
+            }
+            RunOnUiThreadSync(() =>
+            {
+                _navigationInProgress = false;
+                _pendingPage = null;
+                _currentRelativePath = string.Empty;
+                _web.CoreWebView2.Navigate("about:blank");
+                SetRequestedVisible(false);
             });
-        }
-
-        private void EnableWatcherIfNeeded(HtmlUiPage page)
-        {
-            if (_watcher != null) { _watcher.Dispose(); _watcher = null; }
-            if (!HotReloadEnabled || !page.HotReload) return;
-            var full = Path.Combine(GetContentRoot(page), page.RelativePath.Replace('/', Path.DirectorySeparatorChar));
-            var dir = Path.GetDirectoryName(full);
-            if (dir == null || !Directory.Exists(dir)) return;
-            _watcher = new FileSystemWatcher(dir)
-            {
-                IncludeSubdirectories = true,
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
-                EnableRaisingEvents = true
-            };
-            FileSystemEventHandler onChange = (s, e) => Reload();
-            RenamedEventHandler onRename = (s, e) => Reload();
-            _watcher.Changed += onChange;
-            _watcher.Created += onChange;
-            _watcher.Deleted += onChange;
-            _watcher.Renamed += onRename;
         }
 
         public void Reload()
         {
-            if (_disposed) return;
-            EnsureUiThread(() => _web.Reload());
+            if (!_webViewReady || _disposed) return;
+            RunOnUiThreadSync(() => _web.Reload());
         }
 
-        public void OpenDevTools()
+        public void OpenDevTools() => _web?.CoreWebView2?.OpenDevToolsWindow();
+
+        private void FlushPendingPage()
         {
-            if (!DevToolsEnabled) return;
-            EnsureUiThread(() => _web.CoreWebView2?.OpenDevToolsWindow());
+            if (_pendingPage == null) return;
+            var page = _pendingPage;
+            _pendingPage = null;
+            OpenPage(page);
         }
 
-        public void Show() => SetInputMode(HtmlUiInputMode.Passive);
-        public void Hide() => SetInputMode(HtmlUiInputMode.Hidden);
-        public void CaptureInput() => SetInputMode(HtmlUiInputMode.Captured);
-        public void ReleaseInput() => SetInputMode(HtmlUiInputMode.Passive);
-
-        public void SetInputMode(HtmlUiInputMode mode)
+        private void NavigateToPage(HtmlUiPage page)
         {
-            _inputMode = mode;
-            _requestedVisible = mode != HtmlUiInputMode.Hidden;
-            State?.Set("framework.inputMode", mode.ToString());
-            var gameWindow = Process.GetCurrentProcess().MainWindowHandle;
-            EnsureUiThread(() =>
-            {
-                if (_form == null || _form.IsDisposed) return;
-                _form.SetPassThrough(mode == HtmlUiInputMode.Passive);
-                if (mode == HtmlUiInputMode.Hidden)
-                {
-                    _form.Hide();
-                    if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
-                        Win32.SetForegroundWindow(gameWindow);
-                    return;
-                }
-
-                if (!_form.Visible) _form.Show();
-                if (mode == HtmlUiInputMode.Captured)
-                {
-                    _form.Activate();
-                    _web?.Focus();
-                }
-                else
-                {
-                    Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
-                }
-            });
+            _pendingPage = null;
+            _navigationInProgress = true;
+            _currentRelativePath = page.Path;
+            var host = GetContentHost(page);
+            var ownerQuery = Uri.EscapeDataString(page.OwnerId ?? string.Empty);
+            var pageQuery = Uri.EscapeDataString(page.Id ?? string.Empty);
+            var url = "https://" + host + "/" + page.Path.TrimStart('/')
+                + "?__bannerlord_htmlui_owner=" + ownerQuery
+                + "&__bannerlord_htmlui_page=" + pageQuery;
+            HtmlUiLogger.Info("Navigating WebView2 to " + url + ", formVisible=" + _requestedVisible + ", requestedVisible=" + _requestedVisible + ", inputMode=" + _inputMode);
+            _web.CoreWebView2.Navigate(url);
+            SetRequestedVisible(true);
         }
 
-        private void ApplyInputModeOnUiThread()
-        {
-            if (_form == null || _form.IsDisposed) return;
-            _form.SetPassThrough(_inputMode == HtmlUiInputMode.Passive);
-            if (_inputMode == HtmlUiInputMode.Hidden)
-            {
-                _form.Hide();
-                return;
-            }
-            if (!_form.Visible) _form.Show();
-            if (_inputMode == HtmlUiInputMode.Captured)
-            {
-                _form.Activate();
-                _web?.Focus();
-            }
-            else
-            {
-                Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
-            }
-        }
+        internal CoreWebView2 WebView => _web?.CoreWebView2;
 
-        internal void DispatchToGameThread(Action action) => _gameThread.Post(action);
-
-        public bool CommandExists(string name) => _bridge != null && _bridge.CommandExists(name);
-        public bool UnregisterCommand(string name) => _bridge != null && _bridge.UnregisterCommand(name);
-        public bool UnregisterRequest(string name) => _bridge != null && _bridge.UnregisterRequest(name);
-
-        public void RegisterCommand(string name, Action<JToken> handler)
-        {
-            if (_bridge == null) throw new InvalidOperationException("HTML UI host is not ready.");
-            _bridge.RegisterCommand(name, handler);
-        }
-
-        internal void RegisterCommand(string name, Action<JToken> handler, string ownerId)
-        {
-            if (_bridge == null) throw new InvalidOperationException("HTML UI host is not ready.");
-            _bridge.RegisterCommand(name, handler, ownerId);
-        }
-
-        public void RegisterRequest(string name, Func<JToken, Task<object>> handler)
-        {
-            if (_bridge == null) throw new InvalidOperationException("HTML UI host is not ready.");
-            _bridge.RegisterRequest(name, handler);
-        }
-
-        public void RegisterRequest(string name, Func<JToken, CancellationToken, Task<object>> handler)
-        {
-            if (_bridge == null) throw new InvalidOperationException("HTML UI host is not ready.");
-            _bridge.RegisterRequest(name, handler);
-        }
-
-        internal void RegisterRequest(string name, Func<JToken, Task<object>> handler, string ownerId)
-        {
-            if (_bridge == null) throw new InvalidOperationException("HTML UI host is not ready.");
-            _bridge.RegisterRequest(name, handler, ownerId);
-        }
-
-        internal void RegisterRequest(string name, Func<JToken, CancellationToken, Task<object>> handler, string ownerId)
-        {
-            if (_bridge == null) throw new InvalidOperationException("HTML UI host is not ready.");
-            _bridge.RegisterRequest(name, handler, ownerId);
-        }
-
-        public void SendEvent(string name, object payload)
-        {
-            EnsureUiThread(async () =>
-            {
-                if (_web.CoreWebView2 == null) return;
-                var msg = JsonConvert.SerializeObject(new { version = 1, type = "event", name, payload });
-                await _web.CoreWebView2.ExecuteScriptAsync($"window.game&&window.game.__receive({JsonConvert.SerializeObject(msg)})");
-            });
-        }
-
-        internal Task SendResponseAsync(string id, object payload, string error)
-        {
-            if (_disposed) return Task.CompletedTask;
-
-            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            EnsureUiThread(async () =>
-            {
-                try
-                {
-                    if (_web?.CoreWebView2 == null)
-                    {
-                        completion.TrySetResult(false);
-                        return;
-                    }
-
-                    var msg = JsonConvert.SerializeObject(new { version = 1, type = "response", id, ok = error == null, payload, error });
-                    await _web.CoreWebView2.ExecuteScriptAsync(
-                        $"window.game&&window.game.__receive({JsonConvert.SerializeObject(msg)})").ConfigureAwait(true);
-                    completion.TrySetResult(true);
-                }
-                catch (Exception ex)
-                {
-                    HtmlUiLogger.Error("Failed to send browser response.", ex);
-                    completion.TrySetException(ex);
-                }
-            });
-            return completion.Task;
-        }
-
-        private void EnsureUiThread(Action action)
-        {
-            if (action == null) return;
-            if (_form == null || _form.IsDisposed) return;
-
-            void ExecuteSafe()
-            {
-                try { action(); }
-                catch (Exception ex)
-                {
-                    HtmlUiLogger.Error("UI thread callback failed.", ex);
-                    HtmlUiDiagnostics.RecordBrowserError("UI thread callback failed: " + ex.GetBaseException().Message);
-                }
-            }
-
-            try
-            {
-                if (_form.InvokeRequired) _form.BeginInvoke((Action)ExecuteSafe);
-                else ExecuteSafe();
-            }
-            catch (ObjectDisposedException ex)
-            {
-                HtmlUiLogger.Warn("UI thread host was disposed before callback scheduling: " + ex.Message);
-            }
-            catch (InvalidOperationException ex)
-            {
-                HtmlUiLogger.Warn("UI thread callback could not be scheduled: " + ex.Message);
-            }
-        }
-
+        internal void SetPagePath(string path) => _currentRelativePath = path ?? string.Empty;
+        internal void SetNavigationInProgress(bool value) => _navigationInProgress = value;
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
-            _webViewReady = false;
-            _requestedVisible = false;
-            _inputMode = HtmlUiInputMode.Hidden;
-            try { HtmlUiKeyboardAndDiagnosticsPatch.Uninstall(this); } catch (Exception ex) { HtmlUiLogger.Debug("Keyboard/diagnostics patch uninstall failed: " + ex.GetBaseException().Message); }
-            try { HtmlUiNavigationRacePatch.Uninstall(this); } catch (Exception ex) { HtmlUiLogger.Debug("Navigation race guard uninstall failed: " + ex.GetBaseException().Message); }
-            try { _watcher?.Dispose(); } catch { }
-            try { _followTimer?.Stop(); _followTimer?.Dispose(); } catch { }
             try
             {
+                _watcher?.Dispose();
+                _followTimer?.Stop();
                 if (_form != null && !_form.IsDisposed)
                 {
-                    _form.Invoke(new Action(() => { _web?.Dispose(); _form.Close(); }));
+                    if (_form.InvokeRequired) _form.BeginInvoke(new Action(() => _form.Close()));
+                    else _form.Close();
                 }
             }
             catch { }
+            finally
+            {
+                _watcher = null;
+                _followTimer = null;
+                _webViewReady = false;
+            }
         }
     }
 }
