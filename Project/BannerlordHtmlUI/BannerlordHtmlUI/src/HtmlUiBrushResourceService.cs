@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -9,6 +10,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using TaleWorlds.Engine;
+using TaleWorlds.TwoDimension;
 
 namespace BannerlordHtmlUI
 {
@@ -29,6 +31,7 @@ namespace BannerlordHtmlUI
             host.RegisterContentRoot(ContentRootId, _cacheDirectory);
             _publicHost = "https://bannerlord-htmlui-" + SanitizeHostPart(ContentRootId) + ".local";
             _initialized = true;
+            HtmlUiLogger.Info("Native Brush resource cache initialized: " + _cacheDirectory);
         }
 
         public static void Dispose()
@@ -56,14 +59,16 @@ namespace BannerlordHtmlUI
             var sheetY = GetInt(spritePart, "SheetY") ?? 0;
             var sheetWidth = GetInt(spritePart, "SheetWidth") ?? GetInt(textureWrapper, "Width") ?? width;
             var sheetHeight = GetInt(spritePart, "SheetHeight") ?? GetInt(textureWrapper, "Height") ?? height;
+            var sheetId = GetInt(spritePart, "SheetID") ?? -1;
 
             string url = null;
             string cacheError = null;
             object pixelDiagnostics = null;
             object variantUrls = null;
+            string exportSource = null;
             if (includeResource)
             {
-                var identity = (resourceName ?? string.Empty) + "|" + sheetWidth + "x" + sheetHeight;
+                var identity = (resourceName ?? string.Empty) + "|" + sheetId + "|" + sheetWidth + "x" + sheetHeight;
                 if (FailedIdentities.TryGetValue(identity, out var previousError))
                 {
                     cacheError = previousError;
@@ -72,10 +77,11 @@ namespace BannerlordHtmlUI
                 {
                     try
                     {
-                        var export = EnsureTextureCached(resourceName, sheetWidth, sheetHeight, sheetX, sheetY, width, height);
+                        var export = EnsureTextureCached(spritePart, resourceName, sheetWidth, sheetHeight, sheetX, sheetY, width, height);
                         url = export.FullTextureUrl;
                         pixelDiagnostics = export.Diagnostics;
                         variantUrls = export.Variants;
+                        exportSource = export.Source;
                     }
                     catch (Exception ex)
                     {
@@ -94,8 +100,10 @@ namespace BannerlordHtmlUI
                 height,
                 resourceUrl = url,
                 resourceError = cacheError,
+                resourceSource = exportSource,
                 textureName,
                 resourceName,
+                sheetId,
                 sheetX,
                 sheetY,
                 sheetWidth,
@@ -114,43 +122,51 @@ namespace BannerlordHtmlUI
             public string FullTextureUrl;
             public object Diagnostics;
             public object Variants;
+            public string Source;
         }
 
-        private static TextureExportResult EnsureTextureCached(string resourceName, int sheetWidth, int sheetHeight, int sheetX, int sheetY, int spriteWidth, int spriteHeight)
+        private static TextureExportResult EnsureTextureCached(object spritePart, string resourceName, int sheetWidth, int sheetHeight, int sheetX, int sheetY, int spriteWidth, int spriteHeight)
         {
             if (!_initialized)
                 throw new InvalidOperationException("Native Brush resource cache is not initialized.");
-            if (string.IsNullOrWhiteSpace(resourceName))
-                throw new InvalidOperationException("Sprite resource name is unavailable.");
 
-            var identity = resourceName + "|" + sheetWidth + "x" + sheetHeight;
-            var texture = Texture.GetFromResource(resourceName);
+            var sheetTexture2D = ResolveActualSpriteSheet(spritePart);
+            var source = "SpriteCategory.SpriteSheets[SheetID]";
+            TaleWorlds.Engine.Texture texture = ResolveEngineTexture(sheetTexture2D);
+
+            if (texture == null && !string.IsNullOrWhiteSpace(resourceName))
+            {
+                texture = TaleWorlds.Engine.Texture.GetFromResource(resourceName);
+                source = "Texture.GetFromResource(resourceName) fallback";
+            }
+
             if (texture == null)
-                throw new InvalidOperationException("Engine Texture.GetFromResource returned null for '" + resourceName + "'.");
+                throw new InvalidOperationException("Unable to resolve the native engine texture used by the SpritePart. resource='" + resourceName + "'.");
 
-            try { texture.PreloadTexture(true); } catch { }
+            try { texture.PreloadTexture(true); } catch (Exception ex) { HtmlUiLogger.Debug("Native Brush texture preload failed: " + ex.Message); }
+            try { texture.SetTextureAsAlwaysValid(); } catch { }
+
             if (!texture.IsValid)
-                throw new InvalidOperationException("Engine Texture is invalid for '" + resourceName + "'.");
+                throw new InvalidOperationException("Resolved native engine texture is invalid. resource='" + resourceName + "', source='" + source + "'.");
 
             var width = texture.Width > 0 ? texture.Width : sheetWidth;
             var height = texture.Height > 0 ? texture.Height : sheetHeight;
             if (width <= 0 || height <= 0)
-                throw new InvalidOperationException("Engine Texture dimensions are unavailable for '" + resourceName + "'.");
+                throw new InvalidOperationException("Resolved native engine texture dimensions are unavailable. resource='" + resourceName + "'.");
 
             var pixelCount = checked(width * height);
             var raw = new byte[checked(pixelCount * 4)];
             texture.GetPixelData(raw);
 
-            var diagnostics = DiagnosePixels(raw);
+            var diagnostics = DiagnosePixels(raw, width, height, source);
             HtmlUiLogger.Info("Brush pixel diagnostics: " + diagnostics);
 
+            var identity = resourceName + "|" + source + "|" + width + "x" + height;
             var hash = Sha256(identity).Substring(0, 24);
             var filename = "sprite-" + hash + ".png";
             var path = System.IO.Path.Combine(_cacheDirectory, filename);
 
-            if (!File.Exists(path))
-                WritePng(path, raw, width, height, PixelLayout.Bgra);
-
+            WritePng(path, raw, width, height, PixelLayout.Bgra);
             if (!File.Exists(path) || new FileInfo(path).Length == 0)
                 throw new IOException("Texture pixel readback did not produce a valid PNG: " + path);
 
@@ -162,9 +178,9 @@ namespace BannerlordHtmlUI
                 var rgbaPath = System.IO.Path.Combine(_cacheDirectory, basePrefix + "-rgba.png");
                 var bgraPath = System.IO.Path.Combine(_cacheDirectory, basePrefix + "-bgra.png");
                 var argbPath = System.IO.Path.Combine(_cacheDirectory, basePrefix + "-argb.png");
-                if (!File.Exists(rgbaPath)) WritePng(rgbaPath, crop, spriteWidth, spriteHeight, PixelLayout.Rgba);
-                if (!File.Exists(bgraPath)) WritePng(bgraPath, crop, spriteWidth, spriteHeight, PixelLayout.Bgra);
-                if (!File.Exists(argbPath)) WritePng(argbPath, crop, spriteWidth, spriteHeight, PixelLayout.Argb);
+                WritePng(rgbaPath, crop, spriteWidth, spriteHeight, PixelLayout.Rgba);
+                WritePng(bgraPath, crop, spriteWidth, spriteHeight, PixelLayout.Bgra);
+                WritePng(argbPath, crop, spriteWidth, spriteHeight, PixelLayout.Argb);
                 variantPayload.Rgba = _publicHost + "/" + System.IO.Path.GetFileName(rgbaPath);
                 variantPayload.Bgra = _publicHost + "/" + System.IO.Path.GetFileName(bgraPath);
                 variantPayload.Argb = _publicHost + "/" + System.IO.Path.GetFileName(argbPath);
@@ -174,8 +190,49 @@ namespace BannerlordHtmlUI
             {
                 FullTextureUrl = _publicHost + "/" + filename,
                 Diagnostics = diagnostics,
-                Variants = variantPayload
+                Variants = variantPayload,
+                Source = source
             };
+        }
+
+        private static object ResolveActualSpriteSheet(object spritePart)
+        {
+            if (spritePart == null) return null;
+            var category = GetPropertyValue(spritePart, "Category");
+            if (category == null) return null;
+
+            var sheetId = GetInt(spritePart, "SheetID") ?? -1;
+            var sheets = GetPropertyValue(category, "SpriteSheets") as IEnumerable;
+            if (sheets == null) return null;
+
+            var index = 0;
+            foreach (var sheet in sheets)
+            {
+                if (index == sheetId)
+                    return sheet;
+                index++;
+            }
+            return null;
+        }
+
+        private static TaleWorlds.Engine.Texture ResolveEngineTexture(object twoDimensionTexture)
+        {
+            if (twoDimensionTexture == null) return null;
+
+            if (twoDimensionTexture is TaleWorlds.Engine.Texture directEngineTexture)
+                return directEngineTexture;
+
+            var platformTexture = GetPropertyValue(twoDimensionTexture, "PlatformTexture");
+            if (platformTexture == null) return null;
+
+            if (platformTexture is TaleWorlds.Engine.Texture platformEngineTexture)
+                return platformEngineTexture;
+
+            var engineTexture = GetPropertyValue(platformTexture, "Texture");
+            if (engineTexture is TaleWorlds.Engine.Texture nestedEngineTexture)
+                return nestedEngineTexture;
+
+            return null;
         }
 
         private enum PixelLayout
@@ -185,9 +242,10 @@ namespace BannerlordHtmlUI
             Argb
         }
 
-        private static string DiagnosePixels(byte[] raw)
+        private static string DiagnosePixels(byte[] raw, int width, int height, string source)
         {
-            if (raw == null || raw.Length == 0) return "empty";
+            if (raw == null || raw.Length == 0) return "empty, source=" + source;
+            var expected = checked(width * height * 4);
             var samples = Math.Min(raw.Length, 4 * 4096);
             long[] min = { 255, 255, 255, 255 };
             long[] max = { 0, 0, 0, 0 };
@@ -206,7 +264,10 @@ namespace BannerlordHtmlUI
             }
             var count = Math.Max(1, samples / 4);
             var first = string.Join(",", raw.Take(Math.Min(32, raw.Length)).Select(b => b.ToString("X2")));
-            return "bytes=" + raw.Length + ", samplePixels=" + count
+            return "source=" + source
+                + ", dimensions=" + width + "x" + height
+                + ", bytes=" + raw.Length + ", expectedBytes=" + expected
+                + ", samplePixels=" + count
                 + ", min=[" + string.Join(",", min) + "]"
                 + ", max=[" + string.Join(",", max) + "]"
                 + ", avg=[" + string.Join(",", sum.Select(v => (v / (double)count).ToString("F1", System.Globalization.CultureInfo.InvariantCulture))) + "]"
@@ -220,9 +281,7 @@ namespace BannerlordHtmlUI
             var srcRow = width * 4;
             var dstRow = cropWidth * 4;
             for (var row = 0; row < cropHeight; row++)
-            {
                 Buffer.BlockCopy(raw, (y + row) * srcRow + x * 4, output, row * dstRow, dstRow);
-            }
             return output;
         }
 
@@ -267,23 +326,15 @@ namespace BannerlordHtmlUI
                     }
 
                     if (stride == rowBytes)
-                    {
                         Marshal.Copy(converted, 0, data.Scan0, converted.Length);
-                    }
                     else
-                    {
                         for (var y = 0; y < height; y++)
-                        {
-                            var destination = IntPtr.Add(data.Scan0, y * data.Stride);
-                            Marshal.Copy(converted, y * rowBytes, destination, rowBytes);
-                        }
-                    }
+                            Marshal.Copy(converted, y * rowBytes, IntPtr.Add(data.Scan0, y * data.Stride), rowBytes);
                 }
                 finally
                 {
                     bitmap.UnlockBits(data);
                 }
-
                 bitmap.Save(path, ImageFormat.Png);
             }
         }
@@ -339,10 +390,8 @@ namespace BannerlordHtmlUI
         {
             var chars = (value ?? string.Empty).ToLowerInvariant().ToCharArray();
             for (var i = 0; i < chars.Length; i++)
-            {
                 if (!((chars[i] >= 'a' && chars[i] <= 'z') || (chars[i] >= '0' && chars[i] <= '9') || chars[i] == '-'))
                     chars[i] = '-';
-            }
             var result = new string(chars).Trim('-');
             return result.Length == 0 ? "mod" : result;
         }
