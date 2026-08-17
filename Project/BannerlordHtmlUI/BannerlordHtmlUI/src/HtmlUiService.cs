@@ -63,6 +63,7 @@ namespace BannerlordHtmlUI
         private static void RegisterBuiltinHandlers()
         {
             HtmlUiBrushResourceService.Initialize(Host);
+            HtmlUiNativeAtlasAssetService.Initialize(Host);
 
             Host.RegisterCommand("runtime.error", payload => { HtmlUiLogger.Warn("JavaScript runtime error: " + payload.ToString()); });
             Host.RegisterCommand("framework.openDevTools", _ => Host.OpenDevTools());
@@ -96,6 +97,8 @@ namespace BannerlordHtmlUI
             Host.RegisterRequest("framework.brush.list", payload => Task.FromResult<object>(HtmlUiBrushService.ListBrushes(payload)));
             Host.RegisterRequest("framework.brush.get", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrush(payload)));
             Host.RegisterRequest("framework.brush.resource", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrushResource(payload)));
+            Host.RegisterRequest("framework.brush.resourceLegacy", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrushResource(payload)));
+            Host.RegisterRequest("framework.brush.nativeAssetProbe", (payload, cancellationToken) => HtmlUiNativeAtlasAssetService.ProbeAsync(payload, cancellationToken));
             Host.RegisterRequest("framework.brush.state", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrushState(payload)));
             Host.RegisterRequest("framework.brush.stateProbe", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrushStateProbe(payload)));
 
@@ -173,6 +176,7 @@ namespace BannerlordHtmlUI
             }
             finally
             {
+                HtmlUiNativeAtlasAssetService.Dispose();
                 HtmlUiBrushResourceService.Dispose();
                 _host = null;
                 _initialized = false;
