@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bannerlord Native Asset Diagnostics</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:transparent;color:#eee;font-family:Consolas,monospace}body{padding:24px}.panel{width:min(1500px,calc(100vw - 48px));height:calc(100vh - 48px);margin:auto;background:rgba(16,18,22,.98);border:1px solid rgba(255,255,255,.14);border-radius:12px;overflow:auto;padding:20px}.top{display:flex;gap:10px;align-items:center;margin-bottom:14px}.title{font:600 20px Arial,sans-serif}.muted{opacity:.65}.ok{color:#9dffb4}.warn{color:#ffd48a}.bad{color:#ff8585}button{font:inherit;padding:8px 12px;border-radius:7px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.08);color:#fff;cursor:pointer}button:hover{background:rgba(255,255,255,.14)}section{margin-top:14px;padding:14px;border-radius:9px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035)}h2{font:600 14px Arial,sans-serif;margin:0 0 10px}.grid{display:grid;grid-template-columns:220px 1fr;gap:6px 14px;font-size:12px}.key{opacity:.65}.value{word-break:break-all}.row{padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:12px;word-break:break-all}.row:last-child{border-bottom:0}pre{white-space:pre-wrap;word-break:break-word;font-size:11px;margin:0}.status{padding:9px 12px;border-radius:7px;background:rgba(255,255,255,.05);margin-bottom:12px;font:12px Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="panel">
+<div class="top"><div class="title">Bannerlord Native Asset Diagnostics</div><div id="status" class="muted">初始化...</div><button id="refresh">刷新</button><button id="close">关闭</button></div>
+<div id="content"><div class="status">等待 Runtime...</div></div>
+</div>
+<script>
+(function(){
+'use strict';
+var $=function(id){return document.getElementById(id);};
+function esc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');}
+function setStatus(v,cls){$('status').textContent=v;$('status').className=cls||'muted';}
+function section(title,html){return '<section><h2>'+esc(title)+'</h2>'+html+'</section>';}
+function kv(rows){var h='<div class="grid">';for(var i=0;i<rows.length;i++){h+='<div class="key">'+esc(rows[i][0])+'</div><div class="value">'+esc(rows[i][1])+'</div>';}return h+'</div>';}
+function render(r){var h='';h+=section('路径',kv([
+ ['Framework Module',r.frameworkModuleDirectory],['Process Base',r.processBaseDirectory],['Game Root',r.gameRoot||'<null>'],['Native Module',r.nativeModuleDirectory||'<null>']
+]));
+ var roots=r.assetPackageRoots||[];var rootRows='';for(var i=0;i<roots.length;i++){var x=roots[i];rootRows+='<div class="row"><b>'+esc(x.Name||x.name||'')+'</b><br>exists='+esc(x.Exists!=null?x.Exists:x.exists)+' · files='+esc(x.FileCount!=null?x.FileCount:x.fileCount)+' · dirs='+esc(x.DirectoryCount!=null?x.DirectoryCount:x.directoryCount)+'<br>'+esc(x.Path||x.path||'')+'</div>';}h+=section('Native AssetPackages',rootRows||'<div class="muted">无结果</div>');
+ var matches=r.uiGroup1Matches||[];var matchRows='';for(var j=0;j<matches.length;j++){var m=matches[j];matchRows+='<div class="row"><b>'+esc(m.fileName)+'</b> · '+esc(m.extension)+' · '+esc(m.sizeBytes)+' bytes<br>'+esc(m.fullPath)+'</div>';}h+=section('ui_group1 资源匹配',matchRows||'<div class="warn">未找到包含 ui_group1 的文件</div>');
+ var sd=r.spriteDataMatches||[];var sdRows='';for(var k=0;k<sd.length;k++){var s=sd[k];sdRows+='<div class="row"><b>'+esc(s.fileName)+'</b> · '+esc(s.extension)+' · '+esc(s.sizeBytes)+' bytes<br>'+esc(s.fullPath)+'</div>';}h+=section('SpriteData 匹配',sdRows||'<div class="muted">未找到</div>');
+ var tools=r.tpacToolCandidates||[];var toolRows='';for(var q=0;q<tools.length;q++){var t=tools[q];toolRows+='<div class="row"><b>'+esc(t.name)+'</b> · exists='+esc(t.exists)+' · '+esc(t.sizeBytes)+' bytes<br>'+esc(t.path)+'</div>';}h+=section('TpacTool 候选',toolRows||'<div class="muted">无候选</div>');
+ var notes=r.notes||[];var noteRows='';for(var n=0;n<notes.length;n++)noteRows+='<div class="row">'+esc(notes[n])+'</div>';h+=section('结论提示',noteRows||'<div class="muted">无</div>');
+ $('content').innerHTML=h;}
+async function load(){if(!window.game||typeof window.game.request!=='function'){setStatus('HTML UI Runtime 未就绪','bad');return;}$('content').innerHTML='<div class="status">正在扫描 Bannerlord 原生资源目录...</div>';setStatus('扫描中...','warn');try{var r=await window.game.request('framework.brush.nativeAssetDiagnostics',{},30000);render(r);setStatus('扫描完成','ok');}catch(e){$('content').innerHTML='<div class="status bad">'+esc(e&&e.message?e.message:String(e))+'</div>';setStatus('扫描失败','bad');}}
+$('refresh').addEventListener('click',load);$('close').addEventListener('click',function(){try{window.game.call('framework.closeCurrent');}catch(e){}});if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',load);else load();
+})();
+</script>
+</body>
+</html>
