@@ -60,7 +60,11 @@ namespace BannerlordHtmlUI
             var sheetY = GetInt(part, "SheetY") ?? 0;
             var sheetWidth = GetInt(part, "SheetWidth") ?? width;
             var sheetHeight = GetInt(part, "SheetHeight") ?? height;
-            var spriteSheet = ResolveSpriteSheet(category, sheetId);
+
+            // IMPORTANT: list/get metadata snapshots must never trigger SpriteCategory loading.
+            // ResolveSpriteSheet can enter Bannerlord's resource-loading path and is intentionally
+            // restricted to includeResource=true, which is used only for an explicit resource probe.
+            var spriteSheet = includeResource ? ResolveSpriteSheet(category, sheetId) : null;
 
             var matrix = includeResource
                 ? BuildStrategyMatrix(sprite, part, category, spriteSheet, categoryName, spriteName, textureName, platformTextureName,
@@ -136,7 +140,6 @@ namespace BannerlordHtmlUI
             var results = new List<StrategyResult>();
             var identity = BuildIdentity(categoryName, spriteName, sheetId, sheetWidth, sheetHeight);
 
-            // A: exact runtime texture currently attached to SpritePart -> native engine export.
             var runtimePath = string.Empty;
             var runtimeTexture = ResolveEngineTexture(spritePart, out runtimePath);
             matrix.RuntimePath = runtimePath;
@@ -150,7 +153,6 @@ namespace BannerlordHtmlUI
                 results.Add(new StrategyResult { Name = "A/B Runtime Texture", Status = "failed", Error = "SpritePart runtime Engine.Texture unavailable.", RuntimeType = runtimePath });
             }
 
-            // C: loaded SpriteCategory -> locate same SpritePart by sprite name, then use its own runtime texture.
             try
             {
                 var loadedCategory = LoadSpriteCategory(categoryName);
@@ -171,7 +173,6 @@ namespace BannerlordHtmlUI
                 results.Add(new StrategyResult { Name = "C UIResourceManager · LoadSpriteCategory", Status = "failed", Error = ex.GetType().Name + ": " + ex.Message });
             }
 
-            // D: enumerate every SpriteSheet object that the Category exposes. This handles non-IList collections and 0/1-based quirks.
             try
             {
                 var sheets = GetPropertyValue(category, "SpriteSheets");
@@ -199,7 +200,6 @@ namespace BannerlordHtmlUI
                 results.Add(new StrategyResult { Name = "D Category SpriteSheets enumeration", Status = "failed", Error = ex.GetType().Name + ": " + ex.Message });
             }
 
-            // E: explicit resource-name candidates. Try both Sprite and common ui atlas names.
             var names = new List<string>();
             AddCandidate(names, platformTextureName);
             AddCandidate(names, textureName);
@@ -331,68 +331,101 @@ namespace BannerlordHtmlUI
         private static string FindStrategyUrl(IEnumerable<StrategyResult> results, string exactName)
             => results.FirstOrDefault(x => string.Equals(x.Name, exactName, StringComparison.OrdinalIgnoreCase) && x.Status == "ok")?.Url;
 
-        private static string PublicUrl(string path) => _publicHost + "/" + System.IO.Path.GetFileName(path);
-
-        private static object LoadSpriteCategory(string categoryName)
-        {
-            if (string.IsNullOrWhiteSpace(categoryName)) return null;
-            var manager = typeof(TaleWorlds.Engine.GauntletUI.UIResourceManager);
-            var method = manager.GetMethod("LoadSpriteCategory", BindingFlags.Static | BindingFlags.Public, null, new[] { typeof(string) }, null);
-            if (method == null) return null;
-            return method.Invoke(null, new object[] { categoryName });
-        }
-
-        private static object FindSpritePart(object loadedCategory, string spriteName)
-        {
-            if (loadedCategory == null || string.IsNullOrWhiteSpace(spriteName)) return null;
-            foreach (var propertyName in new[] { "SpriteParts", "Parts" })
-            {
-                var collection = GetPropertyValue(loadedCategory, propertyName);
-                foreach (var part in EnumerateCollection(collection))
-                {
-                    if (string.Equals(GetString(part, "Name"), spriteName, StringComparison.OrdinalIgnoreCase)) return part;
-                }
-            }
-            foreach (var methodName in new[] { "GetSpritePart", "FindSpritePart" })
-            {
-                var method = loadedCategory.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public, null, new[] { typeof(string) }, null);
-                if (method == null) continue;
-                try { var value = method.Invoke(loadedCategory, new object[] { spriteName }); if (value != null) return value; } catch { }
-            }
-            return null;
-        }
-
         private static TaleWorlds.Engine.Texture ResolveEngineTexture(object spritePart, out string runtimePath)
         {
             runtimePath = "SpritePart=<null>";
             if (spritePart == null) return null;
             runtimePath = "SpritePart=" + spritePart.GetType().FullName;
+
             var texture2D = GetPropertyValue(spritePart, "Texture");
             runtimePath += "; Texture=" + (texture2D == null ? "<null>" : texture2D.GetType().FullName);
+            if (texture2D == null) return null;
+
             var platform = GetPropertyValue(texture2D, "PlatformTexture");
-            runtimePath += "; PlatformTexture=" + (platform == null ? "<null>" : platform.GetType().FullName) + "; Name=" + (GetString(platform, "Name") ?? "<null>");
+            runtimePath += "; PlatformTexture=" + (platform == null ? "<null>" : platform.GetType().FullName)
+                + "; Name=" + (GetString(platform, "Name") ?? "<null>");
+            if (platform == null) return null;
+            if (platform is TaleWorlds.Engine.Texture direct)
+            {
+                runtimePath += " [Engine.Texture]";
+                return direct;
+            }
+
             var engine = GetPropertyValue(platform, "Texture");
-            if (engine is TaleWorlds.Engine.Texture direct) { runtimePath += "; TextureObject=Engine.Texture"; return direct; }
-            if (platform is TaleWorlds.Engine.Texture directPlatform) { runtimePath += "; PlatformIsEngine.Texture"; return directPlatform; }
             runtimePath += "; PlatformTexture.Texture=" + (engine == null ? "<null>" : engine.GetType().FullName);
-            return engine as TaleWorlds.Engine.Texture;
+            if (engine is TaleWorlds.Engine.Texture wrapped)
+            {
+                runtimePath += " [EngineTexture]";
+                return wrapped;
+            }
+            return null;
         }
 
         private static TaleWorlds.Engine.Texture ResolveEngineTextureFromWrapper(object wrapper, out string runtimePath)
         {
-            runtimePath = wrapper == null ? "wrapper=<null>" : "wrapper=" + wrapper.GetType().FullName;
+            runtimePath = "Wrapper=<null>";
+            if (wrapper == null) return null;
+            runtimePath = "Wrapper=" + wrapper.GetType().FullName;
+
             var platform = GetPropertyValue(wrapper, "PlatformTexture");
             if (platform is TaleWorlds.Engine.Texture direct) return direct;
             var engine = GetPropertyValue(platform, "Texture");
-            return engine as TaleWorlds.Engine.Texture;
+            if (engine is TaleWorlds.Engine.Texture wrapped) return wrapped;
+
+            var texture = GetPropertyValue(wrapper, "Texture");
+            if (texture is TaleWorlds.Engine.Texture directTexture) return directTexture;
+            var texturePlatform = GetPropertyValue(texture, "PlatformTexture");
+            if (texturePlatform is TaleWorlds.Engine.Texture platformTexture) return platformTexture;
+            var textureEngine = GetPropertyValue(texturePlatform, "Texture");
+            if (textureEngine is TaleWorlds.Engine.Texture wrappedTexture) return wrappedTexture;
+            return null;
+        }
+
+        private static object LoadSpriteCategory(string categoryName)
+        {
+            if (string.IsNullOrWhiteSpace(categoryName)) return null;
+            var manager = typeof(TaleWorlds.Engine.GauntletUI.UIResourceManager);
+            var loadMethod = manager.GetMethod("LoadSpriteCategory", BindingFlags.Static | BindingFlags.Public, null, new[] { typeof(string) }, null);
+            if (loadMethod == null) throw new MissingMethodException(manager.FullName, "LoadSpriteCategory(string)");
+            return loadMethod.Invoke(null, new object[] { categoryName });
+        }
+
+        private static object FindSpritePart(object category, string spriteName)
+        {
+            if (category == null || string.IsNullOrWhiteSpace(spriteName)) return null;
+            foreach (var collectionName in new[] { "Sprites", "SpriteParts", "SpriteSheetParts" })
+            {
+                var collection = GetPropertyValue(category, collectionName);
+                foreach (var candidate in EnumerateCollection(collection))
+                {
+                    if (string.Equals(GetString(candidate, "Name"), spriteName, StringComparison.OrdinalIgnoreCase)) return candidate;
+                    var resourceName = GetString(candidate, "ResourceName");
+                    if (string.Equals(resourceName, spriteName, StringComparison.OrdinalIgnoreCase)) return candidate;
+                }
+            }
+            return null;
         }
 
         private static object ResolveSpriteSheet(object category, int sheetId)
         {
             if (category == null || sheetId < 0) return null;
             var sheets = GetPropertyValue(category, "SpriteSheets");
-            var direct = GetIndexedValue(sheets, sheetId);
-            if (direct != null) return direct;
+            var spriteSheet = GetIndexedValue(sheets, sheetId);
+            if (spriteSheet != null) return spriteSheet;
+
+            var categoryName = GetString(category, "Name");
+            if (string.IsNullOrWhiteSpace(categoryName)) return null;
+            try
+            {
+                var loadedCategory = LoadSpriteCategory(categoryName);
+                var loadedSheets = GetPropertyValue(loadedCategory, "SpriteSheets");
+                spriteSheet = GetIndexedValue(loadedSheets, sheetId);
+                if (spriteSheet != null) return spriteSheet;
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Warn("Native Brush SpriteCategory load failed: " + ex.GetType().Name + ": " + ex.Message);
+            }
             return null;
         }
 
@@ -405,6 +438,13 @@ namespace BannerlordHtmlUI
             }
         }
 
+        private static object GetStaticPropertyValue(Type type, string name)
+        {
+            var property = type?.GetProperty(name, BindingFlags.Static | BindingFlags.Public);
+            if (property == null) return null;
+            try { return property.GetValue(null, null); } catch { return null; }
+        }
+
         private static object GetIndexedValue(object collection, int index)
         {
             if (collection == null || index < 0) return null;
@@ -412,21 +452,75 @@ namespace BannerlordHtmlUI
             {
                 if (collection is IList list) return index < list.Count ? list[index] : null;
                 var type = collection.GetType();
-                var item = type.GetProperty("Item", BindingFlags.Instance | BindingFlags.Public);
-                if (item != null) return item.GetValue(collection, new object[] { index });
-                if (collection is IDictionary dictionary)
-                {
-                    if (dictionary.Contains(index)) return dictionary[index];
-                    if (dictionary.Contains(index + 1)) return dictionary[index + 1];
-                }
+                var countProperty = type.GetProperty("Count", BindingFlags.Instance | BindingFlags.Public);
+                var count = countProperty == null ? (int?)null : Convert.ToInt32(countProperty.GetValue(collection, null));
+                if (count.HasValue && index >= count.Value) return null;
+                var itemProperty = type.GetProperty("Item", BindingFlags.Instance | BindingFlags.Public);
+                if (itemProperty != null) return itemProperty.GetValue(collection, new object[] { index });
             }
             catch { }
             return null;
         }
 
-        private static void AddCandidate(List<string> values, string value)
+        private static int? GetCollectionCount(object collection)
         {
-            if (!string.IsNullOrWhiteSpace(value)) values.Add(value);
+            if (collection == null) return null;
+            try
+            {
+                if (collection is ICollection c) return c.Count;
+                var property = collection.GetType().GetProperty("Count", BindingFlags.Instance | BindingFlags.Public);
+                if (property != null) return Convert.ToInt32(property.GetValue(collection, null));
+            }
+            catch { }
+            return null;
+        }
+
+        private static bool IsValidPng(string path)
+        {
+            if (!File.Exists(path) || new FileInfo(path).Length < 8) return false;
+            using (var stream = File.OpenRead(path))
+            {
+                var signature = new byte[8];
+                if (stream.Read(signature, 0, 8) != 8) return false;
+                return signature[0] == 0x89 && signature[1] == 0x50 && signature[2] == 0x4E && signature[3] == 0x47
+                    && signature[4] == 0x0D && signature[5] == 0x0A && signature[6] == 0x1A && signature[7] == 0x0A;
+            }
+        }
+
+        private static bool AllZero(byte[] raw)
+        {
+            if (raw == null || raw.Length == 0) return true;
+            for (var i = 0; i < raw.Length; i++) if (raw[i] != 0) return false;
+            return true;
+        }
+
+        private enum PixelLayout { Rgba, Bgra, Argb }
+
+        private static string DiagnosePixels(byte[] raw, int width, int height)
+        {
+            if (raw == null || raw.Length == 0) return "empty";
+            var sampleBytes = Math.Min(raw.Length, 4 * 4096);
+            long[] min = { 255, 255, 255, 255 };
+            long[] max = { 0, 0, 0, 0 };
+            long[] sum = { 0, 0, 0, 0 };
+            long alphaNonZero = 0;
+            for (var i = 0; i + 3 < sampleBytes; i += 4)
+            {
+                for (var c = 0; c < 4; c++)
+                {
+                    var value = raw[i + c];
+                    if (value < min[c]) min[c] = value;
+                    if (value > max[c]) max[c] = value;
+                    sum[c] += value;
+                }
+                if (raw[i + 3] != 0) alphaNonZero++;
+            }
+            var count = Math.Max(1, sampleBytes / 4);
+            return "dimensions=" + width + "x" + height + ", bytes=" + raw.Length
+                + ", samplePixels=" + count + ", min=[" + string.Join(",", min) + "]"
+                + ", max=[" + string.Join(",", max) + "]"
+                + ", avg=[" + string.Join(",", sum.Select(v => (v / (double)count).ToString("F1", System.Globalization.CultureInfo.InvariantCulture))) + "]"
+                + ", alphaNonZero=" + alphaNonZero;
         }
 
         private static bool TryNativeSave(TaleWorlds.Engine.Texture texture, string path)
@@ -434,8 +528,6 @@ namespace BannerlordHtmlUI
             try
             {
                 if (File.Exists(path)) File.Delete(path);
-                texture.PreloadTexture(true);
-                try { texture.SetTextureAsAlwaysValid(); } catch { }
                 texture.SaveToFile(path, false);
                 return IsValidPng(path);
             }
@@ -448,91 +540,52 @@ namespace BannerlordHtmlUI
             {
                 using (var source = new Bitmap(sourcePath))
                 {
-                    x = Math.Max(0, Math.Min(x, source.Width - 1));
-                    y = Math.Max(0, Math.Min(y, source.Height - 1));
-                    width = Math.Min(width, source.Width - x);
-                    height = Math.Min(height, source.Height - y);
-                    if (width <= 0 || height <= 0) return false;
-                    using (var crop = source.Clone(new Rectangle(x, y, width, height), PixelFormat.Format32bppArgb))
+                    var sx = Math.Max(0, x); var sy = Math.Max(0, y);
+                    var sw = Math.Max(1, Math.Min(width, source.Width - sx));
+                    var sh = Math.Max(1, Math.Min(height, source.Height - sy));
+                    using (var crop = new Bitmap(sw, sh, PixelFormat.Format32bppArgb))
+                    using (var g = Graphics.FromImage(crop))
                     {
+                        g.DrawImage(source, new Rectangle(0, 0, sw, sh), new Rectangle(sx, sy, sw, sh), GraphicsUnit.Pixel);
                         if (flipY) crop.RotateFlip(RotateFlipType.RotateNoneFlipY);
                         crop.Save(targetPath, ImageFormat.Png);
-                        return IsValidPng(targetPath);
                     }
                 }
+                return IsValidPng(targetPath);
             }
             catch { return false; }
         }
 
-        private enum PixelLayout { Rgba, Bgra, Argb }
-
-        private static void WritePngCrop(string path, byte[] raw, int sourceWidth, int sourceHeight, int x, int y, int width, int height, PixelLayout layout, bool flipY)
+        private static void WritePngCrop(string path, byte[] raw, int width, int height, int sheetX, int sheetY, int spriteWidth, int spriteHeight, PixelLayout layout, bool flipY)
         {
-            if (x < 0 || y < 0 || x >= sourceWidth || y >= sourceHeight) throw new ArgumentOutOfRangeException();
-            width = Math.Min(width, sourceWidth - x);
-            height = Math.Min(height, sourceHeight - y);
-            if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException();
-            using (var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb))
+            var directory = System.IO.Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+            var cropW = Math.Max(1, Math.Min(spriteWidth, width - Math.Max(0, sheetX)));
+            var cropH = Math.Max(1, Math.Min(spriteHeight, height - Math.Max(0, sheetY)));
+            using (var bitmap = new Bitmap(cropW, cropH, PixelFormat.Format32bppArgb))
             {
-                var data = bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                var rectangle = new Rectangle(0, 0, cropW, cropH);
+                var data = bitmap.LockBits(rectangle, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
                 try
                 {
-                    var converted = new byte[width * height * 4];
-                    for (var dy = 0; dy < height; dy++)
-                    for (var dx = 0; dx < width; dx++)
+                    var converted = new byte[cropW * cropH * 4];
+                    for (var y = 0; y < cropH; y++)
+                    for (var x = 0; x < cropW; x++)
                     {
-                        var sy = flipY ? y + (height - 1 - dy) : y + dy;
-                        var src = (sy * sourceWidth + x + dx) * 4;
-                        var dst = (dy * width + dx) * 4;
+                        var sourceY = flipY ? (Math.Max(0, sheetY) + cropH - 1 - y) : (Math.Max(0, sheetY) + y);
+                        var sourceX = Math.Max(0, sheetX) + x;
+                        var source = (sourceY * width + sourceX) * 4;
+                        var target = (y * cropW + x) * 4;
                         byte r, g, b, a;
-                        switch (layout)
-                        {
-                            case PixelLayout.Rgba: r = raw[src]; g = raw[src + 1]; b = raw[src + 2]; a = raw[src + 3]; break;
-                            case PixelLayout.Argb: a = raw[src]; r = raw[src + 1]; g = raw[src + 2]; b = raw[src + 3]; break;
-                            default: b = raw[src]; g = raw[src + 1]; r = raw[src + 2]; a = raw[src + 3]; break;
-                        }
-                        converted[dst] = b; converted[dst + 1] = g; converted[dst + 2] = r; converted[dst + 3] = a;
+                        if (layout == PixelLayout.Rgba) { r = raw[source]; g = raw[source + 1]; b = raw[source + 2]; a = raw[source + 3]; }
+                        else if (layout == PixelLayout.Argb) { a = raw[source]; r = raw[source + 1]; g = raw[source + 2]; b = raw[source + 3]; }
+                        else { b = raw[source]; g = raw[source + 1]; r = raw[source + 2]; a = raw[source + 3]; }
+                        converted[target] = b; converted[target + 1] = g; converted[target + 2] = r; converted[target + 3] = a;
                     }
                     Marshal.Copy(converted, 0, data.Scan0, converted.Length);
                 }
                 finally { bitmap.UnlockBits(data); }
-                var directory = System.IO.Path.GetDirectoryName(path);
-                if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
                 bitmap.Save(path, ImageFormat.Png);
-            }
-        }
-
-        private static string DiagnosePixels(byte[] raw, int width, int height)
-        {
-            if (raw == null) return "raw=null";
-            var sample = Math.Min(raw.Length, 4 * 4096);
-            long[] min = { 255, 255, 255, 255 }, max = { 0, 0, 0, 0 }, sum = { 0, 0, 0, 0 };
-            for (var i = 0; i + 3 < sample; i += 4)
-            {
-                for (var c = 0; c < 4; c++) { var v = raw[i + c]; if (v < min[c]) min[c] = v; if (v > max[c]) max[c] = v; sum[c] += v; }
-            }
-            var count = Math.Max(1, sample / 4);
-            return "dimensions=" + width + "x" + height + ", bytes=" + raw.Length + ", samplePixels=" + count
-                + ", min=[" + string.Join(",", min) + "]"
-                + ", max=[" + string.Join(",", max) + "]"
-                + ", avg=[" + string.Join(",", sum.Select(v => (v / (double)count).ToString("F1", System.Globalization.CultureInfo.InvariantCulture))) + "]";
-        }
-
-        private static bool AllZero(byte[] raw)
-        {
-            if (raw == null || raw.Length == 0) return true;
-            for (var i = 0; i < raw.Length; i++) if (raw[i] != 0) return false;
-            return true;
-        }
-
-        private static bool IsValidPng(string path)
-        {
-            if (!File.Exists(path) || new FileInfo(path).Length < 8) return false;
-            using (var stream = File.OpenRead(path))
-            {
-                var sig = new byte[8];
-                if (stream.Read(sig, 0, 8) != 8) return false;
-                return sig[0] == 0x89 && sig[1] == 0x50 && sig[2] == 0x4E && sig[3] == 0x47 && sig[4] == 0x0D && sig[5] == 0x0A && sig[6] == 0x1A && sig[7] == 0x0A;
             }
         }
 
@@ -545,37 +598,36 @@ namespace BannerlordHtmlUI
         }
 
         private static string GetString(object instance, string name) => GetPropertyValue(instance, name) as string;
+
         private static int? GetInt(object instance, string name)
         {
             var value = GetPropertyValue(instance, name);
             if (value == null) return null;
             try { return Convert.ToInt32(value, System.Globalization.CultureInfo.InvariantCulture); } catch { return null; }
         }
+
         private static float? GetFloat(object instance, string name)
         {
             var value = GetPropertyValue(instance, name);
             if (value == null) return null;
             try { return Convert.ToSingle(value, System.Globalization.CultureInfo.InvariantCulture); } catch { return null; }
         }
+
         private static bool? GetBool(object instance, string name)
         {
             var value = GetPropertyValue(instance, name);
             if (value == null) return null;
             try { return Convert.ToBoolean(value, System.Globalization.CultureInfo.InvariantCulture); } catch { return null; }
         }
-        private static int? GetCollectionCount(object collection)
+
+        private static void AddCandidate(List<string> list, string value)
         {
-            if (collection == null) return null;
-            try
-            {
-                if (collection is ICollection c) return c.Count;
-                var property = collection.GetType().GetProperty("Count", BindingFlags.Instance | BindingFlags.Public);
-                return property == null ? (int?)null : Convert.ToInt32(property.GetValue(collection, null));
-            }
-            catch { return null; }
+            if (!string.IsNullOrWhiteSpace(value) && !list.Contains(value, StringComparer.OrdinalIgnoreCase)) list.Add(value);
         }
-        private static string BuildIdentity(string categoryName, string spriteName, int sheetId, int width, int height)
-            => (categoryName ?? string.Empty) + "|" + (spriteName ?? string.Empty) + "|" + sheetId + "|" + width + "x" + height;
+
+        private static string BuildIdentity(string categoryName, string spriteName, int sheetId, int sheetWidth, int sheetHeight)
+            => (categoryName ?? string.Empty) + "|" + (spriteName ?? string.Empty) + "|" + sheetId + "|" + sheetWidth + "x" + sheetHeight;
+
         private static string Sha256(string text)
         {
             using (var sha = SHA256.Create())
@@ -586,6 +638,9 @@ namespace BannerlordHtmlUI
                 return builder.ToString();
             }
         }
+
+        private static string PublicUrl(string path) => _publicHost + "/" + System.IO.Path.GetFileName(path);
+
         private static string SanitizeHostPart(string value)
         {
             var chars = (value ?? string.Empty).ToLowerInvariant().ToCharArray();
