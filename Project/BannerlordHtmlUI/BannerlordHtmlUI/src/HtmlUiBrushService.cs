@@ -17,35 +17,47 @@ namespace BannerlordHtmlUI
         {
             var context = FindActiveUiContext();
             if (context == null) return new { available = false, reason = "No active Gauntlet UIContext was found." };
-            var brushes = context.Brushes?.ToList() ?? new List<Brush>();
-            return new { available = true, contextName = context.Name, brushCount = brushes.Count };
+            var brushes = context.Brushes;
+            var total = brushes == null ? 0 : brushes.Count();
+            return new { available = true, contextName = context.Name, brushCount = total };
         }
 
+        // Intentionally lightweight: list only names/basic text properties.
+        // Never touch Sprite, Style, Layer, Texture, Category, or resource resolution here.
         public static object ListBrushes(JToken payload)
         {
             var context = FindActiveUiContext();
-            if (context == null) return new { available = false, contextName = (string)null, brushes = Array.Empty<object>() };
+            if (context == null) return new { available = false, contextName = (string)null, total = 0, returned = 0, brushes = Array.Empty<object>() };
+
             var filter = payload?["filter"]?.Value<string>();
             var limit = payload?["limit"]?.Value<int>() ?? 200;
             if (limit < 1) limit = 1;
             if (limit > 500) limit = 500;
-            IEnumerable<Brush> query = context.Brushes ?? Enumerable.Empty<Brush>();
-            if (!string.IsNullOrWhiteSpace(filter)) query = query.Where(brush => brush != null && !string.IsNullOrWhiteSpace(brush.Name) && brush.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0);
-            var result = query.Where(brush => brush != null).OrderBy(brush => brush.Name, StringComparer.OrdinalIgnoreCase).Take(limit).Select(brush => new
+
+            var query = context.Brushes ?? Enumerable.Empty<Brush>();
+            if (!string.IsNullOrWhiteSpace(filter))
+                query = query.Where(brush => brush != null && !string.IsNullOrWhiteSpace(brush.Name) && brush.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            var result = query
+                .Where(brush => brush != null)
+                .OrderBy(brush => brush.Name, StringComparer.OrdinalIgnoreCase)
+                .Take(limit)
+                .Select(brush => (object)new
+                {
+                    name = brush.Name,
+                    fontSize = brush.FontSize,
+                    fontStyle = brush.FontStyle.ToString()
+                })
+                .ToArray();
+
+            return new
             {
-                name = brush.Name,
-                fontSize = brush.FontSize,
-                fontStyle = brush.FontStyle.ToString(),
-                textHorizontalAlignment = brush.TextHorizontalAlignment.ToString(),
-                textVerticalAlignment = brush.TextVerticalAlignment.ToString(),
-                color = ColorToHex(brush.Color),
-                alpha = brush.AlphaFactor,
-                fontColor = ColorToHex(brush.FontColor),
-                textAlpha = brush.TextAlphaFactor,
-                sprite = SpriteSnapshot(brush.Sprite, false),
-                styleNames = brush.Styles == null ? Array.Empty<string>() : brush.Styles.Select(style => style?.Name).Where(name => !string.IsNullOrWhiteSpace(name)).ToArray()
-            }).Cast<object>().ToArray();
-            return new { available = true, contextName = context.Name, total = context.Brushes?.Count() ?? 0, returned = result.Length, brushes = result };
+                available = true,
+                contextName = context.Name,
+                total = context.Brushes == null ? 0 : context.Brushes.Count(),
+                returned = result.Length,
+                brushes = result
+            };
         }
 
         public static object GetBrush(JToken payload)
