@@ -97,7 +97,7 @@ namespace BannerlordHtmlUI
             else
                 notes.Add("Found native AssetPackages entries containing 'ui_group1'.");
 
-            if (tpacToolCandidates.All(x => !(bool)GetProperty(x, "Exists")))
+            if (tpacToolCandidates.All(x => !GetBooleanProperty(x, "exists")))
                 notes.Add("TpacTool DLLs were not found in the checked locations.");
 
             return new
@@ -206,6 +206,12 @@ namespace BannerlordHtmlUI
                 exists = File.Exists(path),
                 sizeBytes = File.Exists(path) ? SafeLength(path) : 0L
             });
+        }
+
+        private static bool GetBooleanProperty(object instance, string name)
+        {
+            var value = GetProperty(instance, name);
+            return value is bool b && b;
         }
 
         private static long SafeLength(string path)
