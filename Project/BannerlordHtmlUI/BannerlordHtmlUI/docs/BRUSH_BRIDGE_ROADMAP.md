@@ -22,39 +22,43 @@ HTML / CSS / JS
 
 ## 三阶段实现
 
-### Phase 1：Brush Snapshot
+### Phase 1：Brush Snapshot ✅
 
-先把原生 Brush 转换成稳定的 JSON 数据：
+第一阶段已经完成。
 
-```json
-{
-  "name": "Basic.Button",
-  "layers": [
-    {
-      "name": "Default",
-      "color": "#ffffff",
-      "colorFactor": 1,
-      "alphaFactor": 1,
-      "hueFactor": 0,
-      "saturationFactor": 0,
-      "valueFactor": 0,
-      "sprite": "..."
-    }
-  ]
-}
-```
-
-JS API 目标：
+Framework 现在提供：
 
 ```javascript
-const brush = await app.request("ui.getBrush", {
-    name: "Basic.Button"
-});
+app.request("framework.brush.context")
+app.request("framework.brush.list", { filter, limit })
+app.request("framework.brush.get", { name })
 ```
 
-这一阶段只解决“读取和理解 Brush”，不直接在 WebView2 中执行 Bannerlord Renderer。
+数据包含：
 
-### Phase 2：Sprite / NinePatch Resource Bridge
+```text
+Brush
+├─ 字体信息
+├─ 文字对齐
+├─ Color / Alpha / HSV 因子
+├─ FontColor / TextColor 因子
+├─ Sprite 元数据
+└─ Layers[] 元数据
+```
+
+内置验收页：
+
+```text
+F9
+↓
+Framework Brush Browser
+```
+
+Browser 可以搜索当前 Gauntlet `UIContext` 中的 Brush，并查看 JSON Snapshot。
+
+这一阶段只解决“读取和理解 Brush”，不直接在 WebView2 中执行 Bannerlord Renderer，也不直接暴露游戏纹理。
+
+### Phase 2：Sprite / NinePatch Resource Bridge ⏳
 
 把 Brush 中引用的 SpriteData 暴露成 HtmlUI 可以读取的资源：
 
@@ -74,7 +78,7 @@ bannerlord://sprite/...
 
 必要时同时支持 NinePatch 参数、Layer 顺序和颜色因子。
 
-### Phase 3：Native Brush Renderer
+### Phase 3：Native Brush Renderer ⏳
 
 长期目标是允许 HTML 元素直接声明使用游戏 Brush：
 
@@ -102,13 +106,13 @@ Native Brush Renderer
 ## 当前开发顺序
 
 ```text
-1. 确认当前支持 Bannerlord 版本的 UIContext / BrushFactory / SpriteData 来源
-2. 建立 BrushSnapshot 数据结构
-3. 实现 ui.getBrush Request
-4. Consumer TestMod 增加 Brush 浏览器
-5. 实机验证 Basic.Button 等原版 Brush
-6. 再做 Sprite Resource Bridge
-7. 最后评估 Native Brush Renderer
+1. UIContext / BrushFactory / SpriteData 来源确认          ✅
+2. Brush Snapshot 数据结构                               ✅
+3. framework.brush.get / list / context                  ✅
+4. Framework Brush Browser                               ✅
+5. 实机验证 Basic.Button 等原版 Brush                   ⏳
+6. Sprite Resource Bridge                                ⏳
+7. Native Brush Renderer                                 ⏳
 ```
 
 ## 设计约束
@@ -118,7 +122,7 @@ Native Brush Renderer
 Consumer 应该只看到：
 
 ```text
-app.request("ui.getBrush", ...)
+app.request("framework.brush.get", ...)
 ```
 
 而不是：
@@ -149,7 +153,7 @@ Consumer UI
 
 ### 版本兼容
 
-Bannerlord 不同版本的 Gauntlet API 可能存在差异，因此 Brush Bridge 的第一阶段应该集中在 Framework 内部做版本兼容，而不是把具体版本 API 暴露给 HTML。
+Bannerlord 不同版本的 Gauntlet API 可能存在差异，因此 Brush Bridge 的版本适配集中在 Framework 内部，而不是把具体版本 API 暴露给 HTML。
 
 ---
 
@@ -170,3 +174,9 @@ Widget / Layout / Binding / Input 自动转换
 ```
 
 真正的 HtmlUI 界面仍然应该由 HTML / CSS / JS 设计；原生 Brush 作为可复用的 Bannerlord 视觉资产。
+
+## 第一阶段使用文档
+
+完整的 Phase 1 API 和返回结构见：
+
+`docs/BRUSH_PHASE1_USAGE.md`
