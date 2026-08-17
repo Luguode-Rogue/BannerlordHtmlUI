@@ -27,12 +27,17 @@
     .meta { margin-top: 3px; font-size: 11px; opacity: .62; }
     .detail { min-width: 0; overflow: auto; padding: 20px; }
     .empty { opacity: .55; padding: 40px; text-align: center; }
-    .preview { padding: 22px; min-height: 120px; border-radius: 10px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.02); display: flex; align-items: center; justify-content: center; }
-    .preview-button { min-width: 220px; padding: 13px 18px; border: 0; border-radius: 6px; color: #fff; background: var(--brush-bg, #666); font-size: var(--brush-size, 18px); }
+    .preview { padding: 22px; min-height: 150px; border-radius: 10px; border: 1px solid rgba(255,255,255,.08); background: repeating-conic-gradient(rgba(255,255,255,.05) 0% 25%, transparent 0% 50%) 50% / 18px 18px; display: flex; align-items: center; justify-content: center; gap: 24px; flex-wrap: wrap; }
+    .sprite-preview { display: inline-block; background-repeat: no-repeat; image-rendering: auto; flex: 0 0 auto; }
+    .label-preview { min-width: 220px; padding: 13px 18px; border: 0; border-radius: 6px; color: #fff; background: var(--brush-bg, #666); font-size: var(--brush-size, 18px); }
+    .layers { margin-top: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+    .layer-preview { padding: 10px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); }
+    .layer-preview .layer-title { font-size: 11px; opacity: .7; margin-bottom: 8px; }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin-top: 16px; }
     .card { padding: 12px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); }
     .label { font-size: 10px; opacity: .55; text-transform: uppercase; letter-spacing: .08em; }
     .value { margin-top: 4px; font-size: 13px; word-break: break-word; }
+    .error { color: #ff8d8d; }
     pre { white-space: pre-wrap; word-break: break-word; font-size: 11px; opacity: .78; }
   </style>
 </head>
@@ -80,6 +85,7 @@
       capture();
       selected = name;
       renderList();
+      $('detail').innerHTML = '<div class="empty">读取 Brush 与原生 Sprite...</div>';
       try {
         const result = await window.game.request('framework.brush.get', { name });
         renderDetail(result.brush);
@@ -96,7 +102,7 @@
       $('list').innerHTML = brushes.map(brush => `
         <div class="item ${brush.name === selected ? 'active' : ''}" data-name="${escapeAttr(brush.name)}">
           <div class="name">${escapeHtml(brush.name)}</div>
-          <div class="meta">Font ${brush.fontSize}px · ${escapeHtml(brush.fontStyle)}</div>
+          <div class="meta">Font ${Number(brush.fontSize || 0)}px · ${escapeHtml(brush.fontStyle || '')}</div>
         </div>
       `).join('');
     }
@@ -104,21 +110,44 @@
     function renderDetail(brush) {
       const color = brush.color || '#666666ff';
       const fontColor = brush.fontColor || '#ffffffff';
+      const sprite = brush.sprite;
+      const previewSprite = spriteMarkup(sprite);
+      const layerMarkup = (brush.layers || []).map(layer => `
+        <div class="layer-preview">
+          <div class="layer-title">${escapeHtml(layer.name || 'Layer')} ${layer.hidden ? '(hidden)' : ''}</div>
+          ${spriteMarkup(layer.sprite)}
+        </div>
+      `).join('');
+
       $('detail').innerHTML = `
         <h2 style="margin-top:0">${escapeHtml(brush.name)}</h2>
         <div class="preview">
-          <button class="preview-button" style="--brush-bg:${escapeAttr(toCssColor(color))};--brush-size:${Number(brush.fontSize || 18)}px;color:${escapeAttr(toCssColor(fontColor))}">${escapeHtml(brush.name)}</button>
+          ${previewSprite || '<div class="empty" style="padding:12px">Brush 没有 Sprite</div>'}
+          <div class="label-preview" style="--brush-bg:${escapeAttr(toCssColor(color))};--brush-size:${Number(brush.fontSize || 18)}px;color:${escapeAttr(toCssColor(fontColor))}">${escapeHtml(brush.name)}</div>
         </div>
+        ${layerMarkup ? `<div class="layers">${layerMarkup}</div>` : ''}
         <div class="grid">
           <div class="card"><div class="label">Color</div><div class="value">${escapeHtml(color)}</div></div>
           <div class="card"><div class="label">Font Color</div><div class="value">${escapeHtml(fontColor)}</div></div>
           <div class="card"><div class="label">Font</div><div class="value">${Number(brush.fontSize || 0)} px · ${escapeHtml(brush.fontStyle || '')}</div></div>
           <div class="card"><div class="label">Alpha</div><div class="value">${Number(brush.alpha || 0)}</div></div>
-          <div class="card"><div class="label">Sprite</div><div class="value">${brush.sprite ? `${escapeHtml(brush.sprite.name || '')} · ${brush.sprite.width || 0}×${brush.sprite.height || 0}` : '无'}</div></div>
-          <div class="card"><div class="label">Layers</div><div class="value">${brush.layers?.length || 0}</div></div>
+          <div class="card"><div class="label">Sprite</div><div class="value">${sprite ? `${escapeHtml(sprite.name || '')} · ${sprite.width || 0}×${sprite.height || 0}` : '无'}</div></div>
+          <div class="card"><div class="label">Sprite Resource</div><div class="value ${sprite?.resourceError ? 'error' : ''}">${sprite?.resourceUrl ? '已缓存并可由 WebView2 读取' : (sprite?.resourceError || '无')}</div></div>
         </div>
         <div class="card" style="margin-top:12px"><div class="label">Snapshot</div><pre>${escapeHtml(JSON.stringify(brush, null, 2))}</pre></div>
       `;
+    }
+
+    function spriteMarkup(sprite) {
+      if (!sprite || !sprite.resourceUrl || !sprite.width || !sprite.height) return '';
+      const style = [
+        `width:${Number(sprite.width)}px`,
+        `height:${Number(sprite.height)}px`,
+        `background-image:url("${escapeCssUrl(sprite.resourceUrl)}")`,
+        `background-size:${Number(sprite.sheetWidth || sprite.width)}px ${Number(sprite.sheetHeight || sprite.height)}px`,
+        `background-position:-${Number(sprite.sheetX || 0)}px -${Number(sprite.sheetY || 0)}px`
+      ].join(';');
+      return `<div class="sprite-preview" style="${style}" title="${escapeAttr(sprite.name || '')}"></div>`;
     }
 
     $('list').addEventListener('pointerdown', capture, true);
@@ -139,6 +168,7 @@
     }
     function escapeHtml(value) { return String(value ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c])); }
     function escapeAttr(value) { return escapeHtml(value).replace(/'/g, '&#39;'); }
+    function escapeCssUrl(value) { return String(value ?? '').replace(/\\/g, '/').replace(/"/g, '%22').replace(/'/g, '%27'); }
   </script>
 </body>
 </html>
