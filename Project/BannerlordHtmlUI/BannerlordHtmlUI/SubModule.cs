@@ -59,8 +59,12 @@ namespace BannerlordHtmlUI
                     HtmlUiService.Pages.Register(new HtmlUiPage("framework", "index.html") { HotReload = true });
                 if (!HtmlUiService.Pages.Contains("diagnostics"))
                     HtmlUiService.Pages.Register(new HtmlUiPage("diagnostics", "diagnostics.html") { HotReload = true });
+                if (!HtmlUiService.Pages.Contains("brush-browser"))
+                    HtmlUiService.Pages.Register(new HtmlUiPage("brush-browser", "brush-browser.html") { HotReload = true });
                 if (!HtmlUiCommands.CommandExists("framework.openDiagnostics"))
                     HtmlUiService.RegisterCommand("framework.openDiagnostics", _ => HtmlUiService.Pages.Open("diagnostics"));
+                if (!HtmlUiCommands.CommandExists("framework.openBrushBrowser"))
+                    HtmlUiService.RegisterCommand("framework.openBrushBrowser", _ => HtmlUiService.Pages.Open("brush-browser"));
             }
             catch (Exception ex)
             {
@@ -84,6 +88,17 @@ namespace BannerlordHtmlUI
                         + ", initialized=" + HtmlUiService.IsInitialized
                         + ", ready=" + HtmlUiService.IsReady
                         + ", lifecycle=" + HtmlUiService.LifecycleState
+                        + ", currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>")
+                        + ", hostVisible=" + HtmlUiService.Host.IsVisible
+                        + ", webViewReady=" + HtmlUiService.Host.IsWebViewReady
+                        + ", inputMode=" + HtmlUiService.Host.InputMode);
+                }
+
+                if (Input.IsKeyPressed(InputKey.F9))
+                {
+                    HtmlUiLogger.Warn("===== F9 BRUSH BROWSER OPEN =====");
+                    var opened = HtmlUiService.Pages.Open("brush-browser");
+                    HtmlUiLogger.Warn("F9 Brush Browser result=" + opened
                         + ", currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>")
                         + ", hostVisible=" + HtmlUiService.Host.IsVisible
                         + ", webViewReady=" + HtmlUiService.Host.IsWebViewReady
