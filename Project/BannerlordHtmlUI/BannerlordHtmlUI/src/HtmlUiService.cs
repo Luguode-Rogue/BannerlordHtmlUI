@@ -62,6 +62,8 @@ namespace BannerlordHtmlUI
 
         private static void RegisterBuiltinHandlers()
         {
+            HtmlUiBrushResourceService.Initialize(Host);
+
             Host.RegisterCommand("runtime.error", payload =>
             {
                 HtmlUiLogger.Warn("JavaScript runtime error: " + payload.ToString());
