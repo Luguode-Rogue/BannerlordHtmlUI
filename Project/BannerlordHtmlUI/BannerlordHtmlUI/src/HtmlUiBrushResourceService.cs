@@ -167,7 +167,8 @@ namespace BannerlordHtmlUI
             {
                 var value = pointerProperty.GetValue(instance, null);
                 if (value is UIntPtr ptr) return ptr;
-                if (value is IntPtr iptr) return new UIntPtr(iptr.ToPointer());
+                if (value is IntPtr iptr)
+                    return new UIntPtr(unchecked((ulong)iptr.ToInt64()));
             }
             catch { }
             return null;
