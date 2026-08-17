@@ -17,6 +17,9 @@ namespace BannerlordHtmlUI
             _moduleDirectory = Path.GetDirectoryName(typeof(SubModule).Assembly.Location);
             var webRoot = Path.Combine(_moduleDirectory, "web");
 
+            try { HtmlUiNativeRuntimeTexturePatch.Install(); }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install native runtime texture probe patch.", ex); }
+
             HtmlUiService.OnReady(RegisterFrameworkPages);
             _initTask = HtmlUiService.InitializeAsync(_moduleDirectory, webRoot);
             _initTask.ContinueWith(t =>
@@ -113,11 +116,12 @@ namespace BannerlordHtmlUI
 
         protected override void OnSubModuleUnloaded()
         {
+            try { HtmlUiNativeRuntimeTexturePatch.Uninstall(); } catch { }
             try { HtmlUiService.NotifyGameContext("application", false); } catch { }
             try { HtmlUiHotReloadPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("HotReload patch uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiWindowTrackingPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Window tracking patch uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiProcessRecovery.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("WebView2 process recovery uninstall failed: " + ex.GetBaseException().Message); }
-            try { HtmlUiContextMenuPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Context menu patch uninstall failed: " + ex.GetBaseException().Message); }
+            try { HtmlUiContextMenuPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Context menu uninstall failed: " + ex.GetBaseException().Message); }
             HtmlUiService.Dispose();
             base.OnSubModuleUnloaded();
         }
