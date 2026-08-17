@@ -64,7 +64,247 @@ HTML / JS
 
 ---
 
-## 2. 推荐的 Consumer 结构
+## 2. 原来的 Bannerlord UI 制作流程 vs 现在的 HtmlUI 流程
+
+这一节是使用本 Framework 时最重要的开发思维变化。
+
+### 2.1 传统 Gauntlet UI 的典型制作流程
+
+Bannerlord 原生 UI / Mod 传统 UI 一般是：
+
+```text
+C# Screen
+   ↓
+创建 DataSource / VM
+   ↓
+注册 Gauntlet Layer
+   ↓
+加载 XML / Prefab
+   ↓
+XML Widget Tree
+   ↓
+Widget ↔ VM Property Binding
+   ↓
+点击 Widget
+   ↓
+VM Command / Event
+   ↓
+C# 业务逻辑
+```
+
+开发时通常需要同时处理：
+
+```text
+Screen 生命周期
+Gauntlet Layer
+Prefab / XML
+Widget
+DataSource
+VM Property
+Binding
+Event / Command
+```
+
+复杂界面还会继续出现：
+
+```text
+Screen
+├─ Layer
+├─ Widget
+├─ 子 Widget
+├─ ItemVM
+├─ ListVM
+└─ Template
+```
+
+因此一个界面的“视觉结构”和“业务状态”往往高度绑定在 Gauntlet 层级中。
+
+### 2.2 HtmlUI 的典型制作流程
+
+HtmlUI 推荐把“业务”和“视图”明确分开：
+
+```text
+C# Controller / VM / Service
+          ↓
+      State JSON
+          ↓
+       HTML UI
+          ↓
+用户点击 / 输入
+          ↓
+ Command / Request
+          ↓
+C# Controller / VM / Service
+```
+
+实际开发步骤变成：
+
+```text
+1. 找到原 UI 的业务入口
+2. 找到 VM / Controller / 数据服务
+3. 整理 UI 当前需要的状态
+4. 将状态发布成结构化 State
+5. 用 HTML / CSS 构建视觉界面
+6. 用 Command 连接按钮和操作
+7. 用 Request 处理需要返回值的操作
+8. 实现输入、焦点和页面生命周期
+9. 实机验证
+10. 最后再考虑删除旧 Gauntlet UI
+```
+
+### 2.3 最关键的变化
+
+传统方式的思路更接近：
+
+```text
+“我要制作一个 Bannerlord Widget。”
+```
+
+HtmlUI 的思路应该是：
+
+```text
+“我要给现有业务系统制作一个新的 Web View。”
+```
+
+因此迁移旧 UI 时，**首先研究的是原 UI 的业务状态和操作，而不是先照着 XML 一个 Widget 一个 Widget 地翻译。**
+
+---
+
+## 3. 从原 Gauntlet UI 迁移到 HtmlUI 的标准流程
+
+### 第一步：找到原来的 Screen
+
+例如：
+
+```text
+CustomSkillScreen
+```
+
+确认它负责什么：
+
+```text
+什么时候打开
+什么时候关闭
+当前页面是什么状态
+输入来自哪里
+```
+
+### 第二步：找到 VM / Controller
+
+继续追：
+
+```text
+CustomSkillScreen
+    ↓
+CustomSkillScreenVM
+    ↓
+SkillCatalog / Data / Service
+```
+
+重点记录：
+
+```text
+Property       → UI 显示状态
+Command/Event  → UI 操作
+Collection     → 列表
+SelectedItem   → 当前选择
+Async API      → Request
+```
+
+### 第三步：把 UI 所需状态整理成 State
+
+例如技能界面：
+
+```json
+{
+  "currentHero": {},
+  "targetType": 0,
+  "slots": [],
+  "catalog": [],
+  "proficiencies": [],
+  "selectedSlot": 2,
+  "dirty": true
+}
+```
+
+### 第四步：HTML 负责 View
+
+```text
+State
+ ↓
+Renderer
+ ↓
+DOM
+```
+
+HTML 不应该重新实现技能规则。
+
+### 第五步：Command 负责动作
+
+例如：
+
+```text
+选择技能槽
+选择技能
+切换目标
+应用
+撤销
+关闭
+```
+
+统一走：
+
+```javascript
+app.call("selectSlot", { index: 2 });
+```
+
+再由 C# 调用原 Controller / VM。
+
+### 第六步：Request 负责查询和异步结果
+
+例如：
+
+```javascript
+const result = await app.request("getPlayerInfo");
+```
+
+适合：
+
+```text
+查询数据
+异步计算
+需要明确返回值的操作
+```
+
+### 第七步：脱离旧 Screen
+
+第一阶段可以：
+
+```text
+旧 Screen
+   ↓
+复用 VM / 业务逻辑
+   ↓
+HtmlUI
+```
+
+当 HTML 已经完整后，可以进一步变成：
+
+```text
+HtmlUI Controller
+   ↓
+VM / Service
+   ↓
+业务层
+```
+
+让旧 `Screen / GauntletLayer` 完全退出运行链。
+
+**这也是复杂 UI 最终推荐的结构。**
+
+---
+
+## 4. 推荐的 Consumer 结构
 
 一个使用 Framework 的 Mod 推荐组织成：
 
@@ -96,9 +336,9 @@ Framework / Consumer 的资源路径应以**运行时实际加载 DLL 的 `Assem
 
 ---
 
-## 3. 最小初始化流程
+## 5. 最小初始化流程
 
-### 3.1 等待 Framework Ready
+### 5.1 等待 Framework Ready
 
 Consumer 不应该自己创建 WebView2。
 
@@ -135,7 +375,7 @@ Framework 不 Ready 时不要提前访问 WebView2。
 
 ---
 
-## 4. 注册 HTML 资源
+## 6. 注册 HTML 资源
 
 先确定运行时目录：
 
@@ -177,7 +417,7 @@ myui.html         = Framework Page ID
 
 ---
 
-## 5. 打开 / 关闭页面
+## 7. 打开 / 关闭页面
 
 打开：
 
@@ -195,7 +435,7 @@ HtmlUiService.Pages.Close(_pageId);
 
 ---
 
-## 6. C# → JavaScript：State
+## 8. C# → JavaScript：State
 
 State 适合表示**当前 UI 状态**。
 
@@ -236,7 +476,7 @@ HTML 自动刷新
 
 ---
 
-## 7. JavaScript → C#：Command
+## 9. JavaScript → C#：Command
 
 Command 适合**执行操作，不需要等待返回值**的场景。
 
@@ -271,7 +511,7 @@ Command 不适合需要明确异步结果的操作。
 
 ---
 
-## 8. JavaScript → C#：Request
+## 10. JavaScript → C#：Request
 
 Request 适合需要返回结果的操作。
 
@@ -299,7 +539,7 @@ Request 支持 Framework 的生命周期管理、取消、超时以及 Owner Dis
 
 ---
 
-## 9. Request Cancellation
+## 11. Request Cancellation
 
 对于可能持续较长时间的 Request，可以使用可取消 Request。
 
@@ -321,7 +561,7 @@ HTML 页面关闭、Consumer 卸载、Owner 销毁后，不应继续留下活跃
 
 ---
 
-## 10. Command / Request / State 怎么选
+## 12. Command / Request / State 怎么选
 
 可以按下面规则快速判断：
 
@@ -344,7 +584,7 @@ Request = 请执行这个动作并把结果给我
 
 ---
 
-## 11. 多级菜单不需要多个 HTML Page
+## 13. 多级菜单不需要多个 HTML Page
 
 一个复杂的 Mod UI 完全可以只有一个：
 
@@ -394,7 +634,7 @@ const uiState = {
 
 ---
 
-## 12. JavaScript 也应该模块化
+## 14. JavaScript 也应该模块化
 
 “一个 HTML”不等于“所有 JS 都塞进一个 `<script>`”。
 
@@ -420,7 +660,7 @@ MyPageUI/
 
 ---
 
-## 13. 输入与焦点
+## 15. 输入与焦点
 
 Bannerlord HtmlUI 是 Overlay UI，鼠标和键盘焦点非常重要。
 
@@ -470,7 +710,7 @@ pointer-events: auto;
 
 ---
 
-## 14. ESC / 页面关闭
+## 16. ESC / 页面关闭
 
 Framework 已提供 WebView2 AcceleratorKeyPressed / ESC 关闭路径。
 
@@ -500,7 +740,7 @@ window.addEventListener("keydown", e => {
 
 ---
 
-## 15. 透明 Overlay
+## 17. 透明 Overlay
 
 普通 UI 可以使用不透明 WebView。
 
@@ -533,119 +773,7 @@ Consumer **不要自己直接引用 WebView2 类型**来实现这件事。透明
 
 ---
 
-## 16. 如何把现有 Gauntlet UI 改成 HtmlUI
-
-推荐按下面顺序做。
-
-### 第一步：找原 UI 的 Screen
-
-例如：
-
-```text
-MyScreen
-```
-
-### 第二步：找它背后的 VM / Controller
-
-找到：
-
-```text
-MyScreenVM
-MyItemVM
-MyData
-```
-
-先理解：
-
-```text
-哪些是状态
-哪些是命令
-哪些是异步操作
-```
-
-### 第三步：不要复制业务逻辑
-
-例如原来：
-
-```csharp
-vm.SelectSkill(index);
-vm.Apply();
-vm.Undo();
-```
-
-HTML 应该调用同一套逻辑：
-
-```text
-HTML button
-    ↓
-Command
-    ↓
-原 Controller / VM
-```
-
-而不是把 `SelectSkill()` 再写一遍 JavaScript。
-
-### 第四步：把 VM 状态转成 JSON State
-
-例如：
-
-```json
-{
-  "hero": {},
-  "slots": [],
-  "catalog": [],
-  "selectedSlot": 2,
-  "dirty": true
-}
-```
-
-### 第五步：HTML 负责显示
-
-```text
-State
- ↓
-Renderer
- ↓
-DOM
-```
-
-### 第六步：用 Command / Request 处理交互
-
-```text
-点击
- ↓
-app.call()
- ↓
-C# Controller
- ↓
-State 更新
- ↓
-HTML 刷新
-```
-
-### 第七步：最后才考虑删除旧 Gauntlet UI
-
-推荐先：
-
-```text
-HTML UI
-    ↓
-实机验证
-    ↓
-功能完整
-    ↓
-输入完整
-    ↓
-生命周期完整
-    ↓
-再删除旧 UI
-```
-
-不要一开始就把旧系统删掉。
-
----
-
-## 17. Framework 生命周期
+## 18. Framework 生命周期
 
 Consumer 需要理解的生命周期是：
 
@@ -675,7 +803,7 @@ Reload / HotReload 会重新经历页面 Runtime 的建立过程，因此不要�
 
 ---
 
-## 18. Owner Scope
+## 19. Owner Scope
 
 每个 Consumer 推荐拥有自己的：
 
@@ -709,232 +837,202 @@ State
 
 ---
 
-## 19. HTML 资源部署
+## 20. HTML 资源部署
 
-### 推荐：自动复制
-
-Consumer 可以在 `Directory.Build.targets` 中定义：
-
-```xml
-<PropertyGroup>
-  <MyUiSource>$(MSBuildProjectDirectory)\UI\Html</MyUiSource>
-  <MyUiDeploy>$(TargetDir)MyUI</MyUiDeploy>
-</PropertyGroup>
-
-<Target Name="DeployMyHtmlUi" AfterTargets="Build">
-  <MakeDir Directories="$(MyUiDeploy)" />
-  <ItemGroup>
-    <_HtmlFiles Include="$(MyUiSource)\**\*" />
-  </ItemGroup>
-  <Copy
-    SourceFiles="@(_HtmlFiles)"
-    DestinationFiles="@(_HtmlFiles->'$(MyUiDeploy)\%(RecursiveDir)%(Filename)%(Extension)')"
-    SkipUnchangedFiles="true" />
-</Target>
-```
-
-### 验证
-
-编译以后确认：
+推荐通过 `Directory.Build.targets` 自动复制：
 
 ```text
-Modules/MyMod/bin/Win64_Shipping_Client/MyUI/index.html
+工程 UI
+  ↓ Build
+bin/Win64_Shipping_Client/<UiDirectory>/
 ```
-
-存在。
-
-如果目录不存在，优先检查资源部署，而不是检查 Bridge。
-
----
-
-## 20. 调试顺序
-
-出现“页面不工作”时，按这个顺序检查：
-
-```text
-① Framework 是否 Ready
-② Consumer Register 是否执行
-③ ContentRoot 是否存在
-④ Page 是否注册
-⑤ Pages.Open 是否成功
-⑥ NavigationCompleted 是否成功
-⑦ Runtime 是否建立
-⑧ JS app 是否初始化
-⑨ app.call / app.request 是否发出
-⑩ C# Command / Request 是否命中
-⑪ State 是否回到 JS
-⑫ Input / Focus 是否正常
-```
-
-不要跳过前面的层直接修改业务代码。
-
----
-
-## 21. 常见错误
-
-### DirectoryNotFoundException
 
 例如：
 
 ```text
-...\bin\Win64_Shipping_Client\MyUI
+工程/MyMod/UI/Html/Inventory/
+        ↓
+Modules/MyMod/bin/Win64_Shipping_Client/InventoryUI/
 ```
 
-不存在。
+如果没有自动部署，则必须手动复制。
 
-通常是资源没有部署到 `Assembly.Location` 对应目录。
+最重要的原则：
 
-### 页面出现但鼠标不能点
+> **不要依据源码目录、Solution 目录或普通 MSBuild `bin` 目录猜运行时资源位置。**
 
-优先检查：
+Framework 使用的是加载到游戏里的 DLL 路径，因此最终资源必须和实际运行时 DLL 布局匹配。
+
+---
+
+## 21. 常见问题排查
+
+### 页面注册成功，但页面不存在
+
+检查：
+
+```text
+ContentRoot 实际目录
+index.html 是否存在
+Assembly.Location
+运行时资源目录
+```
+
+### 页面显示，但是按钮没有反应
+
+检查：
 
 ```text
 InputMode
-Focus
+WebView Focus
 app.input.capture()
 pointer-events
-Overlay 层
+Command 是否注册
 ```
 
-### Request timeout
+### HTML 一打开游戏画面变白
 
-优先判断：
+检查：
 
 ```text
-JS request 是否真的 postMessage
-WebMessageReceived 是否命中
-Request name 是否注册
-页面是否正在 Reload
+Overlay transparency
+WebView2 background
+宿主窗口合成
 ```
 
-不要首先修改业务 Handler。
+### i18n 显示 Key 而不是翻译
 
-### Localization 显示 Key 而不是翻译
-
-先确认：
+先检查完整链路：
 
 ```text
-Bannerlord Localization 本身是否解析正确
+HTML i18n
+ ↓
+window.game.request
+ ↓
+postMessage
+ ↓
+WebMessageReceived
+ ↓
+framework.i18n.translate
+ ↓
+Bannerlord Localization
 ```
 
-如果 C# `Translate()` 已经得到正确文本，再检查：
+不要一开始修改 Bannerlord 的 language XML；如果 Bannerlord Localization 本身已经能解析 Key，应优先检查 JS → Bridge 链。
+
+### Request 越来越多
+
+检查：
 
 ```text
-JS i18n request
-Bridge
-State / DOM binding
+Request Owner
+Cancellation
+Timeout
+Page Close
+Owner Dispose
 ```
 
-### WebView2 ProcessFailed
-
-Framework 会进行 Recovery；Consumer 不应该自行创建第二套 WebView2。
+不要单纯增加 Timeout。
 
 ---
 
-## 22. 当前已实机验证的能力
+## 22. 推荐的复杂 UI 架构
 
-当前 Framework 已在 Bannerlord Consumer TestMod 上验证过：
-
-```text
-✅ 页面注册 / 打开 / 关闭
-✅ WebView2 Runtime
-✅ Localization
-✅ State
-✅ Command
-✅ Request
-✅ Request cancellation
-✅ Owner Dispose
-✅ Page Reload / HotReload 基础生命周期
-✅ ESC 关闭
-✅ Input Capture
-✅ Binding
-✅ Two-way Binding
-✅ i18n.bind
-✅ Dynamic DOM declarative binding
-✅ List binding
-✅ Template binding
-✅ Binder Dispose
-✅ 高频 State/Event
-✅ 500 项 Binding pressure
-✅ 50-round StressLab
-✅ 20-round Lifecycle Stress
-✅ Request active count 稳定性测试
-✅ HWND=0 tracking guard
-```
-
-已经明确跳过的项目：
+对于技能系统、角色编辑器、装备界面等复杂 UI，推荐：
 
 ```text
-⏭ Pagehide / Reload Binding 专项测试
-⏭ Live Language Switch 专项测试
+                   C#
+                    │
+            Controller / VM
+                    │
+             State / Command
+                    │
+             BannerlordHtmlUI
+                    │
+                 WebView2
+                    │
+        ┌───────────┴───────────┐
+        │                       │
+      HTML                     JS
+        │                       │
+      CSS              State / Navigation
 ```
 
-这两个不是当前 Framework 验收阻塞项。
+如果界面有多级菜单：
+
+```text
+一个 index.html
+        ↓
+内部 View State
+        ↓
+Navigation Stack
+        ↓
+多个 JS View 模块
+```
+
+这样可以让一个复杂 UI 在不增加 Page 数量的情况下拥有：
+
+```text
+主界面
+→ 子菜单
+→ 列表
+→ 详情
+→ 编辑
+→ 确认
+```
 
 ---
 
-## 23. 推荐的实际开发模式
+## 23. 当前 Framework 实机验证范围
 
-对于一个新 Mod UI，推荐直接从下面的模板开始：
-
-```text
-1. 创建 ConsumerScope
-2. 创建 ContentRoot
-3. 注册一个 Page
-4. 创建一个 index.html
-5. 用 State 表示完整 UI 状态
-6. 用 Command 处理按钮/交互
-7. 用 Request 处理需要返回值的调用
-8. HTML 内部用 View State 做多级菜单
-9. JS 拆模块，HTML 页面数量尽量少
-10. 通过 Directory.Build.targets 自动部署
-11. 完成实机生命周期/输入测试
-12. 再逐步移除旧 Gauntlet UI
-```
-
-最终推荐架构：
+已经实际验证：
 
 ```text
-Bannerlord Mod
-│
-├─ Game / Business Logic
-│
-├─ Controller / VM
-│     │
-│     └──── HtmlUi Consumer
-│              │
-│              ├─ State
-│              ├─ Command
-│              └─ Request
-│                    │
-│                    ▼
-│              WebView2 Runtime
-│                    │
-│                    ▼
-│              index.html
-│              ├─ CSS
-│              └─ JS modules
-│
-└─ BannerlordHtmlUI Framework
+Lifecycle Open / Close / Reopen
+F6 Lifecycle Stress
+ESC Close
+F12 / F7 Close
+State
+Command
+Request
+Cancellable Request
+Request timeout / abort 路径
+Binding
+Two-way Binding
+List Binding
+Template Binding
+Dynamic DOM Binding
+Binder Dispose
+I18n
+i18n.bind
+HWND=0 稳定性保护
+Page Reload 生命周期
+HotReload 生命周期
+透明 Overlay
 ```
 
-这个结构可以让一个复杂的 Bannerlord Mod UI 在不重写核心游戏逻辑的情况下，从 Gauntlet 逐步迁移到 HTML UI。
+当前明确跳过：
+
+```text
+Pagehide / Reload Binding 专项测试
+Live Language Switch 专项测试
+```
+
+这些不应被误认为已经专项验收。
 
 ---
 
-## 24. 当前工程文档
-
-更详细的 Framework 生命周期、交接和测试资料位于：
+## 24. 开发时的核心原则
 
 ```text
-Handoff/
-Project/
+1. Consumer 不直接创建 WebView2。
+2. Framework Ready 之后再注册页面。
+3. 业务逻辑留在 C#，HTML 负责 View。
+4. 状态优先 State，操作优先 Command，查询优先 Request。
+5. 复杂多级 UI 优先一个 Page + 内部 Navigation。
+6. JS 可以、也应该拆成多个模块。
+7. Owner 必须负责生命周期和 Request 清理。
+8. 资源路径以运行时 DLL 的 Assembly.Location 为准。
+9. 透明 Overlay 属于 Host / Framework 能力，不要让 Consumer 自己复制 WebView2 逻辑。
+10. 迁移旧 Gauntlet UI 时先复用业务层，最后才删除旧 UI。
 ```
-
-Consumer 的实机测试项目位于：
-
-```text
-Project/HtmlUiConsumerTestMod/
-```
-
-TacticalMap / CustomSkill 等外部 Consumer 示例应作为“真实使用案例”参考，而不是 Framework 本体的强制实现方式。
