@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -16,8 +17,7 @@ namespace BannerlordHtmlUI
     internal static class HtmlUiBrushResourceServiceCore
     {
         private const string ContentRootId = "framework-brush-cache";
-        private static readonly ConcurrentDictionary<string, TextureExportResult> Cache = new ConcurrentDictionary<string, TextureExportResult>(StringComparer.OrdinalIgnoreCase);
-        private static readonly ConcurrentDictionary<string, string> Failures = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, object> Cache = new ConcurrentDictionary<string, object>(StringComparer.OrdinalIgnoreCase);
         private static string _cacheDirectory;
         private static string _publicHost;
         private static bool _initialized;
@@ -30,7 +30,7 @@ namespace BannerlordHtmlUI
             host.RegisterContentRoot(ContentRootId, _cacheDirectory);
             _publicHost = "https://bannerlord-htmlui-" + SanitizeHostPart(ContentRootId) + ".local";
             _initialized = true;
-            HtmlUiLogger.Info("Native Brush resource cache initialized: " + _cacheDirectory);
+            HtmlUiLogger.Info("Native Brush resource strategy matrix initialized: " + _cacheDirectory);
         }
 
         public static void Dispose()
@@ -39,12 +39,12 @@ namespace BannerlordHtmlUI
             _cacheDirectory = null;
             _publicHost = null;
             Cache.Clear();
-            Failures.Clear();
         }
 
         public static object CreateSpriteSnapshot(object sprite, bool includeResource)
         {
             if (sprite == null) return null;
+
             var part = GetPropertyValue(sprite, "SpritePart") ?? GetPropertyValue(sprite, "BaseSprite");
             var texture2D = GetPropertyValue(part ?? sprite, "Texture");
             var platformTexture = GetPropertyValue(texture2D, "PlatformTexture");
@@ -52,45 +52,20 @@ namespace BannerlordHtmlUI
             var spriteName = GetString(sprite, "Name");
             var textureName = GetString(texture2D, "Name");
             var platformTextureName = GetString(platformTexture, "Name");
-
+            var categoryName = GetString(category, "Name");
             var sheetId = GetInt(part, "SheetID") ?? -1;
-            var spriteSheet = ResolveSpriteSheet(category, sheetId);
-            var sheetPlatformTexture = GetPropertyValue(spriteSheet, "PlatformTexture");
-            var sheetPlatformName = GetString(sheetPlatformTexture, "Name");
-            var resourceName = !string.IsNullOrWhiteSpace(sheetPlatformName)
-                ? sheetPlatformName
-                : (!string.IsNullOrWhiteSpace(platformTextureName) ? platformTextureName : (!string.IsNullOrWhiteSpace(textureName) ? textureName : spriteName));
-
             var width = GetInt(sprite, "Width") ?? GetInt(part, "Width") ?? 0;
             var height = GetInt(sprite, "Height") ?? GetInt(part, "Height") ?? 0;
             var sheetX = GetInt(part, "SheetX") ?? 0;
             var sheetY = GetInt(part, "SheetY") ?? 0;
             var sheetWidth = GetInt(part, "SheetWidth") ?? width;
             var sheetHeight = GetInt(part, "SheetHeight") ?? height;
+            var spriteSheet = ResolveSpriteSheet(category, sheetId);
 
-            string url = null;
-            string error = null;
-            string source = null;
-            string runtimePath = null;
-            string categoryName = GetString(category, "Name");
-
-            if (includeResource)
-            {
-                try
-                {
-                    var result = EnsureTextureCached(part, category, spriteSheet, resourceName, sheetPlatformName ?? platformTextureName,
-                        sheetWidth, sheetHeight, sheetX, sheetY, width, height);
-                    url = result.Url;
-                    source = result.Source;
-                    runtimePath = result.RuntimePath;
-                }
-                catch (Exception ex)
-                {
-                    error = ex.GetType().Name + ": " + ex.Message;
-                    Failures[BuildIdentity(resourceName, sheetId, sheetWidth, sheetHeight)] = error;
-                    HtmlUiLogger.Warn("Brush sprite cache failed: " + error);
-                }
-            }
+            var matrix = includeResource
+                ? BuildStrategyMatrix(sprite, part, category, spriteSheet, categoryName, spriteName, textureName, platformTextureName,
+                    sheetId, sheetX, sheetY, sheetWidth, sheetHeight, width, height)
+                : null;
 
             return new
             {
@@ -98,14 +73,14 @@ namespace BannerlordHtmlUI
                 name = spriteName,
                 width,
                 height,
-                resourceUrl = url,
-                resourceError = error,
-                resourceSource = source,
-                runtimeTexturePath = runtimePath,
+                resourceUrl = matrix?.PrimaryUrl,
+                resourceError = matrix?.PrimaryError,
+                resourceSource = matrix?.PrimarySource,
+                runtimeTexturePath = matrix?.RuntimePath,
                 textureName,
                 platformTextureName,
-                sheetPlatformName,
-                resourceName,
+                sheetPlatformName = GetString(GetPropertyValue(spriteSheet, "PlatformTexture"), "Name"),
+                resourceName = matrix?.ResourceName ?? spriteName,
                 categoryName,
                 categoryRuntimeType = category?.GetType().FullName,
                 categoryLoaded = GetBool(category, "IsLoaded"),
@@ -122,208 +97,312 @@ namespace BannerlordHtmlUI
                 minU = GetFloat(part, "MinU"),
                 minV = GetFloat(part, "MinV"),
                 maxU = GetFloat(part, "MaxU"),
-                maxV = GetFloat(part, "MaxV")
+                maxV = GetFloat(part, "MaxV"),
+                variantUrls = matrix?.VariantUrls,
+                strategyUrls = matrix?.Strategies,
+                pixelDiagnostics = matrix?.PixelDiagnostics
             };
         }
 
-        private sealed class TextureExportResult
+        private sealed class StrategyMatrix
         {
-            public string Url;
-            public string Source;
+            public string PrimaryUrl;
+            public string PrimarySource;
+            public string PrimaryError;
             public string RuntimePath;
+            public string ResourceName;
+            public string PixelDiagnostics;
+            public object VariantUrls;
+            public object[] Strategies;
         }
 
-        private static TextureExportResult EnsureTextureCached(object spritePart, object category, object spriteSheet, string resourceName, string platformTextureName,
-            int sheetWidth, int sheetHeight, int sheetX, int sheetY, int spriteWidth, int spriteHeight)
+        private sealed class StrategyResult
         {
-            if (!_initialized) throw new InvalidOperationException("Native Brush resource cache is not initialized.");
-            if (spritePart == null) throw new InvalidOperationException("SpritePart is unavailable.");
+            public string Name;
+            public string Status;
+            public string Url;
+            public string Source;
+            public string Error;
+            public string RuntimeType;
+            public int Width;
+            public int Height;
+        }
 
-            var sheetId = GetInt(spritePart, "SheetID") ?? -1;
-            var identity = BuildIdentity(resourceName, sheetId, sheetWidth, sheetHeight);
-            TextureExportResult cached;
-            if (Cache.TryGetValue(identity, out cached))
+        private static StrategyMatrix BuildStrategyMatrix(object sprite, object spritePart, object category, object spriteSheet,
+            string categoryName, string spriteName, string textureName, string platformTextureName,
+            int sheetId, int sheetX, int sheetY, int sheetWidth, int sheetHeight, int spriteWidth, int spriteHeight)
+        {
+            var matrix = new StrategyMatrix { ResourceName = spriteName };
+            var results = new List<StrategyResult>();
+            var identity = BuildIdentity(categoryName, spriteName, sheetId, sheetWidth, sheetHeight);
+
+            // A: exact runtime texture currently attached to SpritePart -> native engine export.
+            var runtimePath = string.Empty;
+            var runtimeTexture = ResolveEngineTexture(spritePart, out runtimePath);
+            matrix.RuntimePath = runtimePath;
+            if (runtimeTexture != null)
             {
-                var cachedPath = System.IO.Path.Combine(_cacheDirectory, System.IO.Path.GetFileName(new Uri(cached.Url).AbsolutePath));
-                if (File.Exists(cachedPath) && new FileInfo(cachedPath).Length > 8) return cached;
+                AddNativeTextureStrategy(results, "A Runtime Texture · SaveToFile", runtimeTexture, identity, sheetX, sheetY, spriteWidth, spriteHeight);
+                AddRawTextureStrategies(results, "B Runtime Texture · GetPixelData", runtimeTexture, identity, sheetX, sheetY, spriteWidth, spriteHeight, out matrix.PixelDiagnostics);
+            }
+            else
+            {
+                results.Add(new StrategyResult { Name = "A/B Runtime Texture", Status = "failed", Error = "SpritePart runtime Engine.Texture unavailable.", RuntimeType = runtimePath });
             }
 
-            string runtimePath;
-            var texture = ResolveEngineTexture(spritePart, category, spriteSheet, out runtimePath);
-            if (texture == null) throw new InvalidOperationException("Unable to resolve the native atlas texture used by SpritePart. " + runtimePath);
-
-            try { texture.PreloadTexture(true); } catch { }
-            try { texture.SetTextureAsAlwaysValid(); } catch { }
-            if (!texture.IsValid) throw new InvalidOperationException("Resolved native atlas texture is invalid. " + runtimePath);
-
-            var width = texture.Width > 0 ? texture.Width : sheetWidth;
-            var height = texture.Height > 0 ? texture.Height : sheetHeight;
-            if (width <= 0 || height <= 0) throw new InvalidOperationException("Resolved native atlas texture dimensions are unavailable. " + runtimePath);
-
-            var hash = Sha256(identity + "|" + width + "x" + height).Substring(0, 24);
-            var filename = "sprite-" + hash + ".png";
-            var path = System.IO.Path.Combine(_cacheDirectory, filename);
-
-            Exception nativeExportError = null;
+            // C: loaded SpriteCategory -> locate same SpritePart by sprite name, then use its own runtime texture.
             try
             {
-                if (File.Exists(path)) File.Delete(path);
-                texture.SaveToFile(path, false);
-                if (IsValidPng(path))
+                var loadedCategory = LoadSpriteCategory(categoryName);
+                var loadedPart = FindSpritePart(loadedCategory, spriteName);
+                var loadedTexture = ResolveEngineTexture(loadedPart, out var loadedPath);
+                if (loadedTexture != null)
                 {
-                    var native = new TextureExportResult
-                    {
-                        Url = _publicHost + "/" + filename,
-                        Source = runtimePath + " [Engine.Texture.SaveToFile]",
-                        RuntimePath = runtimePath
-                    };
-                    Cache[identity] = native;
-                    HtmlUiLogger.Info("Native Brush Atlas exported by Engine.Texture.SaveToFile: " + (platformTextureName ?? resourceName));
-                    return native;
+                    AddNativeTextureStrategy(results, "C UIResourceManager · LoadSpriteCategory", loadedTexture, identity + "|loaded", sheetX, sheetY, spriteWidth, spriteHeight);
+                    results[results.Count - 1].RuntimeType = loadedPath;
                 }
-                nativeExportError = new IOException("Engine Texture.SaveToFile produced no valid PNG file.");
+                else
+                {
+                    results.Add(new StrategyResult { Name = "C UIResourceManager · LoadSpriteCategory", Status = "failed", Error = "Loaded category did not expose a usable SpritePart texture.", RuntimeType = loadedPath });
+                }
             }
             catch (Exception ex)
             {
-                nativeExportError = ex;
+                results.Add(new StrategyResult { Name = "C UIResourceManager · LoadSpriteCategory", Status = "failed", Error = ex.GetType().Name + ": " + ex.Message });
             }
 
-            var bytes = checked(width * height * 4);
-            var raw = new byte[bytes];
-            texture.GetPixelData(raw);
-            HtmlUiLogger.Info("Brush atlas pixel diagnostics: " + DiagnosePixels(raw, width, height, runtimePath));
-
-            if (AllZero(raw))
+            // D: enumerate every SpriteSheet object that the Category exposes. This handles non-IList collections and 0/1-based quirks.
+            try
             {
-                throw new IOException("Native atlas export failed and Texture.GetPixelData returned all-zero pixel data. " +
-                    "SaveToFileError=" + (nativeExportError == null ? "unknown" : nativeExportError.Message));
+                var sheets = GetPropertyValue(category, "SpriteSheets");
+                var index = 0;
+                foreach (var candidate in EnumerateCollection(sheets).Take(8))
+                {
+                    var candidateTexture = ResolveEngineTextureFromWrapper(candidate, out var path);
+                    if (candidateTexture != null)
+                    {
+                        AddNativeTextureStrategy(results, "D Category SpriteSheet[" + index + "]", candidateTexture,
+                            identity + "|sheet" + index, sheetX, sheetY, spriteWidth, spriteHeight);
+                        results[results.Count - 1].RuntimeType = path;
+                    }
+                    else
+                    {
+                        results.Add(new StrategyResult { Name = "D Category SpriteSheet[" + index + "]", Status = "failed", Error = "No Engine.Texture.", RuntimeType = path });
+                    }
+                    index++;
+                }
+                if (index == 0)
+                    results.Add(new StrategyResult { Name = "D Category SpriteSheets enumeration", Status = "failed", Error = "SpriteSheets collection returned no enumerable values." });
+            }
+            catch (Exception ex)
+            {
+                results.Add(new StrategyResult { Name = "D Category SpriteSheets enumeration", Status = "failed", Error = ex.GetType().Name + ": " + ex.Message });
             }
 
-            WritePng(path, raw, width, height, PixelLayout.Bgra);
-            if (!IsValidPng(path))
-                throw new IOException("Pixel fallback did not produce a valid PNG.");
-
-            var fallback = new TextureExportResult
+            // E: explicit resource-name candidates. Try both Sprite and common ui atlas names.
+            var names = new List<string>();
+            AddCandidate(names, platformTextureName);
+            AddCandidate(names, textureName);
+            AddCandidate(names, spriteName);
+            if (!string.IsNullOrWhiteSpace(categoryName) && sheetId >= 0)
             {
-                Url = _publicHost + "/" + filename,
-                Source = runtimePath + " [Texture.GetPixelData fallback]",
-                RuntimePath = runtimePath
+                AddCandidate(names, categoryName + "_" + sheetId);
+                AddCandidate(names, categoryName + "_" + (sheetId + 1));
+                AddCandidate(names, categoryName + "_" + Math.Max(0, sheetId - 1));
+            }
+            foreach (var candidateName in names.Distinct(StringComparer.OrdinalIgnoreCase).Take(10))
+            {
+                try
+                {
+                    var tex = TaleWorlds.Engine.Texture.GetFromResource(candidateName);
+                    if (tex == null)
+                    {
+                        results.Add(new StrategyResult { Name = "E Resource " + candidateName, Status = "failed", Error = "GetFromResource returned null." });
+                        continue;
+                    }
+                    AddNativeTextureStrategy(results, "E Resource " + candidateName, tex, identity + "|resource|" + candidateName,
+                        sheetX, sheetY, spriteWidth, spriteHeight);
+                }
+                catch (Exception ex)
+                {
+                    results.Add(new StrategyResult { Name = "E Resource " + candidateName, Status = "failed", Error = ex.GetType().Name + ": " + ex.Message });
+                }
+            }
+
+            var successful = results.Where(r => r.Status == "ok" && !string.IsNullOrWhiteSpace(r.Url)).ToList();
+            var primary = successful.FirstOrDefault(r => r.Name.StartsWith("C ", StringComparison.Ordinal))
+                ?? successful.FirstOrDefault(r => r.Name.StartsWith("A ", StringComparison.Ordinal))
+                ?? successful.FirstOrDefault(r => r.Name.StartsWith("E ", StringComparison.Ordinal))
+                ?? successful.FirstOrDefault();
+
+            matrix.PrimaryUrl = primary?.Url;
+            matrix.PrimarySource = primary?.Source;
+            matrix.PrimaryError = primary == null ? "No strategy produced a usable PNG." : null;
+            matrix.VariantUrls = new
+            {
+                Rgba = FindStrategyUrl(successful, "B Runtime Texture · GetPixelData · RGBA"),
+                Bgra = FindStrategyUrl(successful, "B Runtime Texture · GetPixelData · BGRA"),
+                Argb = FindStrategyUrl(successful, "B Runtime Texture · GetPixelData · ARGB"),
+                RgbaFlipY = FindStrategyUrl(successful, "B Runtime Texture · GetPixelData · RGBA FlipY"),
+                Native = FindStrategyUrl(successful, "A Runtime Texture · SaveToFile")
             };
-            Cache[identity] = fallback;
-            return fallback;
+            matrix.Strategies = results.Cast<object>().ToArray();
+            return matrix;
         }
 
-        private static TaleWorlds.Engine.Texture ResolveEngineTexture(object spritePart, object category, object spriteSheet, out string runtimePath)
+        private static void AddNativeTextureStrategy(List<StrategyResult> results, string name, TaleWorlds.Engine.Texture texture,
+            string identity, int sheetX, int sheetY, int spriteWidth, int spriteHeight)
         {
-            var sheetId = GetInt(spritePart, "SheetID") ?? -1;
-            runtimePath = "Category=" + (category == null ? "<null>" : (GetString(category, "Name") ?? category.GetType().FullName))
-                + "; SheetID=" + sheetId
-                + "; SpriteSheet=" + (spriteSheet == null ? "<null>" : spriteSheet.GetType().FullName)
-                + "; SpriteSheet.Name=" + (GetString(spriteSheet, "Name") ?? "<null>");
-
-            if (spriteSheet != null)
+            try
             {
-                var sheetPlatform = GetPropertyValue(spriteSheet, "PlatformTexture");
-                runtimePath += "; SpriteSheet.PlatformTexture=" + (sheetPlatform == null ? "<null>" : sheetPlatform.GetType().FullName)
-                    + "; Name=" + (GetString(sheetPlatform, "Name") ?? "<null>");
-                if (sheetPlatform is TaleWorlds.Engine.Texture directSheet)
+                texture.PreloadTexture(true);
+                try { texture.SetTextureAsAlwaysValid(); } catch { }
+                var width = texture.Width;
+                var height = texture.Height;
+                if (width <= 0 || height <= 0) throw new InvalidOperationException("Invalid texture dimensions.");
+                var hash = Sha256(identity + "|native").Substring(0, 24);
+                var fullPath = System.IO.Path.Combine(_cacheDirectory, "strategy-" + hash + "-native.png");
+                if (TryNativeSave(texture, fullPath))
                 {
-                    runtimePath += " [Engine.Texture]";
-                    return directSheet;
+                    var cropPath = System.IO.Path.Combine(_cacheDirectory, "strategy-" + hash + "-native-crop.png");
+                    if (CropPng(fullPath, cropPath, sheetX, sheetY, spriteWidth, spriteHeight, false))
+                    {
+                        results.Add(new StrategyResult { Name = name, Status = "ok", Url = PublicUrl(cropPath), Source = "Engine.Texture.SaveToFile + native crop", RuntimeType = texture.GetType().FullName, Width = spriteWidth, Height = spriteHeight });
+                        return;
+                    }
+                    results.Add(new StrategyResult { Name = name, Status = "ok", Url = PublicUrl(fullPath), Source = "Engine.Texture.SaveToFile", RuntimeType = texture.GetType().FullName, Width = width, Height = height });
+                    return;
+                }
+                results.Add(new StrategyResult { Name = name, Status = "failed", Error = "SaveToFile did not create a valid PNG.", RuntimeType = texture.GetType().FullName, Width = width, Height = height });
+            }
+            catch (Exception ex)
+            {
+                results.Add(new StrategyResult { Name = name, Status = "failed", Error = ex.GetType().Name + ": " + ex.Message, RuntimeType = texture?.GetType().FullName });
+            }
+        }
+
+        private static void AddRawTextureStrategies(List<StrategyResult> results, string prefix, TaleWorlds.Engine.Texture texture,
+            string identity, int sheetX, int sheetY, int spriteWidth, int spriteHeight, out string diagnostics)
+        {
+            diagnostics = null;
+            try
+            {
+                var width = texture.Width;
+                var height = texture.Height;
+                if (width <= 0 || height <= 0) throw new InvalidOperationException("Invalid texture dimensions.");
+                var raw = new byte[checked(width * height * 4)];
+                texture.GetPixelData(raw);
+                diagnostics = DiagnosePixels(raw, width, height);
+                if (AllZero(raw))
+                {
+                    results.Add(new StrategyResult { Name = prefix, Status = "failed", Error = "GetPixelData returned all-zero data.", RuntimeType = texture.GetType().FullName, Width = width, Height = height });
+                    return;
                 }
 
-                var sheetEngine = GetPropertyValue(sheetPlatform, "Texture");
-                runtimePath += "; SpriteSheet.PlatformTexture.Texture=" + (sheetEngine == null ? "<null>" : sheetEngine.GetType().FullName);
-                if (sheetEngine is TaleWorlds.Engine.Texture wrappedSheet)
+                AddRawCrop(results, prefix + " · RGBA", raw, width, height, identity + "|rgba", sheetX, sheetY, spriteWidth, spriteHeight, PixelLayout.Rgba, false);
+                AddRawCrop(results, prefix + " · BGRA", raw, width, height, identity + "|bgra", sheetX, sheetY, spriteWidth, spriteHeight, PixelLayout.Bgra, false);
+                AddRawCrop(results, prefix + " · ARGB", raw, width, height, identity + "|argb", sheetX, sheetY, spriteWidth, spriteHeight, PixelLayout.Argb, false);
+                AddRawCrop(results, prefix + " · RGBA FlipY", raw, width, height, identity + "|rgbaflip", sheetX, sheetY, spriteWidth, spriteHeight, PixelLayout.Rgba, true);
+            }
+            catch (Exception ex)
+            {
+                diagnostics = ex.GetType().Name + ": " + ex.Message;
+                results.Add(new StrategyResult { Name = prefix, Status = "failed", Error = diagnostics });
+            }
+        }
+
+        private static void AddRawCrop(List<StrategyResult> results, string name, byte[] raw, int width, int height, string identity,
+            int sheetX, int sheetY, int spriteWidth, int spriteHeight, PixelLayout layout, bool flipY)
+        {
+            var hash = Sha256(identity).Substring(0, 24);
+            var path = System.IO.Path.Combine(_cacheDirectory, "strategy-" + hash + ".png");
+            try
+            {
+                WritePngCrop(path, raw, width, height, sheetX, sheetY, spriteWidth, spriteHeight, layout, flipY);
+                if (!IsValidPng(path)) throw new IOException("Generated PNG is invalid.");
+                results.Add(new StrategyResult { Name = name, Status = "ok", Url = PublicUrl(path), Source = "Texture.GetPixelData crop " + layout + (flipY ? " FlipY" : string.Empty), RuntimeType = "raw-pixel", Width = spriteWidth, Height = spriteHeight });
+            }
+            catch (Exception ex)
+            {
+                results.Add(new StrategyResult { Name = name, Status = "failed", Error = ex.GetType().Name + ": " + ex.Message });
+            }
+        }
+
+        private static string FindStrategyUrl(IEnumerable<StrategyResult> results, string exactName)
+            => results.FirstOrDefault(x => string.Equals(x.Name, exactName, StringComparison.OrdinalIgnoreCase) && x.Status == "ok")?.Url;
+
+        private static string PublicUrl(string path) => _publicHost + "/" + System.IO.Path.GetFileName(path);
+
+        private static object LoadSpriteCategory(string categoryName)
+        {
+            if (string.IsNullOrWhiteSpace(categoryName)) return null;
+            var manager = typeof(TaleWorlds.Engine.GauntletUI.UIResourceManager);
+            var method = manager.GetMethod("LoadSpriteCategory", BindingFlags.Static | BindingFlags.Public, null, new[] { typeof(string) }, null);
+            if (method == null) return null;
+            return method.Invoke(null, new object[] { categoryName });
+        }
+
+        private static object FindSpritePart(object loadedCategory, string spriteName)
+        {
+            if (loadedCategory == null || string.IsNullOrWhiteSpace(spriteName)) return null;
+            foreach (var propertyName in new[] { "SpriteParts", "Parts" })
+            {
+                var collection = GetPropertyValue(loadedCategory, propertyName);
+                foreach (var part in EnumerateCollection(collection))
                 {
-                    runtimePath += " [EngineTexture]";
-                    return wrappedSheet;
+                    if (string.Equals(GetString(part, "Name"), spriteName, StringComparison.OrdinalIgnoreCase)) return part;
                 }
             }
-
-            var texture2D = GetPropertyValue(spritePart, "Texture");
-            runtimePath += "; SpritePart.Texture=" + (texture2D == null ? "<null>" : texture2D.GetType().FullName);
-            if (texture2D == null) return null;
-
-            var platform = GetPropertyValue(texture2D, "PlatformTexture");
-            runtimePath += "; PlatformTexture=" + (platform == null ? "<null>" : platform.GetType().FullName)
-                + "; PlatformTexture.Name=" + (GetString(platform, "Name") ?? "<null>");
-            if (platform == null) return null;
-
-            if (platform is TaleWorlds.Engine.Texture direct)
+            foreach (var methodName in new[] { "GetSpritePart", "FindSpritePart" })
             {
-                runtimePath += " [Engine.Texture]";
-                return direct;
+                var method = loadedCategory.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public, null, new[] { typeof(string) }, null);
+                if (method == null) continue;
+                try { var value = method.Invoke(loadedCategory, new object[] { spriteName }); if (value != null) return value; } catch { }
             }
-
-            var engine = GetPropertyValue(platform, "Texture");
-            runtimePath += "; PlatformTexture.Texture=" + (engine == null ? "<null>" : engine.GetType().FullName);
-            if (engine is TaleWorlds.Engine.Texture wrapped)
-            {
-                runtimePath += " [EngineTexture]";
-                return wrapped;
-            }
-
             return null;
+        }
+
+        private static TaleWorlds.Engine.Texture ResolveEngineTexture(object spritePart, out string runtimePath)
+        {
+            runtimePath = "SpritePart=<null>";
+            if (spritePart == null) return null;
+            runtimePath = "SpritePart=" + spritePart.GetType().FullName;
+            var texture2D = GetPropertyValue(spritePart, "Texture");
+            runtimePath += "; Texture=" + (texture2D == null ? "<null>" : texture2D.GetType().FullName);
+            var platform = GetPropertyValue(texture2D, "PlatformTexture");
+            runtimePath += "; PlatformTexture=" + (platform == null ? "<null>" : platform.GetType().FullName) + "; Name=" + (GetString(platform, "Name") ?? "<null>");
+            var engine = GetPropertyValue(platform, "Texture");
+            if (engine is TaleWorlds.Engine.Texture direct) { runtimePath += "; TextureObject=Engine.Texture"; return direct; }
+            if (platform is TaleWorlds.Engine.Texture directPlatform) { runtimePath += "; PlatformIsEngine.Texture"; return directPlatform; }
+            runtimePath += "; PlatformTexture.Texture=" + (engine == null ? "<null>" : engine.GetType().FullName);
+            return engine as TaleWorlds.Engine.Texture;
+        }
+
+        private static TaleWorlds.Engine.Texture ResolveEngineTextureFromWrapper(object wrapper, out string runtimePath)
+        {
+            runtimePath = wrapper == null ? "wrapper=<null>" : "wrapper=" + wrapper.GetType().FullName;
+            var platform = GetPropertyValue(wrapper, "PlatformTexture");
+            if (platform is TaleWorlds.Engine.Texture direct) return direct;
+            var engine = GetPropertyValue(platform, "Texture");
+            return engine as TaleWorlds.Engine.Texture;
         }
 
         private static object ResolveSpriteSheet(object category, int sheetId)
         {
             if (category == null || sheetId < 0) return null;
-
             var sheets = GetPropertyValue(category, "SpriteSheets");
-            var spriteSheet = GetIndexedValue(sheets, sheetId);
-            if (spriteSheet != null) return spriteSheet;
-
-            var categoryName = GetString(category, "Name");
-            if (string.IsNullOrWhiteSpace(categoryName)) return null;
-
-            try
-            {
-                var manager = typeof(TaleWorlds.Engine.GauntletUI.UIResourceManager);
-                var loadMethod = manager.GetMethod("LoadSpriteCategory", BindingFlags.Static | BindingFlags.Public, null, new[] { typeof(string) }, null);
-                if (loadMethod == null) return null;
-
-                var loadedCategory = loadMethod.Invoke(null, new object[] { categoryName });
-                if (loadedCategory == null) return null;
-
-                var loadedSheets = GetPropertyValue(loadedCategory, "SpriteSheets");
-                spriteSheet = GetIndexedValue(loadedSheets, sheetId);
-                if (spriteSheet != null) return spriteSheet;
-
-                // Some versions expose the category but keep the individual sheet unloaded until partial-load is requested.
-                var partialLoadMethod = manager.GetMethod("GetSpriteCategory", BindingFlags.Static | BindingFlags.Public, null, new[] { typeof(string) }, null);
-                var currentCategory = partialLoadMethod == null ? null : partialLoadMethod.Invoke(null, new object[] { categoryName });
-                if (currentCategory != null)
-                {
-                    var partialLoad = currentCategory.GetType().GetMethod("PartialLoadAtIndex", BindingFlags.Instance | BindingFlags.Public);
-                    if (partialLoad != null)
-                    {
-                        var ctx = GetStaticPropertyValue(manager, "ResourceContext");
-                        var depot = GetStaticPropertyValue(manager, "ResourceDepot");
-                        if (ctx != null && depot != null)
-                        {
-                            partialLoad.Invoke(currentCategory, new[] { ctx, depot, (object)sheetId });
-                            var afterSheets = GetPropertyValue(currentCategory, "SpriteSheets");
-                            spriteSheet = GetIndexedValue(afterSheets, sheetId);
-                            if (spriteSheet != null) return spriteSheet;
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Warn("Native Brush SpriteCategory load failed: " + ex.GetType().Name + ": " + ex.Message);
-            }
-
+            var direct = GetIndexedValue(sheets, sheetId);
+            if (direct != null) return direct;
             return null;
         }
 
-        private static object GetStaticPropertyValue(Type type, string name)
+        private static IEnumerable<object> EnumerateCollection(object collection)
         {
-            var property = type?.GetProperty(name, BindingFlags.Static | BindingFlags.Public);
-            if (property == null) return null;
-            try { return property.GetValue(null, null); } catch { return null; }
+            if (collection == null) yield break;
+            if (collection is IEnumerable enumerable)
+            {
+                foreach (var item in enumerable) yield return item;
+            }
         }
 
         private static object GetIndexedValue(object collection, int index)
@@ -331,43 +410,112 @@ namespace BannerlordHtmlUI
             if (collection == null || index < 0) return null;
             try
             {
-                if (collection is IList list)
-                    return index < list.Count ? list[index] : null;
-
+                if (collection is IList list) return index < list.Count ? list[index] : null;
                 var type = collection.GetType();
-                var countProperty = type.GetProperty("Count", BindingFlags.Instance | BindingFlags.Public);
-                var count = countProperty == null ? (int?)null : Convert.ToInt32(countProperty.GetValue(collection, null));
-                if (count.HasValue && index >= count.Value) return null;
-                var itemProperty = type.GetProperty("Item", BindingFlags.Instance | BindingFlags.Public);
-                if (itemProperty != null) return itemProperty.GetValue(collection, new object[] { index });
+                var item = type.GetProperty("Item", BindingFlags.Instance | BindingFlags.Public);
+                if (item != null) return item.GetValue(collection, new object[] { index });
+                if (collection is IDictionary dictionary)
+                {
+                    if (dictionary.Contains(index)) return dictionary[index];
+                    if (dictionary.Contains(index + 1)) return dictionary[index + 1];
+                }
             }
             catch { }
             return null;
         }
 
-        private static int? GetCollectionCount(object collection)
+        private static void AddCandidate(List<string> values, string value)
         {
-            if (collection == null) return null;
+            if (!string.IsNullOrWhiteSpace(value)) values.Add(value);
+        }
+
+        private static bool TryNativeSave(TaleWorlds.Engine.Texture texture, string path)
+        {
             try
             {
-                if (collection is ICollection c) return c.Count;
-                var property = collection.GetType().GetProperty("Count", BindingFlags.Instance | BindingFlags.Public);
-                if (property != null) return Convert.ToInt32(property.GetValue(collection, null));
+                if (File.Exists(path)) File.Delete(path);
+                texture.PreloadTexture(true);
+                try { texture.SetTextureAsAlwaysValid(); } catch { }
+                texture.SaveToFile(path, false);
+                return IsValidPng(path);
             }
-            catch { }
-            return null;
+            catch { return false; }
         }
 
-        private static bool IsValidPng(string path)
+        private static bool CropPng(string sourcePath, string targetPath, int x, int y, int width, int height, bool flipY)
         {
-            if (!File.Exists(path) || new FileInfo(path).Length < 8) return false;
-            using (var stream = File.OpenRead(path))
+            try
             {
-                var signature = new byte[8];
-                if (stream.Read(signature, 0, 8) != 8) return false;
-                return signature[0] == 0x89 && signature[1] == 0x50 && signature[2] == 0x4E && signature[3] == 0x47
-                    && signature[4] == 0x0D && signature[5] == 0x0A && signature[6] == 0x1A && signature[7] == 0x0A;
+                using (var source = new Bitmap(sourcePath))
+                {
+                    x = Math.Max(0, Math.Min(x, source.Width - 1));
+                    y = Math.Max(0, Math.Min(y, source.Height - 1));
+                    width = Math.Min(width, source.Width - x);
+                    height = Math.Min(height, source.Height - y);
+                    if (width <= 0 || height <= 0) return false;
+                    using (var crop = source.Clone(new Rectangle(x, y, width, height), PixelFormat.Format32bppArgb))
+                    {
+                        if (flipY) crop.RotateFlip(RotateFlipType.RotateNoneFlipY);
+                        crop.Save(targetPath, ImageFormat.Png);
+                        return IsValidPng(targetPath);
+                    }
+                }
             }
+            catch { return false; }
+        }
+
+        private enum PixelLayout { Rgba, Bgra, Argb }
+
+        private static void WritePngCrop(string path, byte[] raw, int sourceWidth, int sourceHeight, int x, int y, int width, int height, PixelLayout layout, bool flipY)
+        {
+            if (x < 0 || y < 0 || x >= sourceWidth || y >= sourceHeight) throw new ArgumentOutOfRangeException();
+            width = Math.Min(width, sourceWidth - x);
+            height = Math.Min(height, sourceHeight - y);
+            if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException();
+            using (var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb))
+            {
+                var data = bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                try
+                {
+                    var converted = new byte[width * height * 4];
+                    for (var dy = 0; dy < height; dy++)
+                    for (var dx = 0; dx < width; dx++)
+                    {
+                        var sy = flipY ? y + (height - 1 - dy) : y + dy;
+                        var src = (sy * sourceWidth + x + dx) * 4;
+                        var dst = (dy * width + dx) * 4;
+                        byte r, g, b, a;
+                        switch (layout)
+                        {
+                            case PixelLayout.Rgba: r = raw[src]; g = raw[src + 1]; b = raw[src + 2]; a = raw[src + 3]; break;
+                            case PixelLayout.Argb: a = raw[src]; r = raw[src + 1]; g = raw[src + 2]; b = raw[src + 3]; break;
+                            default: b = raw[src]; g = raw[src + 1]; r = raw[src + 2]; a = raw[src + 3]; break;
+                        }
+                        converted[dst] = b; converted[dst + 1] = g; converted[dst + 2] = r; converted[dst + 3] = a;
+                    }
+                    Marshal.Copy(converted, 0, data.Scan0, converted.Length);
+                }
+                finally { bitmap.UnlockBits(data); }
+                var directory = System.IO.Path.GetDirectoryName(path);
+                if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+                bitmap.Save(path, ImageFormat.Png);
+            }
+        }
+
+        private static string DiagnosePixels(byte[] raw, int width, int height)
+        {
+            if (raw == null) return "raw=null";
+            var sample = Math.Min(raw.Length, 4 * 4096);
+            long[] min = { 255, 255, 255, 255 }, max = { 0, 0, 0, 0 }, sum = { 0, 0, 0, 0 };
+            for (var i = 0; i + 3 < sample; i += 4)
+            {
+                for (var c = 0; c < 4; c++) { var v = raw[i + c]; if (v < min[c]) min[c] = v; if (v > max[c]) max[c] = v; sum[c] += v; }
+            }
+            var count = Math.Max(1, sample / 4);
+            return "dimensions=" + width + "x" + height + ", bytes=" + raw.Length + ", samplePixels=" + count
+                + ", min=[" + string.Join(",", min) + "]"
+                + ", max=[" + string.Join(",", max) + "]"
+                + ", avg=[" + string.Join(",", sum.Select(v => (v / (double)count).ToString("F1", System.Globalization.CultureInfo.InvariantCulture))) + "]";
         }
 
         private static bool AllZero(byte[] raw)
@@ -377,65 +525,14 @@ namespace BannerlordHtmlUI
             return true;
         }
 
-        private enum PixelLayout { Rgba, Bgra, Argb }
-
-        private static string DiagnosePixels(byte[] raw, int width, int height, string source)
+        private static bool IsValidPng(string path)
         {
-            if (raw == null || raw.Length == 0) return "empty, source=" + source;
-            var sampleBytes = Math.Min(raw.Length, 4 * 4096);
-            long[] min = { 255, 255, 255, 255 };
-            long[] max = { 0, 0, 0, 0 };
-            long[] sum = { 0, 0, 0, 0 };
-            long alphaNonZero = 0;
-            for (var i = 0; i + 3 < sampleBytes; i += 4)
+            if (!File.Exists(path) || new FileInfo(path).Length < 8) return false;
+            using (var stream = File.OpenRead(path))
             {
-                for (var c = 0; c < 4; c++)
-                {
-                    var value = raw[i + c];
-                    if (value < min[c]) min[c] = value;
-                    if (value > max[c]) max[c] = value;
-                    sum[c] += value;
-                }
-                if (raw[i + 3] != 0) alphaNonZero++;
-            }
-            var count = Math.Max(1, sampleBytes / 4);
-            return "source=" + source + ", dimensions=" + width + "x" + height + ", bytes=" + raw.Length
-                + ", samplePixels=" + count + ", min=[" + string.Join(",", min) + "]"
-                + ", max=[" + string.Join(",", max) + "]"
-                + ", avg=[" + string.Join(",", sum.Select(v => (v / (double)count).ToString("F1", System.Globalization.CultureInfo.InvariantCulture))) + "]"
-                + ", alphaNonZero=" + alphaNonZero;
-        }
-
-        private static void WritePng(string path, byte[] raw, int width, int height, PixelLayout layout)
-        {
-            var directory = System.IO.Path.GetDirectoryName(path);
-            if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
-            using (var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb))
-            {
-                var rectangle = new Rectangle(0, 0, width, height);
-                var data = bitmap.LockBits(rectangle, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-                try
-                {
-                    var rowBytes = width * 4;
-                    var converted = new byte[rowBytes * height];
-                    for (var y = 0; y < height; y++)
-                    for (var x = 0; x < width; x++)
-                    {
-                        var source = (y * width + x) * 4;
-                        var target = y * rowBytes + x * 4;
-                        byte r, g, b, a;
-                        if (layout == PixelLayout.Rgba)
-                        { r = raw[source]; g = raw[source + 1]; b = raw[source + 2]; a = raw[source + 3]; }
-                        else if (layout == PixelLayout.Argb)
-                        { a = raw[source]; r = raw[source + 1]; g = raw[source + 2]; b = raw[source + 3]; }
-                        else
-                        { b = raw[source]; g = raw[source + 1]; r = raw[source + 2]; a = raw[source + 3]; }
-                        converted[target] = b; converted[target + 1] = g; converted[target + 2] = r; converted[target + 3] = a;
-                    }
-                    Marshal.Copy(converted, 0, data.Scan0, converted.Length);
-                }
-                finally { bitmap.UnlockBits(data); }
-                bitmap.Save(path, ImageFormat.Png);
+                var sig = new byte[8];
+                if (stream.Read(sig, 0, 8) != 8) return false;
+                return sig[0] == 0x89 && sig[1] == 0x50 && sig[2] == 0x4E && sig[3] == 0x47 && sig[4] == 0x0D && sig[5] == 0x0A && sig[6] == 0x1A && sig[7] == 0x0A;
             }
         }
 
@@ -448,31 +545,37 @@ namespace BannerlordHtmlUI
         }
 
         private static string GetString(object instance, string name) => GetPropertyValue(instance, name) as string;
-
         private static int? GetInt(object instance, string name)
         {
             var value = GetPropertyValue(instance, name);
             if (value == null) return null;
             try { return Convert.ToInt32(value, System.Globalization.CultureInfo.InvariantCulture); } catch { return null; }
         }
-
         private static float? GetFloat(object instance, string name)
         {
             var value = GetPropertyValue(instance, name);
             if (value == null) return null;
             try { return Convert.ToSingle(value, System.Globalization.CultureInfo.InvariantCulture); } catch { return null; }
         }
-
         private static bool? GetBool(object instance, string name)
         {
             var value = GetPropertyValue(instance, name);
             if (value == null) return null;
             try { return Convert.ToBoolean(value, System.Globalization.CultureInfo.InvariantCulture); } catch { return null; }
         }
-
-        private static string BuildIdentity(string resourceName, int sheetId, int sheetWidth, int sheetHeight)
-            => (resourceName ?? string.Empty) + "|" + sheetId + "|" + sheetWidth + "x" + sheetHeight;
-
+        private static int? GetCollectionCount(object collection)
+        {
+            if (collection == null) return null;
+            try
+            {
+                if (collection is ICollection c) return c.Count;
+                var property = collection.GetType().GetProperty("Count", BindingFlags.Instance | BindingFlags.Public);
+                return property == null ? (int?)null : Convert.ToInt32(property.GetValue(collection, null));
+            }
+            catch { return null; }
+        }
+        private static string BuildIdentity(string categoryName, string spriteName, int sheetId, int width, int height)
+            => (categoryName ?? string.Empty) + "|" + (spriteName ?? string.Empty) + "|" + sheetId + "|" + width + "x" + height;
         private static string Sha256(string text)
         {
             using (var sha = SHA256.Create())
@@ -483,7 +586,6 @@ namespace BannerlordHtmlUI
                 return builder.ToString();
             }
         }
-
         private static string SanitizeHostPart(string value)
         {
             var chars = (value ?? string.Empty).ToLowerInvariant().ToCharArray();
