@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bannerlord Brush Browser</title>
+  <style>
+    :root { color-scheme: dark; font-family: Arial, sans-serif; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; background: transparent; color: #eee; }
+    body { padding: 24px; pointer-events: auto; }
+    .panel { width: min(1180px, calc(100vw - 48px)); height: calc(100vh - 48px); margin: auto; background: rgba(18, 20, 24, .96); border: 1px solid rgba(255,255,255,.16); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 18px 60px rgba(0,0,0,.45); }
+    header { padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,.1); display: flex; gap: 12px; align-items: center; }
+    h1 { margin: 0; font-size: 20px; font-weight: 700; }
+    .sub { opacity: .7; font-size: 12px; margin-left: auto; }
+    .toolbar { padding: 12px 20px; display: flex; gap: 8px; border-bottom: 1px solid rgba(255,255,255,.08); }
+    input, button { font: inherit; }
+    input { flex: 1; min-width: 0; padding: 9px 11px; border-radius: 7px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #fff; }
+    button { padding: 9px 13px; border-radius: 7px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.08); color: #fff; cursor: pointer; }
+    button:hover { background: rgba(255,255,255,.14); }
+    main { min-height: 0; flex: 1; display: grid; grid-template-columns: 340px 1fr; }
+    .list { min-height: 0; overflow: auto; border-right: 1px solid rgba(255,255,255,.08); }
+    .item { padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.05); cursor: pointer; }
+    .item:hover { background: rgba(255,255,255,.05); }
+    .item.active { background: rgba(110,160,255,.16); }
+    .name { font-size: 13px; font-weight: 600; word-break: break-word; }
+    .meta { margin-top: 3px; font-size: 11px; opacity: .62; }
+    .detail { min-width: 0; overflow: auto; padding: 20px; }
+    .empty { opacity: .55; padding: 40px; text-align: center; }
+    .preview { padding: 22px; min-height: 120px; border-radius: 10px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.02); display: flex; align-items: center; justify-content: center; }
+    .preview-button { min-width: 220px; padding: 13px 18px; border: 0; border-radius: 6px; color: #fff; background: var(--brush-bg, #666); font-size: var(--brush-size, 18px); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin-top: 16px; }
+    .card { padding: 12px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); }
+    .label { font-size: 10px; opacity: .55; text-transform: uppercase; letter-spacing: .08em; }
+    .value { margin-top: 4px; font-size: 13px; word-break: break-word; }
+    pre { white-space: pre-wrap; word-break: break-word; font-size: 11px; opacity: .78; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <header>
+      <h1>Bannerlord Brush Browser</h1>
+      <div class="sub" id="context">读取中...</div>
+    </header>
+    <div class="toolbar">
+      <input id="filter" placeholder="搜索 Brush 名称，例如 Basic.Button">
+      <button id="refresh">刷新</button>
+      <button id="close">关闭</button>
+    </div>
+    <main>
+      <div class="list" id="list"><div class="empty">加载中...</div></div>
+      <div class="detail" id="detail"><div class="empty">选择一个 Brush</div></div>
+    </main>
+  </div>
+  <script>
+    let brushes = [];
+    let selected = null;
+
+    const $ = id => document.getElementById(id);
+    function capture() {
+      try { window.focus(); window.game?.input?.capture?.(); } catch (_) {}
+    }
+
+    async function load() {
+      capture();
+      $('list').innerHTML = '<div class="empty">加载中...</div>';
+      try {
+        const filter = $('filter').value.trim();
+        const result = await window.game.request('framework.brush.list', { filter, limit: 300 });
+        brushes = result.brushes || [];
+        $('context').textContent = result.available ? `${result.contextName || 'UIContext'} · ${result.total} Brush` : '没有可用 Gauntlet UIContext';
+        renderList();
+      } catch (error) {
+        $('context').textContent = '读取失败';
+        $('list').innerHTML = `<div class="empty">${escapeHtml(error?.message || String(error))}</div>`;
+      }
+    }
+
+    async function selectBrush(name) {
+      capture();
+      selected = name;
+      renderList();
+      try {
+        const result = await window.game.request('framework.brush.get', { name });
+        renderDetail(result.brush);
+      } catch (error) {
+        $('detail').innerHTML = `<div class="empty">${escapeHtml(error?.message || String(error))}</div>`;
+      }
+    }
+
+    function renderList() {
+      if (!brushes.length) {
+        $('list').innerHTML = '<div class="empty">没有匹配的 Brush</div>';
+        return;
+      }
+      $('list').innerHTML = brushes.map(brush => `
+        <div class="item ${brush.name === selected ? 'active' : ''}" data-name="${escapeAttr(brush.name)}">
+          <div class="name">${escapeHtml(brush.name)}</div>
+          <div class="meta">Font ${brush.fontSize}px · ${escapeHtml(brush.fontStyle)}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderDetail(brush) {
+      const color = brush.color || '#666666ff';
+      const fontColor = brush.fontColor || '#ffffffff';
+      $('detail').innerHTML = `
+        <h2 style="margin-top:0">${escapeHtml(brush.name)}</h2>
+        <div class="preview">
+          <button class="preview-button" style="--brush-bg:${escapeAttr(toCssColor(color))};--brush-size:${Number(brush.fontSize || 18)}px;color:${escapeAttr(toCssColor(fontColor))}">${escapeHtml(brush.name)}</button>
+        </div>
+        <div class="grid">
+          <div class="card"><div class="label">Color</div><div class="value">${escapeHtml(color)}</div></div>
+          <div class="card"><div class="label">Font Color</div><div class="value">${escapeHtml(fontColor)}</div></div>
+          <div class="card"><div class="label">Font</div><div class="value">${Number(brush.fontSize || 0)} px · ${escapeHtml(brush.fontStyle || '')}</div></div>
+          <div class="card"><div class="label">Alpha</div><div class="value">${Number(brush.alpha || 0)}</div></div>
+          <div class="card"><div class="label">Sprite</div><div class="value">${brush.sprite ? `${escapeHtml(brush.sprite.name || '')} · ${brush.sprite.width || 0}×${brush.sprite.height || 0}` : '无'}</div></div>
+          <div class="card"><div class="label">Layers</div><div class="value">${brush.layers?.length || 0}</div></div>
+        </div>
+        <div class="card" style="margin-top:12px"><div class="label">Snapshot</div><pre>${escapeHtml(JSON.stringify(brush, null, 2))}</pre></div>
+      `;
+    }
+
+    $('list').addEventListener('pointerdown', capture, true);
+    $('list').addEventListener('click', event => {
+      const item = event.target.closest('.item');
+      if (item) selectBrush(item.dataset.name);
+    });
+    $('refresh').addEventListener('pointerdown', capture, true);
+    $('refresh').addEventListener('click', load);
+    $('close').addEventListener('pointerdown', capture, true);
+    $('close').addEventListener('click', () => window.game.call('framework.closePage'));
+    $('filter').addEventListener('input', () => load());
+    document.addEventListener('pointerdown', capture, true);
+    window.addEventListener('load', load);
+
+    function toCssColor(value) {
+      return value && value.length === 9 ? value : '#666666';
+    }
+    function escapeHtml(value) { return String(value ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c])); }
+    function escapeAttr(value) { return escapeHtml(value).replace(/'/g, '&#39;'); }
+  </script>
+</body>
+</html>
