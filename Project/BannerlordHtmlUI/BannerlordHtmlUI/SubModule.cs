@@ -64,10 +64,14 @@ namespace BannerlordHtmlUI
                     HtmlUiService.Pages.Register(new HtmlUiPage("diagnostics", "diagnostics.html") { HotReload = true });
                 if (!HtmlUiService.Pages.Contains("brush-browser"))
                     HtmlUiService.Pages.Register(new HtmlUiPage("brush-browser", "brush-browser.html") { HotReload = true });
+                if (!HtmlUiService.Pages.Contains("native-asset-diagnostics"))
+                    HtmlUiService.Pages.Register(new HtmlUiPage("native-asset-diagnostics", "native-asset-diagnostics.html") { HotReload = true });
                 if (!HtmlUiCommands.CommandExists("framework.openDiagnostics"))
                     HtmlUiService.RegisterCommand("framework.openDiagnostics", _ => HtmlUiService.Pages.Open("diagnostics"));
                 if (!HtmlUiCommands.CommandExists("framework.openBrushBrowser"))
                     HtmlUiService.RegisterCommand("framework.openBrushBrowser", _ => HtmlUiService.Pages.Open("brush-browser"));
+                if (!HtmlUiCommands.CommandExists("framework.openNativeAssetDiagnostics"))
+                    HtmlUiService.RegisterCommand("framework.openNativeAssetDiagnostics", _ => HtmlUiService.Pages.Open("native-asset-diagnostics"));
             }
             catch (Exception ex)
             {
@@ -83,6 +87,17 @@ namespace BannerlordHtmlUI
                 HtmlUiService.Tick();
 
                 // Temporary framework diagnostic hotkey. Remove or remap in production consumers.
+                if (Input.IsKeyPressed(InputKey.F8))
+                {
+                    HtmlUiLogger.Warn("===== F8 NATIVE ASSET DIAGNOSTICS OPEN =====");
+                    var opened = HtmlUiService.Pages.Open("native-asset-diagnostics");
+                    HtmlUiLogger.Warn("F8 Native Asset Diagnostics result=" + opened
+                        + ", currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>")
+                        + ", hostVisible=" + HtmlUiService.Host.IsVisible
+                        + ", webViewReady=" + HtmlUiService.Host.IsWebViewReady
+                        + ", inputMode=" + HtmlUiService.Host.InputMode);
+                }
+
                 if (Input.IsKeyPressed(InputKey.F10))
                 {
                     HtmlUiLogger.Warn("===== F10 DIAGNOSTICS OPEN =====");
