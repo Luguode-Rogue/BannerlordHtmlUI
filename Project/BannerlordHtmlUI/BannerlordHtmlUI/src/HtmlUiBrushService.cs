@@ -75,6 +75,7 @@ namespace BannerlordHtmlUI
                     fontColor = ColorToHex(brush.FontColor),
                     textAlpha = brush.TextAlphaFactor,
                     sprite = SpriteSnapshot(brush.Sprite, false),
+                    styleNames = brush.Styles == null ? Array.Empty<string>() : brush.Styles.Select(style => style?.Name).Where(name => !string.IsNullOrWhiteSpace(name)).ToArray(),
                     layers = brush.Layers == null
                         ? Array.Empty<object>()
                         : brush.Layers
@@ -125,47 +126,96 @@ namespace BannerlordHtmlUI
             {
                 available = true,
                 contextName = context.Name,
-                brush = new
-                {
-                    name = brush.Name,
-                    fontSize = brush.FontSize,
-                    fontStyle = brush.FontStyle.ToString(),
-                    textHorizontalAlignment = brush.TextHorizontalAlignment.ToString(),
-                    textVerticalAlignment = brush.TextVerticalAlignment.ToString(),
-                    transitionDuration = brush.TransitionDuration,
-                    color = ColorToHex(brush.Color),
-                    colorFactor = brush.ColorFactor,
-                    alpha = brush.AlphaFactor,
-                    hue = brush.HueFactor,
-                    saturation = brush.SaturationFactor,
-                    value = brush.ValueFactor,
-                    fontColor = ColorToHex(brush.FontColor),
-                    textColorFactor = brush.TextColorFactor,
-                    textAlpha = brush.TextAlphaFactor,
-                    textHue = brush.TextHueFactor,
-                    textSaturation = brush.TextSaturationFactor,
-                    textValue = brush.TextValueFactor,
-                    sprite = SpriteSnapshot(brush.Sprite, true),
-                    layers = brush.Layers == null
-                        ? Array.Empty<object>()
-                        : brush.Layers
-                            .Where(layer => layer != null)
-                            .Select(layer => new
-                            {
-                                name = layer.Name,
-                                hidden = layer.IsHidden,
-                                color = ColorToHex(layer.Color),
-                                colorFactor = layer.ColorFactor,
-                                alpha = layer.AlphaFactor,
-                                hue = layer.HueFactor,
-                                saturation = layer.SaturationFactor,
-                                value = layer.ValueFactor,
-                                overlayMask = layer.UseOverlayAlphaAsMask,
-                                sprite = SpriteSnapshot(layer.Sprite, true)
-                            })
-                            .Cast<object>()
-                            .ToArray()
-                }
+                brush = BrushSnapshot(brush)
+            };
+        }
+
+        private static object BrushSnapshot(Brush brush)
+        {
+            return new
+            {
+                name = brush.Name,
+                fontSize = brush.FontSize,
+                fontStyle = brush.FontStyle.ToString(),
+                textHorizontalAlignment = brush.TextHorizontalAlignment.ToString(),
+                textVerticalAlignment = brush.TextVerticalAlignment.ToString(),
+                transitionDuration = brush.TransitionDuration,
+                color = ColorToHex(brush.Color),
+                colorFactor = brush.ColorFactor,
+                alpha = brush.AlphaFactor,
+                hue = brush.HueFactor,
+                saturation = brush.SaturationFactor,
+                value = brush.ValueFactor,
+                horizontalFlip = brush.HorizontalFlip,
+                verticalFlip = brush.VerticalFlip,
+                fontColor = ColorToHex(brush.FontColor),
+                textColorFactor = brush.TextColorFactor,
+                textAlpha = brush.TextAlphaFactor,
+                textHue = brush.TextHueFactor,
+                textSaturation = brush.TextSaturationFactor,
+                textValue = brush.TextValueFactor,
+                sprite = SpriteSnapshot(brush.Sprite, true),
+                layers = brush.Layers == null
+                    ? Array.Empty<object>()
+                    : brush.Layers
+                        .Where(layer => layer != null)
+                        .Select(layer => LayerSnapshot(layer))
+                        .Cast<object>()
+                        .ToArray(),
+                styles = brush.Styles == null
+                    ? Array.Empty<object>()
+                    : brush.Styles
+                        .Where(style => style != null)
+                        .Select(style => StyleSnapshot(style))
+                        .Cast<object>()
+                        .ToArray()
+            };
+        }
+
+        private static object LayerSnapshot(IBrushLayerData layer)
+        {
+            return new
+            {
+                name = layer.Name,
+                hidden = layer.IsHidden,
+                color = ColorToHex(layer.Color),
+                colorFactor = layer.ColorFactor,
+                alpha = layer.AlphaFactor,
+                hue = layer.HueFactor,
+                saturation = layer.SaturationFactor,
+                value = layer.ValueFactor,
+                sprite = SpriteSnapshot(layer.Sprite, true)
+            };
+        }
+
+        private static object StyleSnapshot(Style style)
+        {
+            var layers = style.GetLayers() ?? Array.Empty<StyleLayer>();
+            return new
+            {
+                name = style.Name,
+                fontSize = style.FontSize,
+                fontStyle = style.FontStyle.ToString(),
+                fontColor = ColorToHex(style.FontColor),
+                textGlowColor = ColorToHex(style.TextGlowColor),
+                textOutlineColor = ColorToHex(style.TextOutlineColor),
+                textOutlineAmount = style.TextOutlineAmount,
+                textGlowRadius = style.TextGlowRadius,
+                textBlur = style.TextBlur,
+                textShadowOffset = style.TextShadowOffset,
+                textShadowAngle = style.TextShadowAngle,
+                textColorFactor = style.TextColorFactor,
+                textAlphaFactor = style.TextAlphaFactor,
+                textHueFactor = style.TextHueFactor,
+                textSaturationFactor = style.TextSaturationFactor,
+                textValueFactor = style.TextValueFactor,
+                animationMode = style.AnimationMode.ToString(),
+                animationToPlayOnBegin = style.AnimationToPlayOnBegin,
+                layers = layers
+                    .Where(layer => layer != null)
+                    .Select(layer => LayerSnapshot(layer))
+                    .Cast<object>()
+                    .ToArray()
             };
         }
 
