@@ -21,12 +21,13 @@ namespace BannerlordHtmlUI
     [HarmonyPatch(typeof(HtmlUiNativeAtlasAssetService), nameof(HtmlUiNativeAtlasAssetService.ProbeAsync))]
     internal static class HtmlUiNativeRuntimeTexturePatch
     {
+        private const string HarmonyId = "BannerlordHtmlUI.NativeRuntimeTextureProbe";
         private static Harmony _harmony;
 
         public static void Install()
         {
             if (_harmony != null) return;
-            _harmony = new Harmony("BannerlordHtmlUI.NativeRuntimeTextureProbe");
+            _harmony = new Harmony(HarmonyId);
             var target = AccessTools.Method(typeof(HtmlUiNativeAtlasAssetService), nameof(HtmlUiNativeAtlasAssetService.ProbeAsync));
             if (target != null)
             {
@@ -37,8 +38,23 @@ namespace BannerlordHtmlUI
 
         public static void Uninstall()
         {
-            try { _harmony?.UnpatchSelf(); } catch { }
-            _harmony = null;
+            try
+            {
+                if (_harmony != null)
+                {
+                    var target = AccessTools.Method(typeof(HtmlUiNativeAtlasAssetService), nameof(HtmlUiNativeAtlasAssetService.ProbeAsync));
+                    if (target != null)
+                        _harmony.Unpatch(target, HarmonyPatchType.Prefix, HarmonyId);
+                }
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Debug("Native runtime texture probe uninstall failed: " + ex.GetBaseException().Message);
+            }
+            finally
+            {
+                _harmony = null;
+            }
         }
 
         public static bool Prefix(JToken payload, CancellationToken cancellationToken, ref Task<object> __result)
@@ -115,12 +131,12 @@ namespace BannerlordHtmlUI
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var cacheRoot = Path.Combine(Path.GetTempPath(), "BannerlordHtmlUI", "NativeAtlasCache");
+            var cacheRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BannerlordHtmlUI", "NativeAtlasCache");
             Directory.CreateDirectory(cacheRoot);
 
             var key = SafeHash(request.BrushName + "|" + request.SpriteName + "|" + request.SheetX + ":" + request.SheetY + ":" + request.Width + ":" + request.Height + "|runtime-save");
-            var atlasPath = Path.Combine(cacheRoot, "runtime-atlas-" + key + ".png");
-            var spritePath = Path.Combine(cacheRoot, "runtime-sprite-" + key + ".png");
+            var atlasPath = System.IO.Path.Combine(cacheRoot, "runtime-atlas-" + key + ".png");
+            var spritePath = System.IO.Path.Combine(cacheRoot, "runtime-sprite-" + key + ".png");
 
             if (!IsValidPng(atlasPath))
             {
@@ -168,8 +184,8 @@ namespace BannerlordHtmlUI
                 provider = "runtime-engine-texture-save-game-thread",
                 atlasName = request.Texture.Name,
                 atlasPath = atlasPath,
-                atlasUrl = publicHost + "/" + Path.GetFileName(atlasPath),
-                spriteUrl = publicHost + "/" + Path.GetFileName(spritePath),
+                atlasUrl = publicHost + "/" + System.IO.Path.GetFileName(atlasPath),
+                spriteUrl = publicHost + "/" + System.IO.Path.GetFileName(spritePath),
                 status = "ready",
                 error = (string)null,
                 atlasWidth = request.Texture.Width,
