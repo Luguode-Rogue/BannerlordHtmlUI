@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -29,9 +30,7 @@ namespace BannerlordHtmlUI
                 if (_installed)
                 {
                     if (ReferenceEquals(_host, host))
-                    {
-                        AttachToCurrentWebView();
-                    }
+                        ScheduleAttachToCurrentWebView();
                     return;
                 }
 
@@ -51,7 +50,7 @@ namespace BannerlordHtmlUI
 
                 _recoveryInProgress = 0;
                 _installed = true;
-                AttachToCurrentWebView();
+                ScheduleAttachToCurrentWebView();
                 HtmlUiLogger.Info("WebView2 process recovery installed.");
             }
         }
@@ -72,18 +71,56 @@ namespace BannerlordHtmlUI
             }
         }
 
-        private static void AttachToCurrentWebView()
+        private static void ScheduleAttachToCurrentWebView()
         {
             try
             {
                 var host = _host;
-                var web = GetWebView(host);
-                var core = web?.CoreWebView2;
-                if (core != null)
+                var form = GetForm(host);
+                if (form == null || form.IsDisposed || !form.IsHandleCreated)
                 {
-                    core.ProcessFailed -= OnProcessFailed;
-                    core.ProcessFailed += OnProcessFailed;
+                    HtmlUiLogger.Debug("WebView2 recovery attach deferred: host form is not ready.");
+                    return;
                 }
+
+                if (!form.InvokeRequired)
+                {
+                    AttachToCurrentWebViewOnUiThread();
+                    return;
+                }
+
+                form.BeginInvoke(new Action(AttachToCurrentWebViewOnUiThread));
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Debug("Failed to schedule WebView2 recovery handler: " + ex.GetBaseException().Message);
+            }
+        }
+
+        private static void AttachToCurrentWebViewOnUiThread()
+        {
+            try
+            {
+                var host = _host;
+                if (host == null || !_installed) return;
+
+                var web = GetWebView(host);
+                if (web == null || web.IsDisposed)
+                {
+                    HtmlUiLogger.Debug("WebView2 recovery attach skipped: WebView2 instance unavailable.");
+                    return;
+                }
+
+                var core = web.CoreWebView2;
+                if (core == null)
+                {
+                    HtmlUiLogger.Debug("WebView2 recovery attach deferred: CoreWebView2 is not ready yet.");
+                    return;
+                }
+
+                core.ProcessFailed -= OnProcessFailed;
+                core.ProcessFailed += OnProcessFailed;
+                HtmlUiLogger.Info("WebView2 process recovery handler attached to current WebView2 instance.");
             }
             catch (Exception ex)
             {
@@ -96,7 +133,7 @@ namespace BannerlordHtmlUI
             HtmlUiHost host;
             lock (Sync)
             {
-                if (!_installed || _host == null || _host.IsWebViewReady == false && _host.InputMode == HtmlUiInputMode.Hidden && !_host.IsVisible)
+                if (!_installed || _host == null)
                     return;
 
                 if (_recoveryInProgress != 0)
@@ -203,7 +240,7 @@ namespace BannerlordHtmlUI
                         readyField.SetValue(host, readyHandlers);
                 }
 
-                AttachToCurrentWebView();
+                AttachToCurrentWebViewOnUiThread();
 
                 if (requestedInputMode != HtmlUiInputMode.Hidden)
                     host.SetInputMode(requestedInputMode);
