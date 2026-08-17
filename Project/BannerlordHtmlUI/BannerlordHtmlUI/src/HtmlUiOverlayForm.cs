@@ -14,10 +14,20 @@ namespace BannerlordHtmlUI
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            TopMost = true;
+            // The overlay must follow Bannerlord's Z-order rather than remaining
+            // above every other application. TopMost=true caused ALT+TAB to leave
+            // the fullscreen HTML UI covering external applications, especially
+            // while the game is stopped at a debugger breakpoint.
+            TopMost = false;
             Width = 1;
             Height = 1;
             KeyPreview = true;
+        }
+
+        public void SetOwner(IntPtr ownerHwnd)
+        {
+            if (!IsHandleCreated || IsDisposed) return;
+            Win32.SetOwner(Handle, ownerHwnd);
         }
 
         public void SetPassThrough(bool enabled)
