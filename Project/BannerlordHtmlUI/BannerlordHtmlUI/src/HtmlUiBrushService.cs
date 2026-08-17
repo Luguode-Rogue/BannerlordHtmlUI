@@ -74,7 +74,7 @@ namespace BannerlordHtmlUI
                     alpha = brush.AlphaFactor,
                     fontColor = ColorToHex(brush.FontColor),
                     textAlpha = brush.TextAlphaFactor,
-                    sprite = SpriteSnapshot(brush.Sprite),
+                    sprite = SpriteSnapshot(brush.Sprite, false),
                     layers = brush.Layers == null
                         ? Array.Empty<object>()
                         : brush.Layers
@@ -89,7 +89,7 @@ namespace BannerlordHtmlUI
                                 hue = layer.HueFactor,
                                 saturation = layer.SaturationFactor,
                                 value = layer.ValueFactor,
-                                sprite = SpriteSnapshot(layer.Sprite)
+                                sprite = SpriteSnapshot(layer.Sprite, false)
                             })
                             .Cast<object>()
                             .ToArray()
@@ -145,7 +145,7 @@ namespace BannerlordHtmlUI
                     textHue = brush.TextHueFactor,
                     textSaturation = brush.TextSaturationFactor,
                     textValue = brush.TextValueFactor,
-                    sprite = SpriteSnapshot(brush.Sprite),
+                    sprite = SpriteSnapshot(brush.Sprite, true),
                     layers = brush.Layers == null
                         ? Array.Empty<object>()
                         : brush.Layers
@@ -161,7 +161,7 @@ namespace BannerlordHtmlUI
                                 saturation = layer.SaturationFactor,
                                 value = layer.ValueFactor,
                                 overlayMask = layer.UseOverlayAlphaAsMask,
-                                sprite = SpriteSnapshot(layer.Sprite)
+                                sprite = SpriteSnapshot(layer.Sprite, true)
                             })
                             .Cast<object>()
                             .ToArray()
@@ -197,18 +197,10 @@ namespace BannerlordHtmlUI
             return null;
         }
 
-        private static object SpriteSnapshot(object sprite)
+        private static object SpriteSnapshot(object sprite, bool includeResource)
         {
             if (sprite == null) return null;
-
-            var type = sprite.GetType();
-            return new
-            {
-                type = type.FullName,
-                name = GetProperty<string>(sprite, "Name"),
-                width = GetProperty<int?>(sprite, "Width"),
-                height = GetProperty<int?>(sprite, "Height")
-            };
+            return HtmlUiBrushResourceService.CreateSpriteSnapshot(sprite, includeResource);
         }
 
         private static string ColorToHex(object color)
@@ -251,23 +243,6 @@ namespace BannerlordHtmlUI
             if (value <= 1.0)
                 value *= 255.0;
             return (byte)Math.Max(0, Math.Min(255, Math.Round(value)));
-        }
-
-        private static T GetProperty<T>(object instance, string propertyName)
-        {
-            var property = instance.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
-            if (property == null) return default(T);
-
-            try
-            {
-                var value = property.GetValue(instance, null);
-                if (value == null) return default(T);
-                return (T)value;
-            }
-            catch
-            {
-                return default(T);
-            }
         }
     }
 }
