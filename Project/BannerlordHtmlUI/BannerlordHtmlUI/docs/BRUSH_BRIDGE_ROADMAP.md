@@ -24,7 +24,7 @@ HTML / CSS / JS
 
 ### Phase 1：Brush Snapshot ✅
 
-第一阶段已经完成。
+第一阶段已经完成并经过实机验证。
 
 Framework 现在提供：
 
@@ -54,29 +54,56 @@ F9
 Framework Brush Browser
 ```
 
-Browser 可以搜索当前 Gauntlet `UIContext` 中的 Brush，并查看 JSON Snapshot。
+已验证可以读取真实 Bannerlord Gauntlet `UIContext` 中的 Brush，例如 `ArmyManagement.Sort.ArrowBrush`，并得到真实 Layer / Sprite 元数据。
 
-这一阶段只解决“读取和理解 Brush”，不直接在 WebView2 中执行 Bannerlord Renderer，也不直接暴露游戏纹理。
+### Phase 2：Sprite Resource Bridge 🚧
 
-### Phase 2：Sprite / NinePatch Resource Bridge ⏳
+核心桥接已经实现，等待下一轮实机验证。
 
-把 Brush 中引用的 SpriteData 暴露成 HtmlUI 可以读取的资源：
+实现方式：
 
 ```text
-bannerlord://sprite/...
+Brush.Sprite / SpritePart
+        ↓
+PlatformTexture
+        ↓
+EngineTexture.SaveToFile()
+        ↓
+%TEMP%/BannerlordHtmlUI/BrushCache
+        ↓
+Framework ContentRoot
+        ↓
+https://bannerlord-htmlui-framework-brush-cache.local/...
+        ↓
+HTML CSS background-image
 ```
 
-或由 Framework 提供等价的安全资源 URL。
+`framework.brush.get` 在读取具体 Brush 时会附带：
 
-目标：
-
-```css
-.native-button {
-    background-image: url("bannerlord://sprite/...");
-}
+```text
+resourceUrl
+sheetX / sheetY
+sheetWidth / sheetHeight
+width / height
+UV
 ```
 
-必要时同时支持 NinePatch 参数、Layer 顺序和颜色因子。
+因此 HTML 可以从完整图集中裁剪出原版 Sprite。
+
+内置 Brush Browser 已升级为直接显示原生 Sprite，并显示 Resource 状态。
+
+详细用法见：
+
+`docs/BRUSH_PHASE2_USAGE.md`
+
+当前仍需要实机确认：
+
+```text
+EngineTexture.SaveToFile 是否在当前运行环境正常
+生成 PNG 是否正确
+WebView2 是否能从 Framework Brush ContentRoot 读取
+Sprite 裁剪位置是否与原 Gauntlet 显示一致
+```
 
 ### Phase 3：Native Brush Renderer ⏳
 
@@ -110,9 +137,11 @@ Native Brush Renderer
 2. Brush Snapshot 数据结构                               ✅
 3. framework.brush.get / list / context                  ✅
 4. Framework Brush Browser                               ✅
-5. 实机验证 Basic.Button 等原版 Brush                   ⏳
-6. Sprite Resource Bridge                                ⏳
-7. Native Brush Renderer                                 ⏳
+5. 实机验证 Brush Snapshot                               ✅
+6. Sprite Resource Bridge                                🚧
+7. 实机验证原生 Sprite                                  ⏳
+8. NinePatch / Layer 精确复现                            ⏳
+9. Native Brush Renderer                                 ⏳
 ```
 
 ## 设计约束
@@ -177,6 +206,8 @@ Widget / Layout / Binding / Input 自动转换
 
 ## 第一阶段使用文档
 
-完整的 Phase 1 API 和返回结构见：
-
 `docs/BRUSH_PHASE1_USAGE.md`
+
+## 第二阶段使用文档
+
+`docs/BRUSH_PHASE2_USAGE.md`
