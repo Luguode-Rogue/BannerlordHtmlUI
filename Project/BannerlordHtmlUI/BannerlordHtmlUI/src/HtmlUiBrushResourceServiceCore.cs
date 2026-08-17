@@ -47,9 +47,17 @@ namespace BannerlordHtmlUI
             if (sprite == null) return null;
             var part = GetPropertyValue(sprite, "SpritePart") ?? GetPropertyValue(sprite, "BaseSprite");
             var texture2D = GetPropertyValue(part ?? sprite, "Texture");
+            var platformTexture = GetPropertyValue(texture2D, "PlatformTexture");
             var spriteName = GetString(sprite, "Name");
             var textureName = GetString(texture2D, "Name");
-            var resourceName = !string.IsNullOrWhiteSpace(spriteName) ? spriteName : textureName;
+            var platformTextureName = GetString(platformTexture, "Name");
+
+            // Sprite.Name is the part name (e.g. StdAssets\\close_button), not the atlas texture.
+            // PlatformTexture.Name is the actual loaded atlas/resource name when Bannerlord exposes it.
+            var resourceName = !string.IsNullOrWhiteSpace(platformTextureName)
+                ? platformTextureName
+                : (!string.IsNullOrWhiteSpace(textureName) ? textureName : spriteName);
+
             var width = GetInt(sprite, "Width") ?? GetInt(part, "Width") ?? 0;
             var height = GetInt(sprite, "Height") ?? GetInt(part, "Height") ?? 0;
             var sheetId = GetInt(part, "SheetID") ?? -1;
@@ -62,11 +70,19 @@ namespace BannerlordHtmlUI
             string error = null;
             string source = null;
             string runtimePath = null;
+            string categoryName = null;
+            try
+            {
+                var category = GetPropertyValue(part, "Category");
+                categoryName = GetString(category, "Name");
+            }
+            catch { }
+
             if (includeResource)
             {
                 try
                 {
-                    var result = EnsureTextureCached(part, resourceName, sheetWidth, sheetHeight, sheetX, sheetY, width, height);
+                    var result = EnsureTextureCached(part, resourceName, platformTextureName, sheetWidth, sheetHeight, sheetX, sheetY, width, height);
                     url = result.Url;
                     source = result.Source;
                     runtimePath = result.RuntimePath;
@@ -90,7 +106,9 @@ namespace BannerlordHtmlUI
                 resourceSource = source,
                 runtimeTexturePath = runtimePath,
                 textureName,
+                platformTextureName,
                 resourceName,
+                categoryName,
                 sheetId,
                 sheetX,
                 sheetY,
@@ -110,7 +128,7 @@ namespace BannerlordHtmlUI
             public string RuntimePath;
         }
 
-        private static TextureExportResult EnsureTextureCached(object spritePart, string resourceName, int sheetWidth, int sheetHeight, int sheetX, int sheetY, int spriteWidth, int spriteHeight)
+        private static TextureExportResult EnsureTextureCached(object spritePart, string resourceName, string platformTextureName, int sheetWidth, int sheetHeight, int sheetX, int sheetY, int spriteWidth, int spriteHeight)
         {
             if (!_initialized) throw new InvalidOperationException("Native Brush resource cache is not initialized.");
             if (spritePart == null) throw new InvalidOperationException("SpritePart is unavailable.");
@@ -140,7 +158,6 @@ namespace BannerlordHtmlUI
             var filename = "sprite-" + hash + ".png";
             var path = System.IO.Path.Combine(_cacheDirectory, filename);
 
-            // Preferred path: ask Bannerlord's own texture exporter for the actual GPU texture.
             Exception nativeExportError = null;
             try
             {
@@ -151,11 +168,11 @@ namespace BannerlordHtmlUI
                     var native = new TextureExportResult
                     {
                         Url = _publicHost + "/" + filename,
-                        Source = "" + runtimePath + " [Engine.Texture.SaveToFile]",
+                        Source = runtimePath + " [Engine.Texture.SaveToFile]",
                         RuntimePath = runtimePath
                     };
                     Cache[identity] = native;
-                    HtmlUiLogger.Info("Native Brush sprite exported by Engine.Texture.SaveToFile: " + resourceName);
+                    HtmlUiLogger.Info("Native Brush sprite exported by Engine.Texture.SaveToFile: " + (platformTextureName ?? resourceName));
                     return native;
                 }
                 nativeExportError = new IOException("Engine Texture.SaveToFile produced no valid PNG file.");
@@ -165,7 +182,74 @@ namespace BannerlordHtmlUI
                 nativeExportError = ex;
             }
 
-            // Fallback only when the native exporter is unavailable. Keep the fallback diagnostic-only.
+            // If CPU readback from the live wrapper is empty, reload the actual atlas by its PlatformTexture.Name.
+            if (!string.IsNullOrWhiteSpace(platformTextureName))
+            {
+                try
+                {
+                    var atlas = TaleWorlds.Engine.Texture.GetFromResource(platformTextureName);
+                    if (atlas != null)
+                    {
+                        try { atlas.PreloadTexture(true); } catch { }
+                        try { atlas.SetTextureAsAlwaysValid(); } catch { }
+                        if (atlas.IsValid)
+                        {
+                            var atlasWidth = atlas.Width > 0 ? atlas.Width : sheetWidth;
+                            var atlasHeight = atlas.Height > 0 ? atlas.Height : sheetHeight;
+                            if (atlasWidth > 0 && atlasHeight > 0)
+                            {
+                                try
+                                {
+                                    if (File.Exists(path)) File.Delete(path);
+                                    atlas.SaveToFile(path, false);
+                                    if (IsValidPng(path))
+                                    {
+                                        var reloaded = new TextureExportResult
+                                        {
+                                            Url = _publicHost + "/" + filename,
+                                            Source = "Texture.GetFromResource(" + platformTextureName + ") [Engine.Texture.SaveToFile]",
+                                            RuntimePath = runtimePath + "; ReloadedResource=" + platformTextureName
+                                        };
+                                        Cache[identity] = reloaded;
+                                        HtmlUiLogger.Info("Native Brush atlas reloaded by PlatformTexture.Name: " + platformTextureName);
+                                        return reloaded;
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    nativeExportError = ex;
+                                }
+
+                                var atlasBytes = checked(atlasWidth * atlasHeight * 4);
+                                var atlasRaw = new byte[atlasBytes];
+                                atlas.GetPixelData(atlasRaw);
+                                HtmlUiLogger.Info("Reloaded atlas pixel diagnostics: " + DiagnosePixels(atlasRaw, atlasWidth, atlasHeight, "Texture.GetFromResource(" + platformTextureName + ")"));
+                                if (!AllZero(atlasRaw))
+                                {
+                                    WritePng(path, atlasRaw, atlasWidth, atlasHeight, PixelLayout.Bgra);
+                                    if (IsValidPng(path))
+                                    {
+                                        var reloadedFallback = new TextureExportResult
+                                        {
+                                            Url = _publicHost + "/" + filename,
+                                            Source = "Texture.GetFromResource(" + platformTextureName + ") [Texture.GetPixelData]",
+                                            RuntimePath = runtimePath + "; ReloadedResource=" + platformTextureName
+                                        };
+                                        Cache[identity] = reloadedFallback;
+                                        return reloadedFallback;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    nativeExportError = ex;
+                }
+            }
+
+            // Final fallback only when the native exporter is unavailable. Keep the fallback diagnostic-only.
             var bytes = checked(width * height * 4);
             var raw = new byte[bytes];
             texture.GetPixelData(raw);
@@ -174,7 +258,8 @@ namespace BannerlordHtmlUI
             if (AllZero(raw))
             {
                 throw new IOException("Native texture export failed and Texture.GetPixelData returned all-zero pixel data. " +
-                    "SaveToFileError=" + (nativeExportError == null ? "unknown" : nativeExportError.Message));
+                    "SaveToFileError=" + (nativeExportError == null ? "unknown" : nativeExportError.Message) +
+                    "; PlatformTexture.Name=" + (platformTextureName ?? "<null>"));
             }
 
             WritePng(path, raw, width, height, PixelLayout.Bgra);
