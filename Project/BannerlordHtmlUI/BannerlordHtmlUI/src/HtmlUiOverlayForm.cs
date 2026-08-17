@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Windows.Forms;
 
 namespace BannerlordHtmlUI
@@ -14,14 +15,33 @@ namespace BannerlordHtmlUI
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            // The overlay must follow Bannerlord's Z-order rather than remaining
-            // above every other application. TopMost=true caused ALT+TAB to leave
-            // the fullscreen HTML UI covering external applications, especially
-            // while the game is stopped at a debugger breakpoint.
+            // Do not use TopMost. The HTML overlay must never stay above unrelated
+            // applications after Bannerlord loses foreground focus.
             TopMost = false;
             Width = 1;
             Height = 1;
             KeyPreview = true;
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+
+            try
+            {
+                // Establish Bannerlord as the Win32 owner before the overlay is
+                // shown. This keeps the overlay in Bannerlord's owned-window Z-order
+                // and makes it subordinate to Bannerlord without requiring a game
+                // thread tick. This is important when a debugger suspends managed
+                // threads while the user ALT+TABs to another application.
+                var ownerHwnd = Process.GetCurrentProcess().MainWindowHandle;
+                if (ownerHwnd != IntPtr.Zero && ownerHwnd != Handle && Win32.IsWindow(ownerHwnd))
+                    Win32.SetOwner(Handle, ownerHwnd);
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Debug("Failed to bind HtmlUI overlay owner window: " + ex.GetBaseException().Message);
+            }
         }
 
         public void SetOwner(IntPtr ownerHwnd)
