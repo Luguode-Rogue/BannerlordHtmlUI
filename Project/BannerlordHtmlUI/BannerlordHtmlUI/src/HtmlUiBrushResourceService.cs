@@ -27,6 +27,14 @@ namespace BannerlordHtmlUI
             HtmlUiLogger.Info("Native Brush resource cache initialized: " + _cacheDirectory);
         }
 
+        public static void Dispose()
+        {
+            _initialized = false;
+            _cacheDirectory = null;
+            _publicHost = null;
+            CachedUrls.Clear();
+        }
+
         public static object CreateSpriteSnapshot(object sprite, bool includeResource)
         {
             if (sprite == null) return null;
