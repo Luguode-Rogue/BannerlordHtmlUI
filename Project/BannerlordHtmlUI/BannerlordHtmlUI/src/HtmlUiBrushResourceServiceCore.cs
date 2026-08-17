@@ -55,9 +55,7 @@ namespace BannerlordHtmlUI
 
             var sheetId = GetInt(part, "SheetID") ?? -1;
             var spriteSheet = ResolveSpriteSheet(category, sheetId);
-            var sheetPlatformTexture = GetPropertyValue(GetPropertyValue(spriteSheet, "PlatformTexture"), "Texture") != null
-                ? GetPropertyValue(spriteSheet, "PlatformTexture")
-                : GetPropertyValue(spriteSheet, "PlatformTexture");
+            var sheetPlatformTexture = GetPropertyValue(spriteSheet, "PlatformTexture");
             var sheetPlatformName = GetString(sheetPlatformTexture, "Name");
             var resourceName = !string.IsNullOrWhiteSpace(sheetPlatformName)
                 ? sheetPlatformName
@@ -110,6 +108,10 @@ namespace BannerlordHtmlUI
                 resourceName,
                 categoryName,
                 categoryRuntimeType = category?.GetType().FullName,
+                categoryLoaded = GetBool(category, "IsLoaded"),
+                categoryPartiallyLoaded = GetBool(category, "IsPartiallyLoaded"),
+                categorySpriteSheetCount = GetInt(category, "SpriteSheetCount"),
+                categorySpriteSheetsCount = GetCollectionCount(GetPropertyValue(category, "SpriteSheets")),
                 spriteSheetRuntimeType = spriteSheet?.GetType().FullName,
                 spriteSheetName = GetString(spriteSheet, "Name"),
                 sheetId,
@@ -268,9 +270,60 @@ namespace BannerlordHtmlUI
         private static object ResolveSpriteSheet(object category, int sheetId)
         {
             if (category == null || sheetId < 0) return null;
+
             var sheets = GetPropertyValue(category, "SpriteSheets");
-            if (sheets == null) return null;
-            return GetIndexedValue(sheets, sheetId);
+            var spriteSheet = GetIndexedValue(sheets, sheetId);
+            if (spriteSheet != null) return spriteSheet;
+
+            var categoryName = GetString(category, "Name");
+            if (string.IsNullOrWhiteSpace(categoryName)) return null;
+
+            try
+            {
+                var manager = typeof(TaleWorlds.Engine.GauntletUI.UIResourceManager);
+                var loadMethod = manager.GetMethod("LoadSpriteCategory", BindingFlags.Static | BindingFlags.Public, null, new[] { typeof(string) }, null);
+                if (loadMethod == null) return null;
+
+                var loadedCategory = loadMethod.Invoke(null, new object[] { categoryName });
+                if (loadedCategory == null) return null;
+
+                var loadedSheets = GetPropertyValue(loadedCategory, "SpriteSheets");
+                spriteSheet = GetIndexedValue(loadedSheets, sheetId);
+                if (spriteSheet != null) return spriteSheet;
+
+                // Some versions expose the category but keep the individual sheet unloaded until partial-load is requested.
+                var partialLoadMethod = manager.GetMethod("GetSpriteCategory", BindingFlags.Static | BindingFlags.Public, null, new[] { typeof(string) }, null);
+                var currentCategory = partialLoadMethod == null ? null : partialLoadMethod.Invoke(null, new object[] { categoryName });
+                if (currentCategory != null)
+                {
+                    var partialLoad = currentCategory.GetType().GetMethod("PartialLoadAtIndex", BindingFlags.Instance | BindingFlags.Public);
+                    if (partialLoad != null)
+                    {
+                        var ctx = GetStaticPropertyValue(manager, "ResourceContext");
+                        var depot = GetStaticPropertyValue(manager, "ResourceDepot");
+                        if (ctx != null && depot != null)
+                        {
+                            partialLoad.Invoke(currentCategory, new[] { ctx, depot, (object)sheetId });
+                            var afterSheets = GetPropertyValue(currentCategory, "SpriteSheets");
+                            spriteSheet = GetIndexedValue(afterSheets, sheetId);
+                            if (spriteSheet != null) return spriteSheet;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Warn("Native Brush SpriteCategory load failed: " + ex.GetType().Name + ": " + ex.Message);
+            }
+
+            return null;
+        }
+
+        private static object GetStaticPropertyValue(Type type, string name)
+        {
+            var property = type?.GetProperty(name, BindingFlags.Static | BindingFlags.Public);
+            if (property == null) return null;
+            try { return property.GetValue(null, null); } catch { return null; }
         }
 
         private static object GetIndexedValue(object collection, int index)
@@ -287,6 +340,19 @@ namespace BannerlordHtmlUI
                 if (count.HasValue && index >= count.Value) return null;
                 var itemProperty = type.GetProperty("Item", BindingFlags.Instance | BindingFlags.Public);
                 if (itemProperty != null) return itemProperty.GetValue(collection, new object[] { index });
+            }
+            catch { }
+            return null;
+        }
+
+        private static int? GetCollectionCount(object collection)
+        {
+            if (collection == null) return null;
+            try
+            {
+                if (collection is ICollection c) return c.Count;
+                var property = collection.GetType().GetProperty("Count", BindingFlags.Instance | BindingFlags.Public);
+                if (property != null) return Convert.ToInt32(property.GetValue(collection, null));
             }
             catch { }
             return null;
@@ -395,6 +461,13 @@ namespace BannerlordHtmlUI
             var value = GetPropertyValue(instance, name);
             if (value == null) return null;
             try { return Convert.ToSingle(value, System.Globalization.CultureInfo.InvariantCulture); } catch { return null; }
+        }
+
+        private static bool? GetBool(object instance, string name)
+        {
+            var value = GetPropertyValue(instance, name);
+            if (value == null) return null;
+            try { return Convert.ToBoolean(value, System.Globalization.CultureInfo.InvariantCulture); } catch { return null; }
         }
 
         private static string BuildIdentity(string resourceName, int sheetId, int sheetWidth, int sheetHeight)
