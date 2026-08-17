@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -44,7 +43,12 @@ namespace BannerlordHtmlUI
 
             var spritePart = GetPropertyValue(sprite, "SpritePart") ?? GetPropertyValue(sprite, "BaseSprite");
             var textureWrapper = GetPropertyValue(spritePart ?? sprite, "Texture");
+            var spriteName = GetPropertyValue<string>(sprite, "Name");
             var textureName = GetPropertyValue<string>(textureWrapper, "Name");
+
+            // In the observed Bannerlord runtime, SpriteGeneric.Name contains the actual
+            // resource name (e.g. StdAssets\\expanded) while Texture.Name is null.
+            var resourceName = !string.IsNullOrWhiteSpace(spriteName) ? spriteName : textureName;
 
             var width = GetInt(sprite, "Width") ?? GetInt(spritePart, "Width") ?? GetInt(textureWrapper, "Width") ?? 0;
             var height = GetInt(sprite, "Height") ?? GetInt(spritePart, "Height") ?? GetInt(textureWrapper, "Height") ?? 0;
@@ -57,7 +61,7 @@ namespace BannerlordHtmlUI
             string cacheError = null;
             if (includeResource)
             {
-                var identity = (textureName ?? string.Empty) + "|" + sheetWidth + "x" + sheetHeight;
+                var identity = (resourceName ?? string.Empty) + "|" + sheetWidth + "x" + sheetHeight;
                 if (FailedIdentities.TryGetValue(identity, out var previousError))
                 {
                     cacheError = previousError;
@@ -66,7 +70,7 @@ namespace BannerlordHtmlUI
                 {
                     try
                     {
-                        url = EnsureTextureCached(textureName, sheetWidth, sheetHeight);
+                        url = EnsureTextureCached(resourceName, sheetWidth, sheetHeight);
                     }
                     catch (Exception ex)
                     {
@@ -80,12 +84,13 @@ namespace BannerlordHtmlUI
             return new
             {
                 type = sprite.GetType().FullName,
-                name = GetPropertyValue<string>(sprite, "Name"),
+                name = spriteName,
                 width,
                 height,
                 resourceUrl = url,
                 resourceError = cacheError,
                 textureName,
+                resourceName,
                 sheetX,
                 sheetY,
                 sheetWidth,
@@ -97,27 +102,27 @@ namespace BannerlordHtmlUI
             };
         }
 
-        private static string EnsureTextureCached(string textureName, int sheetWidth, int sheetHeight)
+        private static string EnsureTextureCached(string resourceName, int sheetWidth, int sheetHeight)
         {
             if (!_initialized)
                 throw new InvalidOperationException("Native Brush resource cache is not initialized.");
-            if (string.IsNullOrWhiteSpace(textureName))
-                throw new InvalidOperationException("Sprite texture resource name is unavailable.");
+            if (string.IsNullOrWhiteSpace(resourceName))
+                throw new InvalidOperationException("Sprite resource name is unavailable.");
 
-            var identity = textureName + "|" + sheetWidth + "x" + sheetHeight;
+            var identity = resourceName + "|" + sheetWidth + "x" + sheetHeight;
             if (CachedUrls.TryGetValue(identity, out var existingUrl))
             {
                 var existingPath = Path.Combine(_cacheDirectory, Path.GetFileName(new Uri(existingUrl).AbsolutePath));
                 if (File.Exists(existingPath)) return existingUrl;
             }
 
-            var texture = Texture.GetFromResource(textureName);
+            var texture = Texture.GetFromResource(resourceName);
             if (texture == null)
-                throw new InvalidOperationException("Engine Texture.GetFromResource returned null for '" + textureName + "'.");
+                throw new InvalidOperationException("Engine Texture.GetFromResource returned null for '" + resourceName + "'.");
 
             try { texture.PreloadTexture(true); } catch { }
             if (!texture.IsValid)
-                throw new InvalidOperationException("Engine Texture is invalid for '" + textureName + "'.");
+                throw new InvalidOperationException("Engine Texture is invalid for '" + resourceName + "'.");
 
             var hash = Sha256(identity).Substring(0, 24);
             var filename = "sprite-" + hash + ".png";
