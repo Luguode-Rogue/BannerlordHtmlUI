@@ -129,7 +129,7 @@
     $('refresh').addEventListener('pointerdown', capture, true);
     $('refresh').addEventListener('click', load);
     $('close').addEventListener('pointerdown', capture, true);
-    $('close').addEventListener('click', () => window.game.call('framework.closePage'));
+    $('close').addEventListener('click', () => window.game.call('framework.closeCurrent'));
     $('filter').addEventListener('input', () => load());
     document.addEventListener('pointerdown', capture, true);
     window.addEventListener('load', load);
