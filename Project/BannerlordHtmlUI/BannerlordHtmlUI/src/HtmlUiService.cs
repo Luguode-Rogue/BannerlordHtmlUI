@@ -118,6 +118,8 @@ namespace BannerlordHtmlUI
             Host.RegisterRequest("framework.brush.context", _ => Task.FromResult<object>(HtmlUiBrushService.GetContextSnapshot()));
             Host.RegisterRequest("framework.brush.list", payload => Task.FromResult<object>(HtmlUiBrushService.ListBrushes(payload)));
             Host.RegisterRequest("framework.brush.get", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrush(payload)));
+            Host.RegisterRequest("framework.brush.state", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrushState(payload)));
+            Host.RegisterRequest("framework.brush.stateProbe", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrushStateProbe(payload)));
 
             State.Set("framework.status", "ready");
             State.Set("framework.snapshot", new { version = HtmlUiDiagnostics.FrameworkVersion, protocol = 1 });
