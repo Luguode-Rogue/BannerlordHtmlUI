@@ -99,6 +99,7 @@ namespace BannerlordHtmlUI
             Host.RegisterRequest("framework.brush.resource", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrushResource(payload)));
             Host.RegisterRequest("framework.brush.resourceLegacy", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrushResource(payload)));
             Host.RegisterRequest("framework.brush.nativeAssetProbe", (payload, cancellationToken) => HtmlUiNativeAtlasAssetService.ProbeAsync(payload, cancellationToken));
+            Host.RegisterRequest("framework.brush.nativeAssetDiagnostics", (payload, cancellationToken) => HtmlUiNativeAssetDiagnosticsService.RunAsync(payload, cancellationToken));
             Host.RegisterRequest("framework.brush.state", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrushState(payload)));
             Host.RegisterRequest("framework.brush.stateProbe", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrushStateProbe(payload)));
 
