@@ -21,6 +21,26 @@ namespace BannerlordHtmlUI
     [HarmonyPatch(typeof(HtmlUiNativeAtlasAssetService), nameof(HtmlUiNativeAtlasAssetService.ProbeAsync))]
     internal static class HtmlUiNativeRuntimeTexturePatch
     {
+        private static Harmony _harmony;
+
+        public static void Install()
+        {
+            if (_harmony != null) return;
+            _harmony = new Harmony("BannerlordHtmlUI.NativeRuntimeTextureProbe");
+            var target = AccessTools.Method(typeof(HtmlUiNativeAtlasAssetService), nameof(HtmlUiNativeAtlasAssetService.ProbeAsync));
+            if (target != null)
+            {
+                _harmony.Patch(target, prefix: new HarmonyMethod(typeof(HtmlUiNativeRuntimeTexturePatch), nameof(Prefix)));
+                HtmlUiLogger.Info("Native runtime texture probe patch installed.");
+            }
+        }
+
+        public static void Uninstall()
+        {
+            try { _harmony?.UnpatchSelf(); } catch { }
+            _harmony = null;
+        }
+
         public static bool Prefix(JToken payload, CancellationToken cancellationToken, ref Task<object> __result)
         {
             try
