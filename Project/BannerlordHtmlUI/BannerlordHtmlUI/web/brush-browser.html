@@ -35,19 +35,54 @@
     .state-caption { font-size:12px; opacity:.65; } .error { color:#ff8d8d; } pre { white-space:pre-wrap; word-break:break-word; font-size:11px; opacity:.78; }
     .kv { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-top:12px; }
     .kv .card { min-width:0; } .label { font-size:10px; opacity:.6; } .value { margin-top:4px; font-size:12px; word-break:break-word; }
+    .load-progress { padding:7px 18px; border-bottom:1px solid rgba(255,255,255,.06); font-size:11px; opacity:.65; }
   </style>
 </head>
 <body>
 <div class="panel">
   <header><h1>Bannerlord Brush Browser</h1><div class="sub" id="context">读取中...</div></header>
   <div class="toolbar"><input id="filter" placeholder="搜索 Brush 名称，例如 ButtonBrush、CharacterDeveloper.SkillButtonBackground"><button id="refresh">刷新</button><button id="close">关闭</button></div>
+  <div class="load-progress" id="progress">准备加载 Brush...</div>
   <main><div class="list" id="list"><div class="empty">加载中...</div></div><div class="detail" id="detail"><div class="empty">选择一个 Brush</div></div></main>
 </div>
 <script>
-let brushes=[],selected=null,currentBrush=null,currentStyle='Default',currentResource=null;
+let brushes=[],selected=null,currentBrush=null,currentStyle='Default',currentResource=null,loadToken=0;
+const PAGE_SIZE=25;
 const $=id=>document.getElementById(id);
 function capture(){try{window.focus();window.game?.input?.capture?.();}catch(_){} }
-async function load(){capture();$('list').innerHTML='<div class="empty">加载中...</div>';try{const filter=$('filter').value.trim();const result=await window.game.request('framework.brush.list',{filter,limit:300});brushes=result.brushes||[];$('context').textContent=result.available?`${result.contextName||'UIContext'} · ${result.total} Brush`:'没有可用 Gauntlet UIContext';renderList();}catch(e){$('context').textContent='读取失败';$('list').innerHTML=`<div class="empty">${escapeHtml(e?.message||String(e))}</div>`;}}
+async function load(){
+  const token=++loadToken;
+  capture();
+  brushes=[];
+  $('list').innerHTML='<div class="empty">加载中...</div>';
+  $('progress').textContent='正在按批次加载 Brush...';
+  try{
+    const filter=$('filter').value.trim();
+    let offset=0,total=null;
+    while(true){
+      if(token!==loadToken)return;
+      // Deliberately serialize page requests: page N must finish before page N+1 starts.
+      const result=await window.game.request('framework.brush.list',{filter,limit:PAGE_SIZE,offset});
+      if(token!==loadToken)return;
+      if(total===null)total=Number(result.total||0);
+      const page=result.brushes||[];
+      brushes.push(...page);
+      renderList();
+      $('context').textContent=result.available?`${result.contextName||'UIContext'} · ${total||0} Brush`:'没有可用 Gauntlet UIContext';
+      $('progress').textContent=`已加载 ${brushes.length}/${total||brushes.length} Brush`;
+      if(!result.hasMore||page.length===0)break;
+      offset+=page.length;
+      // Yield one frame between requests so WebView2 remains responsive.
+      await new Promise(resolve=>requestAnimationFrame(resolve));
+    }
+    $('progress').textContent=`加载完成 · ${brushes.length} Brush`;
+  }catch(e){
+    if(token!==loadToken)return;
+    $('context').textContent='读取失败';
+    $('progress').textContent='加载失败';
+    $('list').innerHTML=`<div class="empty">${escapeHtml(e?.message||String(e))}</div>`;
+  }
+}
 async function selectBrush(name){capture();selected=name;currentBrush=null;currentResource=null;currentStyle='Default';renderList();$('detail').innerHTML='<div class="empty">读取 Brush 元数据...</div>';try{const result=await window.game.request('framework.brush.get',{name});currentBrush=result.brush;renderDetail();await loadResourceForState('Default');}catch(e){$('detail').innerHTML=`<div class="empty">${escapeHtml(e?.message||String(e))}</div>`;}}
 async function loadResourceForState(state){if(!currentBrush)return;const requestBrush=selected;try{const result=await window.game.request('framework.brush.resource',{name:selected,state});if(selected!==requestBrush)return;currentResource=result;applyStyle(state);renderResourceInfo();}catch(e){currentResource={error:e?.message||String(e)};applyStyle(state);renderResourceInfo();}}
 function renderList(){if(!brushes.length){$('list').innerHTML='<div class="empty">没有匹配的 Brush</div>';return;}$('list').innerHTML=brushes.map(b=>`<div class="item ${b.name===selected?'active':''}" data-name="${escapeAttr(b.name)}"><div class="name">${escapeHtml(b.name)}</div><div class="meta">Font ${Number(b.fontSize||0)}px · ${escapeHtml(b.fontStyle||'')}${b.styleNames?.length?` · ${b.styleNames.length} Styles`:''}</div></div>`).join('');}
@@ -58,7 +93,7 @@ const preferred=sprite.resourceUrl||(list.find(x=>x?.status==='ok'&&x?.url)?.url
 function strategyCard(item){const div=document.createElement('div');div.className='strategy '+(item.status==='ok'?'ok':'failed');div.innerHTML=`<div class="title">${escapeHtml(item.name||'Unnamed')}</div>${item.status==='ok'&&item.url?`<img src="${escapeAttr(item.url)}" alt="${escapeAttr(item.name||'strategy')}"><div class="meta2">${escapeHtml(item.source||'')}<br>${escapeHtml(item.runtimeType||'')}</div>`:`<div class="meta2 error">${escapeHtml(item.error||'失败')}</div>`;return div;}
 function styleFor(name){if(name==='Default')return null;return (currentBrush?.styles||[]).find(s=>s?.name===name)||null;}
 function applyStyle(name){const b=currentBrush;if(!b)return;const style=currentResource?.style||styleFor(name);const color=style?.fontColor||b.fontColor||'#FFFFFFFF';const bg=b.color||'#666666FF';const el=$('gameButton');if(!el)return;el.style.backgroundColor=cssColor(bg);el.style.color=cssColor(color);el.style.fontSize=((style?.fontSize??b.fontSize)||18)+'px';el.textContent=b.name;$('stateName').textContent=name;document.querySelectorAll('.state-btn').forEach(x=>x.classList.toggle('active',x.dataset.style===name));}
-$('list').addEventListener('pointerdown',capture,true);$('list').addEventListener('click',e=>{const item=e.target.closest('.item');if(item)selectBrush(item.dataset.name);});$('refresh').addEventListener('pointerdown',capture,true);$('refresh').addEventListener('click',load);$('close').addEventListener('pointerdown',capture,true);$('close').addEventListener('click',()=>window.game.call('framework.closeCurrent'));$('filter').addEventListener('input',load);document.addEventListener('pointerdown',capture,true);window.addEventListener('load',load);
+$('list').addEventListener('pointerdown',capture,true);$('list').addEventListener('click',e=>{const item=e.target.closest('.item');if(item)selectBrush(item.dataset.name);});$('refresh').addEventListener('pointerdown',capture,true);$('refresh').addEventListener('click',load);$('close').addEventListener('pointerdown',capture,true);$('close').addEventListener('click',()=>window.game.call('framework.closeCurrent'));$('filter').addEventListener('input',()=>{clearTimeout(window.__brushFilterTimer);window.__brushFilterTimer=setTimeout(load,220);});document.addEventListener('pointerdown',capture,true);window.addEventListener('load',load);
 function cssColor(v){return v&&v.length===9?v:'#666666';}function escapeHtml(v){return String(v??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));}function escapeAttr(v){return escapeHtml(v).replace(/'/g,'&#39;');}
 </script>
 </body>
