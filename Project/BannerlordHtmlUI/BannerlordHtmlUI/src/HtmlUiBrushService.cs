@@ -11,6 +11,8 @@ namespace BannerlordHtmlUI
 {
     internal static class HtmlUiBrushService
     {
+        private static readonly string[] ProbeStates = { "Default", "Hovered", "Pressed", "Disabled" };
+
         public static object GetContextSnapshot()
         {
             var context = FindActiveUiContext();
@@ -127,6 +129,71 @@ namespace BannerlordHtmlUI
                 available = true,
                 contextName = context.Name,
                 brush = BrushSnapshot(brush)
+            };
+        }
+
+        public static object GetBrushState(JToken payload)
+        {
+            var name = payload?["name"]?.Value<string>();
+            var state = payload?["state"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Brush name is required.");
+            if (string.IsNullOrWhiteSpace(state))
+                throw new ArgumentException("Brush state is required.");
+
+            var context = FindActiveUiContext();
+            if (context == null)
+                throw new InvalidOperationException("No active Gauntlet UIContext was found.");
+
+            var brush = context.GetBrush(name);
+            if (brush == null)
+                throw new KeyNotFoundException("Brush not found: " + name);
+
+            var exact = brush.GetStyle(state);
+            var resolved = brush.GetStyleOrDefault(state);
+            if (resolved == null)
+                throw new InvalidOperationException("Brush has no resolvable style for state '" + state + "'.");
+
+            return new
+            {
+                available = true,
+                brushName = brush.Name,
+                state,
+                exactStyle = exact != null,
+                resolvedStyleName = resolved.Name,
+                style = StyleSnapshot(resolved)
+            };
+        }
+
+        public static object GetBrushStateProbe(JToken payload)
+        {
+            var name = payload?["name"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Brush name is required.");
+
+            var context = FindActiveUiContext();
+            if (context == null)
+                throw new InvalidOperationException("No active Gauntlet UIContext was found.");
+
+            var brush = context.GetBrush(name);
+            if (brush == null)
+                throw new KeyNotFoundException("Brush not found: " + name);
+
+            return new
+            {
+                brushName = brush.Name,
+                states = ProbeStates.Select(state =>
+                {
+                    var exact = brush.GetStyle(state);
+                    var resolved = brush.GetStyleOrDefault(state);
+                    return new
+                    {
+                        state,
+                        exactStyle = exact != null,
+                        resolvedStyleName = resolved?.Name,
+                        style = resolved == null ? null : StyleSnapshot(resolved)
+                    };
+                }).Cast<object>().ToArray()
             };
         }
 
