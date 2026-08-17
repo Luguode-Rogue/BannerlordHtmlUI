@@ -1,100 +1,43 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bannerlord Brush Browser</title>
-  <style>
-    :root { color-scheme: dark; font-family: Arial, sans-serif; }
-    * { box-sizing: border-box; }
-    html, body { margin:0; width:100%; height:100%; background:transparent; color:#eee; }
-    body { padding:24px; pointer-events:auto; }
-    .panel { width:min(1400px,calc(100vw - 48px)); height:calc(100vh - 48px); margin:auto; background:rgba(18,20,24,.97); border:1px solid rgba(255,255,255,.16); border-radius:12px; overflow:hidden; display:flex; flex-direction:column; }
-    header,.toolbar { padding:14px 18px; border-bottom:1px solid rgba(255,255,255,.08); display:flex; gap:10px; align-items:center; }
-    h1 { margin:0; font-size:20px; } .sub { margin-left:auto; opacity:.7; font-size:12px; }
-    input,button { font:inherit; } input { flex:1; min-width:0; padding:8px 10px; border-radius:7px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.05); color:#fff; }
-    button { padding:8px 12px; border-radius:7px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.08); color:#fff; cursor:pointer; } button:hover { background:rgba(255,255,255,.15); } button.active { background:rgba(110,160,255,.25); border-color:rgba(140,180,255,.45); }
-    main { min-height:0; flex:1; display:grid; grid-template-columns:340px 1fr; }
-    .list { min-height:0; overflow:auto; border-right:1px solid rgba(255,255,255,.08); } .item { padding:10px 14px; border-bottom:1px solid rgba(255,255,255,.05); cursor:pointer; }
-    .item:hover { background:rgba(255,255,255,.05); } .item.active { background:rgba(110,160,255,.16); }
-    .name { font-size:13px; font-weight:600; word-break:break-word; } .meta { margin-top:3px; font-size:11px; opacity:.62; }
-    .detail { min-width:0; overflow:auto; padding:18px; } .empty { opacity:.55; padding:40px; text-align:center; }
-    .demo { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; } .card { padding:12px; border-radius:8px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.07); }
-    .preview { min-height:190px; border-radius:10px; border:1px solid rgba(255,255,255,.08); background:repeating-conic-gradient(rgba(255,255,255,.05) 0% 25%,transparent 0% 50%) 50%/18px 18px; display:flex; align-items:center; justify-content:center; gap:20px; flex-wrap:wrap; }
-    .crop-stage { min-width:140px; min-height:120px; display:flex; align-items:center; justify-content:center; padding:18px; background:rgba(0,0,0,.18); border-radius:8px; }
-    .strategy-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:10px; margin-top:12px; }
-    .strategy { padding:10px; border-radius:8px; background:rgba(0,0,0,.18); border:1px solid rgba(255,255,255,.07); min-height:150px; }
-    .strategy.ok { border-color:rgba(100,220,150,.2); } .strategy.failed { border-color:rgba(255,120,120,.16); }
-    .strategy img { display:block; max-width:100%; max-height:110px; margin:8px auto; image-rendering:auto; background:repeating-conic-gradient(#444 0 25%,#222 0 50%) 50%/8px 8px; }
-    .strategy .title { font-size:12px; font-weight:600; word-break:break-word; }
-    .strategy .meta2 { font-size:10px; opacity:.62; line-height:1.4; word-break:break-word; }
-    .native-demo { min-height:190px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; }
-    .game-button { min-width:260px; min-height:54px; border-radius:6px; padding:10px 18px; border:1px solid rgba(255,255,255,.16); display:flex; align-items:center; justify-content:center; gap:10px; transition:transform .08s ease,filter .08s ease; }
-    .game-button:hover { transform:translateY(-1px); filter:brightness(1.08); } .game-button:active { transform:translateY(1px); }
-    .states { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; }
-    .state-caption { font-size:12px; opacity:.65; } .error { color:#ff8d8d; } pre { white-space:pre-wrap; word-break:break-word; font-size:11px; opacity:.78; }
-    .kv { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-top:12px; }
-    .kv .card { min-width:0; } .label { font-size:10px; opacity:.6; } .value { margin-top:4px; font-size:12px; word-break:break-word; }
-    .load-progress { padding:7px 18px; border-bottom:1px solid rgba(255,255,255,.06); font-size:11px; opacity:.65; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bannerlord Brush Browser</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:transparent;color:#eee;font-family:Arial,sans-serif}body{padding:24px}.panel{width:min(1400px,calc(100vw - 48px));height:calc(100vh - 48px);margin:auto;background:rgba(18,20,24,.97);border:1px solid rgba(255,255,255,.16);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}header,.toolbar{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;gap:10px;align-items:center}h1{margin:0;font-size:20px}.sub{margin-left:auto;opacity:.7;font-size:12px}input,button{font:inherit}input{flex:1;padding:8px 10px;border-radius:7px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#fff}button{padding:8px 12px;border-radius:7px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.08);color:#fff;cursor:pointer}button:hover{background:rgba(255,255,255,.15)}button.active{background:rgba(110,160,255,.25);border-color:rgba(140,180,255,.45)}main{min-height:0;flex:1;display:grid;grid-template-columns:340px 1fr}.list{min-height:0;overflow:auto;border-right:1px solid rgba(255,255,255,.08)}.item{padding:9px 13px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer}.item:hover{background:rgba(255,255,255,.05)}.item.active{background:rgba(110,160,255,.16)}.name{font-size:13px;font-weight:600;word-break:break-word}.meta{margin-top:3px;font-size:11px;opacity:.6}.detail{min-width:0;overflow:auto;padding:18px}.empty{opacity:.55;padding:40px;text-align:center}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{padding:12px;border-radius:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07)}.preview{min-height:220px;margin-top:10px;border-radius:10px;border:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;background:repeating-conic-gradient(rgba(255,255,255,.05) 0 25%,transparent 0 50%) 50%/18px 18px}.preview img{max-width:100%;max-height:200px;image-rendering:auto}.states{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.game-button{min-height:56px;min-width:280px;margin:20px auto;padding:12px 18px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.16);border-radius:6px}.kv{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}.label{font-size:10px;opacity:.6}.value{margin-top:4px;font-size:12px;word-break:break-word}.progress{padding:7px 16px;border-bottom:1px solid rgba(255,255,255,.06);font-size:11px;opacity:.7}.error{color:#ff8d8d}pre{white-space:pre-wrap;word-break:break-word;font-size:11px}
+</style>
 </head>
 <body>
 <div class="panel">
-  <header><h1>Bannerlord Brush Browser</h1><div class="sub" id="context">读取中...</div></header>
-  <div class="toolbar"><input id="filter" placeholder="搜索 Brush 名称，例如 ButtonBrush、CharacterDeveloper.SkillButtonBackground"><button id="refresh">刷新</button><button id="close">关闭</button></div>
-  <div class="load-progress" id="progress">准备加载 Brush...</div>
-  <main><div class="list" id="list"><div class="empty">加载中...</div></div><div class="detail" id="detail"><div class="empty">选择一个 Brush</div></div></main>
+<header><h1>Bannerlord Brush Browser</h1><div class="sub" id="context">初始化...</div></header>
+<div class="toolbar"><input id="filter" placeholder="搜索 Brush"><button id="refresh">刷新</button><button id="close">关闭</button></div>
+<div class="progress" id="progress">检查 HTML UI Runtime...</div>
+<main><div class="list" id="list"><div class="empty" id="listStatus">等待 Runtime</div></div><div class="detail" id="detail"><div class="empty">选择一个 Brush</div></div></main>
 </div>
 <script>
-let brushes=[],selected=null,currentBrush=null,currentStyle='Default',currentResource=null,loadToken=0;
-const PAGE_SIZE=25;
-const $=id=>document.getElementById(id);
-function capture(){try{window.focus();window.game?.input?.capture?.();}catch(_){} }
-async function load(){
-  const token=++loadToken;
-  capture();
-  brushes=[];
-  $('list').innerHTML='<div class="empty">加载中...</div>';
-  $('progress').textContent='正在按批次加载 Brush...';
-  try{
-    const filter=$('filter').value.trim();
-    let offset=0,total=null;
-    while(true){
-      if(token!==loadToken)return;
-      // Deliberately serialize page requests: page N must finish before page N+1 starts.
-      const result=await window.game.request('framework.brush.list',{filter,limit:PAGE_SIZE,offset});
-      if(token!==loadToken)return;
-      if(total===null)total=Number(result.total||0);
-      const page=result.brushes||[];
-      brushes.push(...page);
-      renderList();
-      $('context').textContent=result.available?`${result.contextName||'UIContext'} · ${total||0} Brush`:'没有可用 Gauntlet UIContext';
-      $('progress').textContent=`已加载 ${brushes.length}/${total||brushes.length} Brush`;
-      if(!result.hasMore||page.length===0)break;
-      offset+=page.length;
-      // Yield one frame between requests so WebView2 remains responsive.
-      await new Promise(resolve=>requestAnimationFrame(resolve));
-    }
-    $('progress').textContent=`加载完成 · ${brushes.length} Brush`;
-  }catch(e){
-    if(token!==loadToken)return;
-    $('context').textContent='读取失败';
-    $('progress').textContent='加载失败';
-    $('list').innerHTML=`<div class="empty">${escapeHtml(e?.message||String(e))}</div>`;
-  }
-}
-async function selectBrush(name){capture();selected=name;currentBrush=null;currentResource=null;currentStyle='Default';renderList();$('detail').innerHTML='<div class="empty">读取 Brush 元数据...</div>';try{const result=await window.game.request('framework.brush.get',{name});currentBrush=result.brush;renderDetail();await loadResourceForState('Default');}catch(e){$('detail').innerHTML=`<div class="empty">${escapeHtml(e?.message||String(e))}</div>`;}}
-async function loadResourceForState(state){if(!currentBrush)return;const requestBrush=selected;try{const result=await window.game.request('framework.brush.resource',{name:selected,state});if(selected!==requestBrush)return;currentResource=result;applyStyle(state);renderResourceInfo();}catch(e){currentResource={error:e?.message||String(e)};applyStyle(state);renderResourceInfo();}}
-function renderList(){if(!brushes.length){$('list').innerHTML='<div class="empty">没有匹配的 Brush</div>';return;}$('list').innerHTML=brushes.map(b=>`<div class="item ${b.name===selected?'active':''}" data-name="${escapeAttr(b.name)}"><div class="name">${escapeHtml(b.name)}</div><div class="meta">Font ${Number(b.fontSize||0)}px · ${escapeHtml(b.fontStyle||'')}${b.styleNames?.length?` · ${b.styleNames.length} Styles`:''}</div></div>`).join('');}
-function renderDetail(){const b=currentBrush, styles=b?.styles||[];const buttons=[{name:'Default',label:'Default'},...styles.filter(s=>s?.name&&s.name!=='Default').map(s=>({name:s.name,label:s.name}))];$('detail').innerHTML=`<h2 style="margin-top:0">${escapeHtml(b.name)}</h2><div class="demo"><div class="card"><div class="state-caption">Sprite Preview · 当前状态：<b id="spriteState">Default</b></div><div id="primaryPreview" class="preview"><div class="crop-stage"><div class="empty">等待资源</div></div></div><div id="strategyGrid" class="strategy-grid"></div><div id="resourceInfo" style="margin-top:10px"></div></div><div class="card native-demo"><div class="state-caption">HTML Native Brush Preview · 当前状态：<b id="stateName">Default</b></div><div id="gameButton" class="game-button">${escapeHtml(b.name)}</div><div class="states">${buttons.map(x=>`<button class="state-btn ${currentStyle===x.name?'active':''}" data-style="${escapeAttr(x.name)}">${escapeHtml(x.label)}</button>`).join('')}</div></div></div><div class="kv"><div class="card"><div class="label">Color</div><div class="value">${escapeHtml(b.color||'')}</div></div><div class="card"><div class="label">Font Color</div><div class="value">${escapeHtml(b.fontColor||'')}</div></div><div class="card"><div class="label">Font</div><div class="value">${Number(b.fontSize||0)} px · ${escapeHtml(b.fontStyle||'')}</div></div><div class="card"><div class="label">Sprite</div><div class="value">${b.sprite?`${escapeHtml(b.sprite.name||'')} · ${b.sprite.width||0}×${b.sprite.height||0}`:'无'}</div></div></div><div class="card" style="margin-top:12px"><div class="label">Snapshot</div><pre>${escapeHtml(JSON.stringify(b,null,2))}</pre></div>`;document.querySelectorAll('.state-btn').forEach(btn=>{btn.addEventListener('pointerdown',capture,true);btn.addEventListener('click',async()=>{currentStyle=btn.dataset.style;currentResource=null;renderResourceInfo();applyStyle(currentStyle);await loadResourceForState(currentStyle);});});applyStyle('Default');}
-function renderResourceInfo(){const r=currentResource,s=r?.sprite;const cell=$('resourceInfo');if(cell)cell.innerHTML=r?.error?`<span class="error">${escapeHtml(String(r.error))}</span>`:(s?`<div><b>Sprite Resource</b>：${escapeHtml(s.resourceSource||'无')}<br>Sheet ${s.sheetWidth}×${s.sheetHeight} @ (${s.sheetX}, ${s.sheetY})<br>UV ${s.minU} → ${s.maxU} · ${s.minV} → ${s.maxV}<br><span style="opacity:.65">${escapeHtml(s.pixelDiagnostics||'')}</span></div>`:'资源未返回');const cap=$('spriteState');if(cap)cap.textContent=currentStyle;renderStrategyMatrix(s);}
-function renderStrategyMatrix(sprite){const grid=$('strategyGrid');const primary=$('primaryPreview');if(!grid||!primary)return;grid.innerHTML='';if(!sprite){primary.innerHTML='<div class="crop-stage"><div class="empty">没有资源</div></div>';return;}const raw=sprite.strategyUrls;const list=Array.isArray(raw)?raw:[];if(list.length){list.forEach(item=>grid.appendChild(strategyCard(item)));}else if(raw&&typeof raw==='object'){for(const [key,url] of Object.entries(raw)){if(url)grid.appendChild(strategyCard({name:key,status:'ok',url,source:'variantUrls'}));}}
-const preferred=sprite.resourceUrl||(list.find(x=>x?.status==='ok'&&x?.url)?.url)||((raw&&typeof raw==='object')?Object.values(raw).find(Boolean):null);if(preferred)primary.innerHTML=`<div class="crop-stage"><img src="${escapeAttr(preferred)}" style="max-width:220px;max-height:180px" alt="Primary Sprite"></div>`;else primary.innerHTML='<div class="crop-stage"><div class="empty">没有成功方案</div></div>';}
-function strategyCard(item){const div=document.createElement('div');div.className='strategy '+(item.status==='ok'?'ok':'failed');div.innerHTML=`<div class="title">${escapeHtml(item.name||'Unnamed')}</div>${item.status==='ok'&&item.url?`<img src="${escapeAttr(item.url)}" alt="${escapeAttr(item.name||'strategy')}"><div class="meta2">${escapeHtml(item.source||'')}<br>${escapeHtml(item.runtimeType||'')}</div>`:`<div class="meta2 error">${escapeHtml(item.error||'失败')}</div>`;return div;}
-function styleFor(name){if(name==='Default')return null;return (currentBrush?.styles||[]).find(s=>s?.name===name)||null;}
-function applyStyle(name){const b=currentBrush;if(!b)return;const style=currentResource?.style||styleFor(name);const color=style?.fontColor||b.fontColor||'#FFFFFFFF';const bg=b.color||'#666666FF';const el=$('gameButton');if(!el)return;el.style.backgroundColor=cssColor(bg);el.style.color=cssColor(color);el.style.fontSize=((style?.fontSize??b.fontSize)||18)+'px';el.textContent=b.name;$('stateName').textContent=name;document.querySelectorAll('.state-btn').forEach(x=>x.classList.toggle('active',x.dataset.style===name));}
-$('list').addEventListener('pointerdown',capture,true);$('list').addEventListener('click',e=>{const item=e.target.closest('.item');if(item)selectBrush(item.dataset.name);});$('refresh').addEventListener('pointerdown',capture,true);$('refresh').addEventListener('click',load);$('close').addEventListener('pointerdown',capture,true);$('close').addEventListener('click',()=>window.game.call('framework.closeCurrent'));$('filter').addEventListener('input',()=>{clearTimeout(window.__brushFilterTimer);window.__brushFilterTimer=setTimeout(load,220);});document.addEventListener('pointerdown',capture,true);window.addEventListener('load',load);
-function cssColor(v){return v&&v.length===9?v:'#666666';}function escapeHtml(v){return String(v??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));}function escapeAttr(v){return escapeHtml(v).replace(/'/g,'&#39;');}
+(function(){
+'use strict';
+var brushes=[];var selectedName=null;var currentBrush=null;var currentStyle='Default';var currentResource=null;var loadToken=0;var pageReady=false;
+var $=function(id){return document.getElementById(id);};
+function text(el,value){if(el)el.textContent=value==null?'':String(value);}
+function escapeHtml(value){var s=String(value==null?'':value);return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function escapeAttr(value){return escapeHtml(value).replace(/'/g,'&#39;');}
+function showStatus(message,error){text($('progress'),message);if(error){$('progress').className='progress error';}}
+function capture(){try{if(window.focus)window.focus();if(window.game&&window.game.input&&window.game.input.capture){window.game.input.capture();}}catch(e){}}
+function renderList(){var list=$('list');if(!brushes.length){list.innerHTML='<div class="empty">没有匹配的 Brush</div>';return;}var html='';for(var i=0;i<brushes.length;i++){var b=brushes[i]||{};html+='<div class="item '+(b.name===selectedName?'active':'')+'" data-name="'+escapeAttr(b.name||'')+'"><div class="name">'+escapeHtml(b.name||'')+'</div><div class="meta">Font '+String(b.fontSize||0)+'px · '+escapeHtml(b.fontStyle||'')+'</div></div>';}list.innerHTML=html;}
+function renderDetail(){var d=$('detail');if(!currentBrush){d.innerHTML='<div class="empty">选择一个 Brush</div>';return;}var b=currentBrush;var styles=b.styles||[];var html='<h2 style="margin-top:0">'+escapeHtml(b.name||'')+'</h2>';html+='<div class="grid">';html+='<div class="card"><div>Sprite Preview · 当前状态：<b id="spriteState">Default</b></div><div class="preview" id="preview"><div class="empty">等待资源</div></div><div id="resourceInfo" style="margin-top:10px"></div></div>';html+='<div class="card"><div>HTML Native Brush Preview · 当前状态：<b id="stateName">Default</b></div><div class="game-button" id="gameButton">'+escapeHtml(b.name||'')+'</div><div class="states" id="states"></div></div></div>';html+='<div class="kv"><div class="card"><div class="label">Color</div><div class="value">'+escapeHtml(b.color||'')+'</div></div><div class="card"><div class="label">Font Color</div><div class="value">'+escapeHtml(b.fontColor||'')+'</div></div><div class="card"><div class="label">Font</div><div class="value">'+String(b.fontSize||0)+' px · '+escapeHtml(b.fontStyle||'')+'</div></div><div class="card"><div class="label">Sprite</div><div class="value">'+(b.sprite?escapeHtml((b.sprite.name||'')+' · '+String(b.sprite.width||0)+'×'+String(b.sprite.height||0)):'无')+'</div></div></div>';html+='<div class="card" style="margin-top:12px"><div class="label">Snapshot</div><pre>'+escapeHtml(JSON.stringify(b,null,2))+'</pre></div>';d.innerHTML=html;var states=$('states');var names=['Default'];for(var i=0;i<styles.length;i++){if(styles[i]&&styles[i].name&&names.indexOf(styles[i].name)<0)names.push(styles[i].name);}for(var j=0;j<names.length;j++){var btn=document.createElement('button');btn.type='button';btn.className='state-btn'+(names[j]===currentStyle?' active':'');btn.setAttribute('data-style',names[j]);btn.textContent=names[j];btn.addEventListener('click',(function(name){return function(){currentStyle=name;loadResourceForState(name);};})(names[j]));states.appendChild(btn);}applyStyle('Default');}
+function styleFor(name){if(name==='Default')return null;var styles=(currentBrush&&currentBrush.styles)||[];for(var i=0;i<styles.length;i++)if(styles[i]&&styles[i].name===name)return styles[i];return null;}
+function cssColor(value){if(typeof value!=='string')return '#666';if(/^#[0-9a-fA-F]{8}$/.test(value)){var hex=value.substring(1);return '#'+hex.substring(0,6);}if(/^#[0-9a-fA-F]{6}$/.test(value))return value;return '#666';}
+function applyStyle(name){var b=currentBrush;if(!b)return;var style=(currentResource&&currentResource.style)||styleFor(name);var el=$('gameButton');if(!el)return;el.style.backgroundColor=cssColor(b.color);el.style.color=cssColor(style&&style.fontColor?style.fontColor:b.fontColor);el.style.fontSize=String((style&&style.fontSize)||b.fontSize||18)+'px';text(el,b.name||'');text($('stateName'),name);text($('spriteState'),name);var buttons=document.querySelectorAll('.state-btn');for(var i=0;i<buttons.length;i++)buttons[i].classList.toggle('active',buttons[i].getAttribute('data-style')===name);}
+function renderResource(){var p=$('preview');var r=currentResource;var s=r&&r.sprite;var info=$('resourceInfo');if(!s){p.innerHTML='<div class="empty">没有 Sprite Resource</div>';text(info,r&&r.error?r.error:'资源未返回');return;}var url=s.resourceUrl||null;if(url){p.innerHTML='<img src="'+escapeAttr(url)+'" alt="Sprite">';}else{p.innerHTML='<div class="empty">没有可读取的 Sprite URL</div>';}var details='Sprite Resource：'+(s.resourceSource||'')+'<br>Sheet '+String(s.sheetWidth||0)+'×'+String(s.sheetHeight||0)+' @ ('+String(s.sheetX||0)+', '+String(s.sheetY||0)+')<br>UV '+String(s.minU||0)+' → '+String(s.maxU||0)+' · '+String(s.minV||0)+' → '+String(s.maxV||0);if(s.pixelDiagnostics)details+='<br><span style="opacity:.65">'+escapeHtml(s.pixelDiagnostics)+'</span>';info.innerHTML=details;}
+async function loadResourceForState(state){if(!currentBrush)return;currentStyle=state;currentResource=null;applyStyle(state);showStatus('读取 Brush Resource：'+state);var token=selectedName;try{var result=await window.game.request('framework.brush.resource',{name:token,state:state},15000);if(token!==selectedName)return;currentResource=result;applyStyle(state);renderResource();showStatus('Brush Resource 已返回：'+state);}catch(e){if(token!==selectedName)return;currentResource={error:e&&e.message?e.message:String(e)};applyStyle(state);renderResource();showStatus('Brush Resource 读取失败',true);}}
+async function selectBrush(name){capture();selectedName=name;currentBrush=null;currentResource=null;currentStyle='Default';renderList();$('detail').innerHTML='<div class="empty">读取 Brush 元数据...</div>';showStatus('读取 Brush：'+name);try{var result=await window.game.request('framework.brush.get',{name:name},15000);if(name!==selectedName)return;currentBrush=result.brush;renderDetail();await loadResourceForState('Default');}catch(e){if(name!==selectedName)return;$('detail').innerHTML='<div class="empty error">'+escapeHtml(e&&e.message?e.message:String(e))+'</div>';showStatus('Brush 读取失败',true);}}
+async function load(){var token=++loadToken;capture();brushes=[];selectedName=null;currentBrush=null;currentResource=null;renderList();showStatus('正在加载 Brush 列表...');try{var filter=$('filter').value.trim();var offset=0;var total=0;while(true){if(token!==loadToken)return;var result=await window.game.request('framework.brush.list',{filter:filter,limit:25,offset:offset},15000);if(token!==loadToken)return;var page=result&&result.brushes?result.brushes:[];if(!offset)total=Number(result&&result.total||0);for(var i=0;i<page.length;i++)brushes.push(page[i]);renderList();text($('context'),result&&result.available?(result.contextName||'UIContext')+' · '+String(total)+' Brush':'无 UIContext');text($('progress'),'已加载 '+String(brushes.length)+'/'+String(total||brushes.length));if(!result||!result.hasMore||!page.length)break;offset+=page.length;await new Promise(function(resolve){setTimeout(resolve,0);});}showStatus('加载完成 · '+String(brushes.length)+' Brush');}catch(e){showStatus('加载失败：'+(e&&e.message?e.message:String(e)),true);$('list').innerHTML='<div class="empty error">'+escapeHtml(e&&e.message?e.message:String(e))+'</div>';}}
+function startup(){if(pageReady)return;pageReady=true;try{if(!window.game||typeof window.game.request!=='function'){showStatus('HTML UI Runtime 未就绪：window.game.request 不存在',true);return;}showStatus('HTML UI Runtime 已就绪，开始读取...');load();}catch(e){showStatus('Brush Browser 启动失败：'+(e&&e.message?e.message:String(e)),true);}}
+$('list').addEventListener('click',function(e){var item=e.target.closest?e.target.closest('.item'):null;if(item)selectBrush(item.getAttribute('data-name'));});$('refresh').addEventListener('click',load);$('close').addEventListener('click',function(){try{window.game.call('framework.closeCurrent');}catch(e){}});$('filter').addEventListener('input',function(){clearTimeout(window.__brushTimer);window.__brushTimer=setTimeout(load,250);});window.addEventListener('error',function(e){showStatus('页面 JS 错误：'+String(e&&e.message||e),true);});
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',startup);else startup();
+})();
 </script>
 </body>
 </html>
