@@ -35,6 +35,7 @@ namespace BannerlordHtmlUI
       let pageHideHandler = null;
       let observer = null;
       let translationCache = new Map();
+      let applyScheduled = false;
 
       const getProperties = (element, create) => {
         let properties = bindingIndex.get(element);
@@ -99,10 +100,21 @@ namespace BannerlordHtmlUI
         }).catch(error => { if (active && currentGeneration === generation) console.error('BannerlordHtmlUI i18n bind failed:', error); }));
         await Promise.all(jobs);
       };
+      const scheduleApply = () => {
+        if (!active || applyScheduled) return;
+        applyScheduled = true;
+        queueMicrotask(() => {
+          applyScheduled = false;
+          if (!active) return;
+          const currentGeneration = generation;
+          apply(currentGeneration).catch(error => { if (active && currentGeneration === generation) console.error('BannerlordHtmlUI i18n dynamic refresh failed:', error); });
+        });
+      };
       const dispose = () => {
         if (!active) return;
         active = false;
         generation++;
+        applyScheduled = false;
         if (registry.get(target) === dispose) registry.delete(target);
         if (localeOff) { try { localeOff(); } catch (_) {} localeOff = null; }
         if (pageHideHandler) { try { window.removeEventListener('pagehide', pageHideHandler); } catch (_) {} pageHideHandler = null; }
@@ -125,14 +137,30 @@ namespace BannerlordHtmlUI
       if (typeof MutationObserver === 'function') {
         observer = new MutationObserver(mutations => {
           if (!active) return;
+          let changed = false;
           for (const mutation of mutations) {
             if (mutation.type === 'childList') {
-              for (const node of mutation.removedNodes) removeSubtree(node);
-              for (const node of mutation.addedNodes) scanRoot(node);
+              // Our own textContent writes generate text-node childList mutations.
+              // They are not structural DOM changes and must not trigger another
+              // translation pass, otherwise binding can self-refresh indefinitely.
+              for (const node of mutation.removedNodes) {
+                if (node && node.nodeType === 1) {
+                  removeSubtree(node);
+                  changed = true;
+                }
+              }
+              for (const node of mutation.addedNodes) {
+                if (node && node.nodeType === 1) {
+                  scanRoot(node);
+                  changed = true;
+                }
+              }
             } else if (mutation.type === 'attributes' && mutation.target) {
               scanElement(mutation.target);
+              changed = true;
             }
           }
+          if (changed) scheduleApply();
         });
         observer.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: mappings.map(pair => pair[0]) });
       }
