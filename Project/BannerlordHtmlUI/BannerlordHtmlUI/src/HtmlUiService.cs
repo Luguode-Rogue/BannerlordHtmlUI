@@ -211,6 +211,7 @@ namespace BannerlordHtmlUI
             }
             finally
             {
+                HtmlUiBrushResourceService.Dispose();
                 _host = null;
                 _initialized = false;
                 Ready = null;
