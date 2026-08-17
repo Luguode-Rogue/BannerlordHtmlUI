@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using TaleWorlds.MountAndBlade;
 using TaleWorlds.InputSystem;
@@ -96,6 +97,14 @@ namespace BannerlordHtmlUI
                         + ", hostVisible=" + HtmlUiService.Host.IsVisible
                         + ", webViewReady=" + HtmlUiService.Host.IsWebViewReady
                         + ", inputMode=" + HtmlUiService.Host.InputMode);
+
+                    HtmlUiService.State.Set("framework.nativeAssetDiagnostics", new
+                    {
+                        status = "loading",
+                        startedUtc = DateTime.UtcNow
+                    });
+
+                    _ = RunNativeAssetDiagnosticsForF8Async();
                 }
 
                 if (Input.IsKeyPressed(InputKey.F10))
@@ -126,6 +135,26 @@ namespace BannerlordHtmlUI
             catch (Exception ex)
             {
                 HtmlUiLogger.Error("Application tick failed.", ex);
+            }
+        }
+
+        private static async Task RunNativeAssetDiagnosticsForF8Async()
+        {
+            try
+            {
+                await Task.Delay(500).ConfigureAwait(false);
+                var result = await HtmlUiNativeAssetDiagnosticsService.RunAsync(null, CancellationToken.None).ConfigureAwait(false);
+                HtmlUiService.State.Set("framework.nativeAssetDiagnostics", result);
+                HtmlUiLogger.Info("F8 Native Asset Diagnostics completed and state published.");
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Error("F8 Native Asset Diagnostics failed.", ex);
+                HtmlUiService.State.Set("framework.nativeAssetDiagnostics", new
+                {
+                    status = "error",
+                    error = ex.GetBaseException().ToString()
+                });
             }
         }
 
