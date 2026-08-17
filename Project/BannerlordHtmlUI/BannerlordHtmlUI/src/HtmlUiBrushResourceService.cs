@@ -20,12 +20,11 @@ namespace BannerlordHtmlUI
         public static void Initialize(HtmlUiHost host)
         {
             if (_initialized || host == null) return;
-            _cacheDirectory = Path.Combine(Path.GetTempPath(), "BannerlordHtmlUI", "BrushCache");
+            _cacheDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BannerlordHtmlUI", "BrushCache");
             Directory.CreateDirectory(_cacheDirectory);
             host.RegisterContentRoot(ContentRootId, _cacheDirectory);
             _publicHost = "https://bannerlord-htmlui-" + SanitizeHostPart(ContentRootId) + ".local";
             _initialized = true;
-            HtmlUiLogger.Info("Native Brush resource cache initialized: " + _cacheDirectory);
         }
 
         public static void Dispose()
@@ -45,9 +44,6 @@ namespace BannerlordHtmlUI
             var textureWrapper = GetPropertyValue(spritePart ?? sprite, "Texture");
             var spriteName = GetPropertyValue<string>(sprite, "Name");
             var textureName = GetPropertyValue<string>(textureWrapper, "Name");
-
-            // In the observed Bannerlord runtime, SpriteGeneric.Name contains the actual
-            // resource name (e.g. StdAssets\\expanded) while Texture.Name is null.
             var resourceName = !string.IsNullOrWhiteSpace(spriteName) ? spriteName : textureName;
 
             var width = GetInt(sprite, "Width") ?? GetInt(spritePart, "Width") ?? GetInt(textureWrapper, "Width") ?? 0;
@@ -112,7 +108,7 @@ namespace BannerlordHtmlUI
             var identity = resourceName + "|" + sheetWidth + "x" + sheetHeight;
             if (CachedUrls.TryGetValue(identity, out var existingUrl))
             {
-                var existingPath = Path.Combine(_cacheDirectory, Path.GetFileName(new Uri(existingUrl).AbsolutePath));
+                var existingPath = System.IO.Path.Combine(_cacheDirectory, System.IO.Path.GetFileName(new Uri(existingUrl).AbsolutePath));
                 if (File.Exists(existingPath)) return existingUrl;
             }
 
@@ -126,7 +122,7 @@ namespace BannerlordHtmlUI
 
             var hash = Sha256(identity).Substring(0, 24);
             var filename = "sprite-" + hash + ".png";
-            var path = Path.Combine(_cacheDirectory, filename);
+            var path = System.IO.Path.Combine(_cacheDirectory, filename);
 
             if (!File.Exists(path))
             {
