@@ -111,6 +111,7 @@ namespace BannerlordHtmlUI
                 if (string.Equals(current.OwnerId, ownerId, StringComparison.OrdinalIgnoreCase))
                     Pages.CloseCurrent();
             });
+            Host.RegisterCommand("framework.closeCurrent", _ => Pages.CloseCurrent());
 
             Host.RegisterRequest("framework.brush.context", _ => Task.FromResult<object>(HtmlUiBrushService.GetContextSnapshot()));
             Host.RegisterRequest("framework.brush.list", payload => Task.FromResult<object>(HtmlUiBrushService.ListBrushes(payload)));
