@@ -10,6 +10,10 @@ namespace BannerlordHtmlUI
 {
     internal static class HtmlUiNativeAssetDiagnosticsService
     {
+        private const int MaxUiMatches = 100;
+        private const int MaxSpriteDataMatches = 50;
+        private const int MaxEntriesPerRoot = 5000;
+
         public static Task<object> RunAsync(JToken payload, CancellationToken cancellationToken)
         {
             var moduleDirectory = GetModuleDirectory();
@@ -53,7 +57,8 @@ namespace BannerlordHtmlUI
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 ScanUiGroup1(root, uiMatches, cancellationToken);
-                if (uiMatches.Count >= 100) break;
+                if (uiMatches.Count >= MaxUiMatches)
+                    break;
             }
 
             if (nativeDirectory != null && Directory.Exists(nativeDirectory))
@@ -68,7 +73,8 @@ namespace BannerlordHtmlUI
                 {
                     if (!Directory.Exists(gui)) continue;
                     ScanSpriteData(gui, spriteDataMatches, cancellationToken);
-                    if (spriteDataMatches.Count >= 50) break;
+                    if (spriteDataMatches.Count >= MaxSpriteDataMatches)
+                        break;
                 }
             }
 
@@ -93,12 +99,14 @@ namespace BannerlordHtmlUI
                 notes.Add("Game root inferred by locating an ancestor containing Modules\\Native.");
 
             if (uiMatches.Count == 0)
-                notes.Add("No files whose name contains 'ui_group1' were found under the scanned native AssetPackages roots.");
+                notes.Add("No files whose name contains 'ui_group1' were found in the bounded native AssetPackages scan.");
             else
                 notes.Add("Found native AssetPackages entries containing 'ui_group1'.");
 
             if (tpacToolCandidates.All(x => !GetBooleanProperty(x, "exists")))
                 notes.Add("TpacTool DLLs were not found in the checked locations.");
+
+            notes.Add("Diagnostics uses bounded/top-level scans only; it does not recursively enumerate the entire AssetPackages tree.");
 
             return new
             {
@@ -138,8 +146,21 @@ namespace BannerlordHtmlUI
 
             if (info.Exists)
             {
-                try { info.FileCount = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Count(); } catch { }
-                try { info.DirectoryCount = Directory.EnumerateDirectories(path, "*", SearchOption.AllDirectories).Count(); } catch { }
+                try
+                {
+                    info.FileCount = Directory.EnumerateFiles(path, "*", SearchOption.TopDirectoryOnly)
+                        .Take(MaxEntriesPerRoot)
+                        .Count();
+                }
+                catch { }
+
+                try
+                {
+                    info.DirectoryCount = Directory.EnumerateDirectories(path, "*", SearchOption.TopDirectoryOnly)
+                        .Take(MaxEntriesPerRoot)
+                        .Count();
+                }
+                catch { }
             }
 
             list.Add(info);
@@ -149,24 +170,26 @@ namespace BannerlordHtmlUI
         {
             try
             {
-                foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+                var processed = 0;
+                foreach (var file in EnumerateBounded(root, cancellationToken))
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    processed++;
                     var name = System.IO.Path.GetFileName(file);
                     if (name.IndexOf("ui_group1", StringComparison.OrdinalIgnoreCase) < 0)
                         continue;
 
-                    var size = 0L;
-                    try { size = new FileInfo(file).Length; } catch { }
                     matches.Add(new
                     {
                         fileName = name,
                         extension = System.IO.Path.GetExtension(file),
                         fullPath = file,
-                        sizeBytes = size
+                        sizeBytes = SafeLength(file)
                     });
 
-                    if (matches.Count >= 100) return;
+                    if (matches.Count >= MaxUiMatches)
+                        return;
+                    if (processed >= MaxEntriesPerRoot)
+                        return;
                 }
             }
             catch (UnauthorizedAccessException) { }
@@ -177,21 +200,40 @@ namespace BannerlordHtmlUI
         {
             try
             {
-                foreach (var file in Directory.EnumerateFiles(root, "*SpriteData*", SearchOption.AllDirectories))
+                var processed = 0;
+                foreach (var file in EnumerateBounded(root, cancellationToken))
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    processed++;
+                    var name = System.IO.Path.GetFileName(file);
+                    if (name.IndexOf("SpriteData", StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+
                     matches.Add(new
                     {
-                        fileName = System.IO.Path.GetFileName(file),
+                        fileName = name,
                         extension = System.IO.Path.GetExtension(file),
                         fullPath = file,
                         sizeBytes = SafeLength(file)
                     });
-                    if (matches.Count >= 50) return;
+
+                    if (matches.Count >= MaxSpriteDataMatches)
+                        return;
+                    if (processed >= MaxEntriesPerRoot)
+                        return;
                 }
             }
             catch (UnauthorizedAccessException) { }
             catch (DirectoryNotFoundException) { }
+        }
+
+        private static IEnumerable<string> EnumerateBounded(string root, CancellationToken cancellationToken)
+        {
+            var files = Directory.EnumerateFiles(root, "*", SearchOption.TopDirectoryOnly);
+            foreach (var file in files.Take(MaxEntriesPerRoot))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                yield return file;
+            }
         }
 
         private static void AddToolCandidate(List<object> list, string directory, string fileName)
