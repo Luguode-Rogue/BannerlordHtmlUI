@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Windows.Forms;
 
 namespace BannerlordHtmlUI
@@ -14,10 +15,36 @@ namespace BannerlordHtmlUI
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            TopMost = true;
+            TopMost = false;
             Width = 1;
             Height = 1;
             KeyPreview = true;
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+
+            try
+            {
+                // Bind the overlay to Bannerlord as an owned window. This keeps
+                // the HTML overlay subordinate to the game window instead of
+                // making it a global topmost window. It also remains effective
+                // while game managed threads are suspended by a debugger.
+                var ownerHwnd = Process.GetCurrentProcess().MainWindowHandle;
+                if (ownerHwnd != IntPtr.Zero && ownerHwnd != Handle && Win32.IsWindow(ownerHwnd))
+                    Win32.SetOwner(Handle, ownerHwnd);
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Debug("Failed to bind HtmlUI overlay owner window: " + ex.GetBaseException().Message);
+            }
+        }
+
+        public void SetOwner(IntPtr ownerHwnd)
+        {
+            if (!IsHandleCreated || IsDisposed) return;
+            Win32.SetOwner(Handle, ownerHwnd);
         }
 
         public void SetPassThrough(bool enabled)
