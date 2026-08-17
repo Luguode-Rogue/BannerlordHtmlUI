@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using TaleWorlds.Engine;
 
 namespace BannerlordHtmlUI
 {
@@ -16,7 +17,6 @@ namespace BannerlordHtmlUI
         private static string _cacheDirectory;
         private static string _publicHost;
         private static bool _initialized;
-        private static int _typeDiagnosticsLogged;
 
         public static void Initialize(HtmlUiHost host)
         {
@@ -36,17 +36,15 @@ namespace BannerlordHtmlUI
             _publicHost = null;
             CachedUrls.Clear();
             FailedIdentities.Clear();
-            _typeDiagnosticsLogged = 0;
         }
 
         public static object CreateSpriteSnapshot(object sprite, bool includeResource)
         {
             if (sprite == null) return null;
+
             var spritePart = GetPropertyValue(sprite, "SpritePart") ?? GetPropertyValue(sprite, "BaseSprite");
             var textureWrapper = GetPropertyValue(spritePart ?? sprite, "Texture");
-            var platformTexture = GetPropertyValue(textureWrapper, "PlatformTexture");
-            var engineTexture = GetPropertyValue(platformTexture, "Texture") ?? platformTexture;
-            LogTextureTypesOnce(textureWrapper, platformTexture, engineTexture);
+            var textureName = GetPropertyValue<string>(textureWrapper, "Name");
 
             var width = GetInt(sprite, "Width") ?? GetInt(spritePart, "Width") ?? GetInt(textureWrapper, "Width") ?? 0;
             var height = GetInt(sprite, "Height") ?? GetInt(spritePart, "Height") ?? GetInt(textureWrapper, "Height") ?? 0;
@@ -59,7 +57,7 @@ namespace BannerlordHtmlUI
             string cacheError = null;
             if (includeResource)
             {
-                var identity = BuildIdentity(textureWrapper, platformTexture, sheetWidth, sheetHeight);
+                var identity = (textureName ?? string.Empty) + "|" + sheetWidth + "x" + sheetHeight;
                 if (FailedIdentities.TryGetValue(identity, out var previousError))
                 {
                     cacheError = previousError;
@@ -68,9 +66,7 @@ namespace BannerlordHtmlUI
                 {
                     try
                     {
-                        url = EnsureTextureCached(engineTexture, platformTexture, width, height, sheetWidth, sheetHeight,
-                            GetPropertyValue<string>(textureWrapper, "Name"),
-                            GetPropertyValue<string>(platformTexture, "Name"));
+                        url = EnsureTextureCached(textureName, sheetWidth, sheetHeight);
                     }
                     catch (Exception ex)
                     {
@@ -89,6 +85,7 @@ namespace BannerlordHtmlUI
                 height,
                 resourceUrl = url,
                 resourceError = cacheError,
+                textureName,
                 sheetX,
                 sheetY,
                 sheetWidth,
@@ -100,121 +97,42 @@ namespace BannerlordHtmlUI
             };
         }
 
-        private static string EnsureTextureCached(object engineTexture, object platformTexture, int width, int height, int sheetWidth, int sheetHeight, string textureName, string platformName)
+        private static string EnsureTextureCached(string textureName, int sheetWidth, int sheetHeight)
         {
-            if (!_initialized) throw new InvalidOperationException("Native Brush resource cache is not initialized.");
-            if (engineTexture == null && platformTexture == null) throw new InvalidOperationException("Sprite texture object is unavailable.");
+            if (!_initialized)
+                throw new InvalidOperationException("Native Brush resource cache is not initialized.");
+            if (string.IsNullOrWhiteSpace(textureName))
+                throw new InvalidOperationException("Sprite texture resource name is unavailable.");
 
-            var identity = (textureName ?? string.Empty) + "|" + (platformName ?? string.Empty) + "|" + sheetWidth + "x" + sheetHeight;
+            var identity = textureName + "|" + sheetWidth + "x" + sheetHeight;
+            if (CachedUrls.TryGetValue(identity, out var existingUrl))
+            {
+                var existingPath = Path.Combine(_cacheDirectory, Path.GetFileName(new Uri(existingUrl).AbsolutePath));
+                if (File.Exists(existingPath)) return existingUrl;
+            }
+
+            var texture = Texture.GetFromResource(textureName);
+            if (texture == null)
+                throw new InvalidOperationException("Engine Texture.GetFromResource returned null for '" + textureName + "'.");
+
+            try { texture.PreloadTexture(true); } catch { }
+            if (!texture.IsValid)
+                throw new InvalidOperationException("Engine Texture is invalid for '" + textureName + "'.");
+
             var hash = Sha256(identity).Substring(0, 24);
             var filename = "sprite-" + hash + ".png";
             var path = Path.Combine(_cacheDirectory, filename);
-            var relative = filename.Replace(Path.DirectorySeparatorChar, '/');
 
             if (!File.Exists(path))
             {
-                if (!TrySaveTexture(engineTexture, platformTexture, path, out var error))
-                    throw new InvalidOperationException(error);
+                texture.SaveToFile(path);
                 if (!File.Exists(path) || new FileInfo(path).Length == 0)
-                    throw new IOException("Texture export did not produce a valid file: " + path);
+                    throw new IOException("Engine Texture.SaveToFile did not produce a valid file: " + path);
             }
 
-            var url = _publicHost + "/" + relative;
+            var url = _publicHost + "/" + filename;
             CachedUrls[identity] = url;
             return url;
-        }
-
-        private static bool TrySaveTexture(object engineTexture, object platformTexture, string path, out string error)
-        {
-            error = null;
-            foreach (var candidate in new[] { engineTexture, platformTexture })
-            {
-                if (candidate == null) continue;
-                var method = candidate.GetType().GetMethod("SaveToFile", BindingFlags.Instance | BindingFlags.Public, null, new[] { typeof(string) }, null);
-                if (method == null) continue;
-                try { method.Invoke(candidate, new object[] { path }); return true; }
-                catch (TargetInvocationException ex) { error = ex.InnerException == null ? ex.Message : ex.InnerException.Message; return false; }
-            }
-
-            var pointer = GetUIntPtr(engineTexture) ?? GetUIntPtr(platformTexture);
-            if (!pointer.HasValue || pointer.Value == UIntPtr.Zero)
-            {
-                error = "No native texture pointer was exposed by the runtime object.";
-                return false;
-            }
-
-            try
-            {
-                var appInterfaceType = ResolveType("TaleWorlds.Engine.EngineApplicationInterface");
-                if (appInterfaceType == null) { error = "TaleWorlds.Engine.EngineApplicationInterface type was not found."; return false; }
-                var textureInterface = GetStaticMember(appInterfaceType, "ITexture");
-                if (textureInterface == null) { error = "EngineApplicationInterface.ITexture provider was not found."; return false; }
-                var save = textureInterface.GetType().GetMethod("SaveToFile", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, new[] { typeof(UIntPtr), typeof(string) }, null);
-                if (save == null) { error = "ITexture.SaveToFile(UIntPtr,string) was not found on the runtime provider."; return false; }
-                save.Invoke(textureInterface, new object[] { pointer.Value, path });
-                return true;
-            }
-            catch (TargetInvocationException ex) { error = ex.InnerException == null ? ex.Message : ex.InnerException.GetType().Name + ": " + ex.InnerException.Message; return false; }
-            catch (Exception ex) { error = ex.GetType().Name + ": " + ex.Message; return false; }
-        }
-
-        private static UIntPtr? GetUIntPtr(object instance)
-        {
-            if (instance == null) return null;
-            var pointerProperty = instance.GetType().GetProperty("Pointer", BindingFlags.Instance | BindingFlags.Public);
-            if (pointerProperty == null) return null;
-            try
-            {
-                var value = pointerProperty.GetValue(instance, null);
-                if (value is UIntPtr ptr) return ptr;
-                if (value is IntPtr iptr)
-                    return new UIntPtr(unchecked((ulong)iptr.ToInt64()));
-            }
-            catch { }
-            return null;
-        }
-
-        private static void LogTextureTypesOnce(object textureWrapper, object platformTexture, object engineTexture)
-        {
-            if (System.Threading.Interlocked.Exchange(ref _typeDiagnosticsLogged, 1) != 0) return;
-            HtmlUiLogger.Info("Brush texture runtime types: wrapper=" + TypeName(textureWrapper) + ", platform=" + TypeName(platformTexture) + ", engine=" + TypeName(engineTexture));
-            DumpTypeMembers("platform", platformTexture);
-            DumpTypeMembers("engine", engineTexture);
-        }
-
-        private static void DumpTypeMembers(string label, object instance)
-        {
-            if (instance == null) return;
-            try
-            {
-                var methods = instance.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public)
-                    .Select(m => m.Name + "(" + string.Join(",", m.GetParameters().Select(p => p.ParameterType.Name)) + ")")
-                    .Distinct().OrderBy(x => x, StringComparer.Ordinal).Take(80);
-                HtmlUiLogger.Info("Brush texture " + label + " methods: " + string.Join("; ", methods));
-            }
-            catch { }
-        }
-
-        private static string TypeName(object instance) => instance == null ? "<null>" : instance.GetType().FullName;
-        private static string BuildIdentity(object textureWrapper, object platformTexture, int sheetWidth, int sheetHeight) =>
-            (GetPropertyValue<string>(textureWrapper, "Name") ?? string.Empty) + "|" + (GetPropertyValue<string>(platformTexture, "Name") ?? string.Empty) + "|" + sheetWidth + "x" + sheetHeight;
-
-        private static Type ResolveType(string fullName)
-        {
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                try { var type = assembly.GetType(fullName, false); if (type != null) return type; } catch { }
-            }
-            return null;
-        }
-
-        private static object GetStaticMember(Type type, string name)
-        {
-            var property = type.GetProperty(name, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-            if (property != null) { try { return property.GetValue(null, null); } catch { } }
-            var field = type.GetField(name, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-            if (field != null) { try { return field.GetValue(null); } catch { } }
-            return null;
         }
 
         private static object GetPropertyValue(object instance, string name)
@@ -261,7 +179,10 @@ namespace BannerlordHtmlUI
         {
             var chars = (value ?? string.Empty).ToLowerInvariant().ToCharArray();
             for (var i = 0; i < chars.Length; i++)
-                if (!((chars[i] >= 'a' && chars[i] <= 'z') || (chars[i] >= '0' && chars[i] <= '9') || chars[i] == '-')) chars[i] = '-';
+            {
+                if (!((chars[i] >= 'a' && chars[i] <= 'z') || (chars[i] >= '0' && chars[i] <= '9') || chars[i] == '-'))
+                    chars[i] = '-';
+            }
             var result = new string(chars).Trim('-');
             return result.Length == 0 ? "mod" : result;
         }
