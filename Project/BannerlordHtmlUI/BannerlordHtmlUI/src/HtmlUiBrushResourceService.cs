@@ -59,6 +59,8 @@ namespace BannerlordHtmlUI
 
             string url = null;
             string cacheError = null;
+            object pixelDiagnostics = null;
+            object variantUrls = null;
             if (includeResource)
             {
                 var identity = (resourceName ?? string.Empty) + "|" + sheetWidth + "x" + sheetHeight;
@@ -70,7 +72,10 @@ namespace BannerlordHtmlUI
                 {
                     try
                     {
-                        url = EnsureTextureCached(resourceName, sheetWidth, sheetHeight);
+                        var export = EnsureTextureCached(resourceName, sheetWidth, sheetHeight, sheetX, sheetY, width, height);
+                        url = export.FullTextureUrl;
+                        pixelDiagnostics = export.Diagnostics;
+                        variantUrls = export.Variants;
                     }
                     catch (Exception ex)
                     {
@@ -98,11 +103,20 @@ namespace BannerlordHtmlUI
                 minU = GetFloat(spritePart, "MinU"),
                 minV = GetFloat(spritePart, "MinV"),
                 maxU = GetFloat(spritePart, "MaxU"),
-                maxV = GetFloat(spritePart, "MaxV")
+                maxV = GetFloat(spritePart, "MaxV"),
+                pixelDiagnostics,
+                variantUrls
             };
         }
 
-        private static string EnsureTextureCached(string resourceName, int sheetWidth, int sheetHeight)
+        private sealed class TextureExportResult
+        {
+            public string FullTextureUrl;
+            public object Diagnostics;
+            public object Variants;
+        }
+
+        private static TextureExportResult EnsureTextureCached(string resourceName, int sheetWidth, int sheetHeight, int sheetX, int sheetY, int spriteWidth, int spriteHeight)
         {
             if (!_initialized)
                 throw new InvalidOperationException("Native Brush resource cache is not initialized.");
@@ -110,12 +124,6 @@ namespace BannerlordHtmlUI
                 throw new InvalidOperationException("Sprite resource name is unavailable.");
 
             var identity = resourceName + "|" + sheetWidth + "x" + sheetHeight;
-            if (CachedUrls.TryGetValue(identity, out var existingUrl))
-            {
-                var existingPath = System.IO.Path.Combine(_cacheDirectory, System.IO.Path.GetFileName(new Uri(existingUrl).AbsolutePath));
-                if (File.Exists(existingPath)) return existingUrl;
-            }
-
             var texture = Texture.GetFromResource(resourceName);
             if (texture == null)
                 throw new InvalidOperationException("Engine Texture.GetFromResource returned null for '" + resourceName + "'.");
@@ -133,22 +141,92 @@ namespace BannerlordHtmlUI
             var raw = new byte[checked(pixelCount * 4)];
             texture.GetPixelData(raw);
 
+            var diagnostics = DiagnosePixels(raw);
+            HtmlUiLogger.Info("Brush pixel diagnostics: " + diagnostics);
+
             var hash = Sha256(identity).Substring(0, 24);
             var filename = "sprite-" + hash + ".png";
             var path = System.IO.Path.Combine(_cacheDirectory, filename);
 
             if (!File.Exists(path))
-                WritePng(path, raw, width, height);
+                WritePng(path, raw, width, height, PixelLayout.Bgra);
 
             if (!File.Exists(path) || new FileInfo(path).Length == 0)
                 throw new IOException("Texture pixel readback did not produce a valid PNG: " + path);
 
-            var url = _publicHost + "/" + filename;
-            CachedUrls[identity] = url;
-            return url;
+            var variantPayload = new JObjectLike();
+            if (spriteWidth > 0 && spriteHeight > 0 && sheetX >= 0 && sheetY >= 0 && sheetX + spriteWidth <= width && sheetY + spriteHeight <= height)
+            {
+                var crop = Crop(raw, width, height, sheetX, sheetY, spriteWidth, spriteHeight);
+                var basePrefix = "sprite-crop-" + hash;
+                var rgbaPath = System.IO.Path.Combine(_cacheDirectory, basePrefix + "-rgba.png");
+                var bgraPath = System.IO.Path.Combine(_cacheDirectory, basePrefix + "-bgra.png");
+                var argbPath = System.IO.Path.Combine(_cacheDirectory, basePrefix + "-argb.png");
+                if (!File.Exists(rgbaPath)) WritePng(rgbaPath, crop, spriteWidth, spriteHeight, PixelLayout.Rgba);
+                if (!File.Exists(bgraPath)) WritePng(bgraPath, crop, spriteWidth, spriteHeight, PixelLayout.Bgra);
+                if (!File.Exists(argbPath)) WritePng(argbPath, crop, spriteWidth, spriteHeight, PixelLayout.Argb);
+                variantPayload.Rgba = _publicHost + "/" + System.IO.Path.GetFileName(rgbaPath);
+                variantPayload.Bgra = _publicHost + "/" + System.IO.Path.GetFileName(bgraPath);
+                variantPayload.Argb = _publicHost + "/" + System.IO.Path.GetFileName(argbPath);
+            }
+
+            return new TextureExportResult
+            {
+                FullTextureUrl = _publicHost + "/" + filename,
+                Diagnostics = diagnostics,
+                Variants = variantPayload
+            };
         }
 
-        private static void WritePng(string path, byte[] raw, int width, int height)
+        private enum PixelLayout
+        {
+            Rgba,
+            Bgra,
+            Argb
+        }
+
+        private static string DiagnosePixels(byte[] raw)
+        {
+            if (raw == null || raw.Length == 0) return "empty";
+            var samples = Math.Min(raw.Length, 4 * 4096);
+            long[] min = { 255, 255, 255, 255 };
+            long[] max = { 0, 0, 0, 0 };
+            long[] sum = { 0, 0, 0, 0 };
+            long nonZeroAlpha = 0;
+            for (var i = 0; i + 3 < samples; i += 4)
+            {
+                for (var c = 0; c < 4; c++)
+                {
+                    var v = raw[i + c];
+                    if (v < min[c]) min[c] = v;
+                    if (v > max[c]) max[c] = v;
+                    sum[c] += v;
+                }
+                if (raw[i + 3] != 0) nonZeroAlpha++;
+            }
+            var count = Math.Max(1, samples / 4);
+            var first = string.Join(",", raw.Take(Math.Min(32, raw.Length)).Select(b => b.ToString("X2")));
+            return "bytes=" + raw.Length + ", samplePixels=" + count
+                + ", min=[" + string.Join(",", min) + "]"
+                + ", max=[" + string.Join(",", max) + "]"
+                + ", avg=[" + string.Join(",", sum.Select(v => (v / (double)count).ToString("F1", System.Globalization.CultureInfo.InvariantCulture))) + "]"
+                + ", alphaNonZero=" + nonZeroAlpha
+                + ", first=" + first;
+        }
+
+        private static byte[] Crop(byte[] raw, int width, int height, int x, int y, int cropWidth, int cropHeight)
+        {
+            var output = new byte[checked(cropWidth * cropHeight * 4)];
+            var srcRow = width * 4;
+            var dstRow = cropWidth * 4;
+            for (var row = 0; row < cropHeight; row++)
+            {
+                Buffer.BlockCopy(raw, (y + row) * srcRow + x * 4, output, row * dstRow, dstRow);
+            }
+            return output;
+        }
+
+        private static void WritePng(string path, byte[] raw, int width, int height, PixelLayout layout)
         {
             var directory = System.IO.Path.GetDirectoryName(path);
             if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
@@ -161,17 +239,43 @@ namespace BannerlordHtmlUI
                 {
                     var stride = Math.Abs(data.Stride);
                     var rowBytes = width * 4;
+                    var converted = new byte[rowBytes * height];
+                    for (var y = 0; y < height; y++)
+                    {
+                        for (var x = 0; x < width; x++)
+                        {
+                            var source = (y * width + x) * 4;
+                            var target = y * rowBytes + x * 4;
+                            byte r, g, b, a;
+                            switch (layout)
+                            {
+                                case PixelLayout.Rgba:
+                                    r = raw[source]; g = raw[source + 1]; b = raw[source + 2]; a = raw[source + 3];
+                                    break;
+                                case PixelLayout.Argb:
+                                    a = raw[source]; r = raw[source + 1]; g = raw[source + 2]; b = raw[source + 3];
+                                    break;
+                                default:
+                                    b = raw[source]; g = raw[source + 1]; r = raw[source + 2]; a = raw[source + 3];
+                                    break;
+                            }
+                            converted[target] = b;
+                            converted[target + 1] = g;
+                            converted[target + 2] = r;
+                            converted[target + 3] = a;
+                        }
+                    }
+
                     if (stride == rowBytes)
                     {
-                        Marshal.Copy(raw, 0, data.Scan0, raw.Length);
+                        Marshal.Copy(converted, 0, data.Scan0, converted.Length);
                     }
                     else
                     {
                         for (var y = 0; y < height; y++)
                         {
-                            var sourceOffset = y * rowBytes;
                             var destination = IntPtr.Add(data.Scan0, y * data.Stride);
-                            Marshal.Copy(raw, sourceOffset, destination, rowBytes);
+                            Marshal.Copy(converted, y * rowBytes, destination, rowBytes);
                         }
                     }
                 }
@@ -182,6 +286,13 @@ namespace BannerlordHtmlUI
 
                 bitmap.Save(path, ImageFormat.Png);
             }
+        }
+
+        private sealed class JObjectLike
+        {
+            public string Rgba;
+            public string Bgra;
+            public string Argb;
         }
 
         private static object GetPropertyValue(object instance, string name)
