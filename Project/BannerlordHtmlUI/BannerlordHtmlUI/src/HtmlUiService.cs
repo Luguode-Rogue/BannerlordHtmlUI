@@ -64,10 +64,7 @@ namespace BannerlordHtmlUI
         {
             HtmlUiBrushResourceService.Initialize(Host);
 
-            Host.RegisterCommand("runtime.error", payload =>
-            {
-                HtmlUiLogger.Warn("JavaScript runtime error: " + payload.ToString());
-            });
+            Host.RegisterCommand("runtime.error", payload => { HtmlUiLogger.Warn("JavaScript runtime error: " + payload.ToString()); });
             Host.RegisterCommand("framework.openDevTools", _ => Host.OpenDevTools());
             Host.RegisterCommand("framework.reload", _ => Host.Reload());
             Host.RegisterCommand("framework.captureInput", _ => Host.CaptureInput());
@@ -86,38 +83,19 @@ namespace BannerlordHtmlUI
             });
             Host.RegisterRequest("framework.i18n.getLocale", _ => Task.FromResult<object>(new { language = HtmlUiLocalization.CurrentLanguage }));
             Host.RegisterRequest("framework.i18n.getLanguages", _ => Task.FromResult<object>(new { language = HtmlUiLocalization.CurrentLanguage, languages = HtmlUiLocalization.GetLanguages() }));
-            Host.RegisterRequest("framework.i18n.translate", payload => Task.FromResult<object>(HtmlUiLocalization.Translate(
-                payload?["key"]?.Value<string>(),
-                payload?["variables"] as JObject,
-                payload?["fallbackLanguage"]?.Value<string>())));
+            Host.RegisterRequest("framework.i18n.translate", payload => Task.FromResult<object>(HtmlUiLocalization.Translate(payload?["key"]?.Value<string>(), payload?["variables"] as JObject, payload?["fallbackLanguage"]?.Value<string>())));
             Host.RegisterRequest("framework.i18n.translateMany", payload => Task.FromResult<object>(HtmlUiLocalization.TranslateMany(payload as JObject)));
             Host.RegisterRequest("framework.i18n.formatDate", payload => Task.FromResult<object>(new { text = HtmlUiLocalization.FormatDate(DateTime.Parse(payload?["value"]?.Value<string>() ?? DateTime.UtcNow.ToString("o"), null, System.Globalization.DateTimeStyles.RoundtripKind)) }));
             Host.RegisterRequest("framework.i18n.formatTime", payload => Task.FromResult<object>(new { text = HtmlUiLocalization.FormatTime(DateTime.Parse(payload?["value"]?.Value<string>() ?? DateTime.UtcNow.ToString("o"), null, System.Globalization.DateTimeStyles.RoundtripKind)) }));
-            Host.RegisterCommand("framework.incrementTestState", _ =>
-            {
-                var value = System.Threading.Interlocked.Increment(ref _testCounter);
-                State.Set("framework.testCounter", value);
-            });
-            Host.RegisterCommand("framework.openPage", payload =>
-            {
-                var ownerId = payload?["ownerId"]?.Value<string>();
-                var pageId = payload?["pageId"]?.Value<string>();
-                if (string.IsNullOrWhiteSpace(ownerId) || string.IsNullOrWhiteSpace(pageId)) return;
-                Pages.Open(MakeScopedName(ownerId, pageId));
-            });
-            Host.RegisterCommand("framework.closePage", payload =>
-            {
-                var ownerId = payload?["ownerId"]?.Value<string>();
-                var current = Pages.Current;
-                if (string.IsNullOrWhiteSpace(ownerId) || current == null) return;
-                if (string.Equals(current.OwnerId, ownerId, StringComparison.OrdinalIgnoreCase))
-                    Pages.CloseCurrent();
-            });
+            Host.RegisterCommand("framework.incrementTestState", _ => { var value = System.Threading.Interlocked.Increment(ref _testCounter); State.Set("framework.testCounter", value); });
+            Host.RegisterCommand("framework.openPage", payload => { var ownerId = payload?["ownerId"]?.Value<string>(); var pageId = payload?["pageId"]?.Value<string>(); if (string.IsNullOrWhiteSpace(ownerId) || string.IsNullOrWhiteSpace(pageId)) return; Pages.Open(MakeScopedName(ownerId, pageId)); });
+            Host.RegisterCommand("framework.closePage", payload => { var ownerId = payload?["ownerId"]?.Value<string>(); var current = Pages.Current; if (string.IsNullOrWhiteSpace(ownerId) || current == null) return; if (string.Equals(current.OwnerId, ownerId, StringComparison.OrdinalIgnoreCase)) Pages.CloseCurrent(); });
             Host.RegisterCommand("framework.closeCurrent", _ => Pages.CloseCurrent());
 
             Host.RegisterRequest("framework.brush.context", _ => Task.FromResult<object>(HtmlUiBrushService.GetContextSnapshot()));
             Host.RegisterRequest("framework.brush.list", payload => Task.FromResult<object>(HtmlUiBrushService.ListBrushes(payload)));
             Host.RegisterRequest("framework.brush.get", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrush(payload)));
+            Host.RegisterRequest("framework.brush.resource", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrushResource(payload)));
             Host.RegisterRequest("framework.brush.state", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrushState(payload)));
             Host.RegisterRequest("framework.brush.stateProbe", payload => Task.FromResult<object>(HtmlUiBrushService.GetBrushStateProbe(payload)));
 
@@ -166,14 +144,8 @@ namespace BannerlordHtmlUI
         public static string CurrentPagePath => Host.CurrentPagePath;
         public static void RegisterContentRoot(string id, string directory) => Host.RegisterContentRoot(id, directory);
         internal static void RegisterContentRoot(string id, string directory, string ownerId) => Host.RegisterContentRoot(id, directory);
-
         public static HtmlUiConsumerScope CreateScope(string ownerId) => new HtmlUiConsumerScope(ownerId);
-        public static string MakeScopedName(string ownerId, string name)
-        {
-            if (string.IsNullOrWhiteSpace(ownerId)) throw new ArgumentException("Owner id is required.", nameof(ownerId));
-            if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Name is required.", nameof(name));
-            return ownerId + "." + name.TrimStart('.');
-        }
+        public static string MakeScopedName(string ownerId, string name) { if (string.IsNullOrWhiteSpace(ownerId)) throw new ArgumentException("Owner id is required.", nameof(ownerId)); if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Name is required.", nameof(name)); return ownerId + "." + name.TrimStart('.'); }
         public static void OpenDevTools() => Host.OpenDevTools();
         public static void Reload() => Host.Reload();
         public static void RegisterCommand(string name, Action<JToken> handler) => Host.RegisterCommand(name, handler);
@@ -183,22 +155,10 @@ namespace BannerlordHtmlUI
         internal static void RegisterRequest(string name, Func<JToken, Task<object>> handler, string ownerId) => Host.RegisterRequest(name, handler, ownerId);
         internal static void RegisterRequest(string name, Func<JToken, CancellationToken, Task<object>> handler, string ownerId) => Host.RegisterRequest(name, handler, ownerId);
         public static bool UnregisterCommand(string name) => Host.UnregisterCommand(name);
-        internal static bool UnregisterCommand(string name, string ownerId)
-        {
-            var bridge = HtmlUiBridge.Current;
-            return bridge != null && bridge.UnregisterCommand(name, ownerId);
-        }
+        internal static bool UnregisterCommand(string name, string ownerId) { var bridge = HtmlUiBridge.Current; return bridge != null && bridge.UnregisterCommand(name, ownerId); }
         public static bool UnregisterRequest(string name) => Host.UnregisterRequest(name);
-        internal static bool UnregisterRequest(string name, string ownerId)
-        {
-            var bridge = HtmlUiBridge.Current;
-            return bridge != null && bridge.UnregisterRequest(name, ownerId);
-        }
-        public static bool CancelRequest(string id)
-        {
-            var bridge = HtmlUiBridge.Current;
-            return bridge != null && bridge.CancelRequest(id);
-        }
+        internal static bool UnregisterRequest(string name, string ownerId) { var bridge = HtmlUiBridge.Current; return bridge != null && bridge.UnregisterRequest(name, ownerId); }
+        public static bool CancelRequest(string id) { var bridge = HtmlUiBridge.Current; return bridge != null && bridge.CancelRequest(id); }
         public static void SendEvent(string name, object payload) => Host.SendEvent(name, payload);
 
         public static void Dispose()
