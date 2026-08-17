@@ -117,6 +117,12 @@ namespace BannerlordHtmlUI
             };
         }
 
+        private static void EnsureInitialized()
+        {
+            if (!_initialized || string.IsNullOrWhiteSpace(_cacheDirectory) || string.IsNullOrWhiteSpace(_publicHost))
+                throw new InvalidOperationException("Native Atlas asset service is not initialized.");
+        }
+
         private static async Task<AtlasResult> GetOrExtractAsync(List<string> candidates, SpriteRequest request, CancellationToken cancellationToken)
         {
             var key = string.Join("|", candidates) + "|" + request.SheetX + ":" + request.SheetY + ":" + request.Width + ":" + request.Height;
