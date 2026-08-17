@@ -144,7 +144,7 @@ namespace BannerlordHtmlUI
                 try { request.Texture.SetTextureAsAlwaysValid(); } catch { }
 
                 HtmlUiLogger.Info("Native runtime texture export: name=" + (request.Texture.Name ?? "<unnamed>") + " size=" + request.Texture.Width + "x" + request.Texture.Height);
-                request.Texture.SaveToFile(atlasPath);
+                request.Texture.SaveToFile(atlasPath, false);
             }
 
             if (!IsValidPng(atlasPath))
