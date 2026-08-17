@@ -48,19 +48,23 @@ namespace BannerlordHtmlUI
             var part = GetPropertyValue(sprite, "SpritePart") ?? GetPropertyValue(sprite, "BaseSprite");
             var texture2D = GetPropertyValue(part ?? sprite, "Texture");
             var platformTexture = GetPropertyValue(texture2D, "PlatformTexture");
+            var category = GetPropertyValue(part, "Category");
             var spriteName = GetString(sprite, "Name");
             var textureName = GetString(texture2D, "Name");
             var platformTextureName = GetString(platformTexture, "Name");
 
-            // Sprite.Name is the part name (e.g. StdAssets\\close_button), not the atlas texture.
-            // PlatformTexture.Name is the actual loaded atlas/resource name when Bannerlord exposes it.
-            var resourceName = !string.IsNullOrWhiteSpace(platformTextureName)
-                ? platformTextureName
-                : (!string.IsNullOrWhiteSpace(textureName) ? textureName : spriteName);
+            var sheetId = GetInt(part, "SheetID") ?? -1;
+            var spriteSheet = ResolveSpriteSheet(category, sheetId);
+            var sheetPlatformTexture = GetPropertyValue(GetPropertyValue(spriteSheet, "PlatformTexture"), "Texture") != null
+                ? GetPropertyValue(spriteSheet, "PlatformTexture")
+                : GetPropertyValue(spriteSheet, "PlatformTexture");
+            var sheetPlatformName = GetString(sheetPlatformTexture, "Name");
+            var resourceName = !string.IsNullOrWhiteSpace(sheetPlatformName)
+                ? sheetPlatformName
+                : (!string.IsNullOrWhiteSpace(platformTextureName) ? platformTextureName : (!string.IsNullOrWhiteSpace(textureName) ? textureName : spriteName));
 
             var width = GetInt(sprite, "Width") ?? GetInt(part, "Width") ?? 0;
             var height = GetInt(sprite, "Height") ?? GetInt(part, "Height") ?? 0;
-            var sheetId = GetInt(part, "SheetID") ?? -1;
             var sheetX = GetInt(part, "SheetX") ?? 0;
             var sheetY = GetInt(part, "SheetY") ?? 0;
             var sheetWidth = GetInt(part, "SheetWidth") ?? width;
@@ -70,19 +74,14 @@ namespace BannerlordHtmlUI
             string error = null;
             string source = null;
             string runtimePath = null;
-            string categoryName = null;
-            try
-            {
-                var category = GetPropertyValue(part, "Category");
-                categoryName = GetString(category, "Name");
-            }
-            catch { }
+            string categoryName = GetString(category, "Name");
 
             if (includeResource)
             {
                 try
                 {
-                    var result = EnsureTextureCached(part, resourceName, platformTextureName, sheetWidth, sheetHeight, sheetX, sheetY, width, height);
+                    var result = EnsureTextureCached(part, category, spriteSheet, resourceName, sheetPlatformName ?? platformTextureName,
+                        sheetWidth, sheetHeight, sheetX, sheetY, width, height);
                     url = result.Url;
                     source = result.Source;
                     runtimePath = result.RuntimePath;
@@ -107,8 +106,12 @@ namespace BannerlordHtmlUI
                 runtimeTexturePath = runtimePath,
                 textureName,
                 platformTextureName,
+                sheetPlatformName,
                 resourceName,
                 categoryName,
+                categoryRuntimeType = category?.GetType().FullName,
+                spriteSheetRuntimeType = spriteSheet?.GetType().FullName,
+                spriteSheetName = GetString(spriteSheet, "Name"),
                 sheetId,
                 sheetX,
                 sheetY,
@@ -128,7 +131,8 @@ namespace BannerlordHtmlUI
             public string RuntimePath;
         }
 
-        private static TextureExportResult EnsureTextureCached(object spritePart, string resourceName, string platformTextureName, int sheetWidth, int sheetHeight, int sheetX, int sheetY, int spriteWidth, int spriteHeight)
+        private static TextureExportResult EnsureTextureCached(object spritePart, object category, object spriteSheet, string resourceName, string platformTextureName,
+            int sheetWidth, int sheetHeight, int sheetX, int sheetY, int spriteWidth, int spriteHeight)
         {
             if (!_initialized) throw new InvalidOperationException("Native Brush resource cache is not initialized.");
             if (spritePart == null) throw new InvalidOperationException("SpritePart is unavailable.");
@@ -143,16 +147,16 @@ namespace BannerlordHtmlUI
             }
 
             string runtimePath;
-            var texture = ResolveEngineTexture(spritePart, out runtimePath);
-            if (texture == null) throw new InvalidOperationException("Unable to resolve the native texture used by SpritePart. " + runtimePath);
+            var texture = ResolveEngineTexture(spritePart, category, spriteSheet, out runtimePath);
+            if (texture == null) throw new InvalidOperationException("Unable to resolve the native atlas texture used by SpritePart. " + runtimePath);
 
             try { texture.PreloadTexture(true); } catch { }
             try { texture.SetTextureAsAlwaysValid(); } catch { }
-            if (!texture.IsValid) throw new InvalidOperationException("Resolved native engine texture is invalid. " + runtimePath);
+            if (!texture.IsValid) throw new InvalidOperationException("Resolved native atlas texture is invalid. " + runtimePath);
 
             var width = texture.Width > 0 ? texture.Width : sheetWidth;
             var height = texture.Height > 0 ? texture.Height : sheetHeight;
-            if (width <= 0 || height <= 0) throw new InvalidOperationException("Resolved native engine texture dimensions are unavailable. " + runtimePath);
+            if (width <= 0 || height <= 0) throw new InvalidOperationException("Resolved native atlas texture dimensions are unavailable. " + runtimePath);
 
             var hash = Sha256(identity + "|" + width + "x" + height).Substring(0, 24);
             var filename = "sprite-" + hash + ".png";
@@ -172,7 +176,7 @@ namespace BannerlordHtmlUI
                         RuntimePath = runtimePath
                     };
                     Cache[identity] = native;
-                    HtmlUiLogger.Info("Native Brush sprite exported by Engine.Texture.SaveToFile: " + (platformTextureName ?? resourceName));
+                    HtmlUiLogger.Info("Native Brush Atlas exported by Engine.Texture.SaveToFile: " + (platformTextureName ?? resourceName));
                     return native;
                 }
                 nativeExportError = new IOException("Engine Texture.SaveToFile produced no valid PNG file.");
@@ -182,84 +186,15 @@ namespace BannerlordHtmlUI
                 nativeExportError = ex;
             }
 
-            // If CPU readback from the live wrapper is empty, reload the actual atlas by its PlatformTexture.Name.
-            if (!string.IsNullOrWhiteSpace(platformTextureName))
-            {
-                try
-                {
-                    var atlas = TaleWorlds.Engine.Texture.GetFromResource(platformTextureName);
-                    if (atlas != null)
-                    {
-                        try { atlas.PreloadTexture(true); } catch { }
-                        try { atlas.SetTextureAsAlwaysValid(); } catch { }
-                        if (atlas.IsValid)
-                        {
-                            var atlasWidth = atlas.Width > 0 ? atlas.Width : sheetWidth;
-                            var atlasHeight = atlas.Height > 0 ? atlas.Height : sheetHeight;
-                            if (atlasWidth > 0 && atlasHeight > 0)
-                            {
-                                try
-                                {
-                                    if (File.Exists(path)) File.Delete(path);
-                                    atlas.SaveToFile(path, false);
-                                    if (IsValidPng(path))
-                                    {
-                                        var reloaded = new TextureExportResult
-                                        {
-                                            Url = _publicHost + "/" + filename,
-                                            Source = "Texture.GetFromResource(" + platformTextureName + ") [Engine.Texture.SaveToFile]",
-                                            RuntimePath = runtimePath + "; ReloadedResource=" + platformTextureName
-                                        };
-                                        Cache[identity] = reloaded;
-                                        HtmlUiLogger.Info("Native Brush atlas reloaded by PlatformTexture.Name: " + platformTextureName);
-                                        return reloaded;
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    nativeExportError = ex;
-                                }
-
-                                var atlasBytes = checked(atlasWidth * atlasHeight * 4);
-                                var atlasRaw = new byte[atlasBytes];
-                                atlas.GetPixelData(atlasRaw);
-                                HtmlUiLogger.Info("Reloaded atlas pixel diagnostics: " + DiagnosePixels(atlasRaw, atlasWidth, atlasHeight, "Texture.GetFromResource(" + platformTextureName + ")"));
-                                if (!AllZero(atlasRaw))
-                                {
-                                    WritePng(path, atlasRaw, atlasWidth, atlasHeight, PixelLayout.Bgra);
-                                    if (IsValidPng(path))
-                                    {
-                                        var reloadedFallback = new TextureExportResult
-                                        {
-                                            Url = _publicHost + "/" + filename,
-                                            Source = "Texture.GetFromResource(" + platformTextureName + ") [Texture.GetPixelData]",
-                                            RuntimePath = runtimePath + "; ReloadedResource=" + platformTextureName
-                                        };
-                                        Cache[identity] = reloadedFallback;
-                                        return reloadedFallback;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    nativeExportError = ex;
-                }
-            }
-
-            // Final fallback only when the native exporter is unavailable. Keep the fallback diagnostic-only.
             var bytes = checked(width * height * 4);
             var raw = new byte[bytes];
             texture.GetPixelData(raw);
-            HtmlUiLogger.Info("Brush pixel fallback diagnostics: " + DiagnosePixels(raw, width, height, runtimePath));
+            HtmlUiLogger.Info("Brush atlas pixel diagnostics: " + DiagnosePixels(raw, width, height, runtimePath));
 
             if (AllZero(raw))
             {
-                throw new IOException("Native texture export failed and Texture.GetPixelData returned all-zero pixel data. " +
-                    "SaveToFileError=" + (nativeExportError == null ? "unknown" : nativeExportError.Message) +
-                    "; PlatformTexture.Name=" + (platformTextureName ?? "<null>"));
+                throw new IOException("Native atlas export failed and Texture.GetPixelData returned all-zero pixel data. " +
+                    "SaveToFileError=" + (nativeExportError == null ? "unknown" : nativeExportError.Message));
             }
 
             WritePng(path, raw, width, height, PixelLayout.Bgra);
@@ -276,14 +211,41 @@ namespace BannerlordHtmlUI
             return fallback;
         }
 
-        private static TaleWorlds.Engine.Texture ResolveEngineTexture(object spritePart, out string runtimePath)
+        private static TaleWorlds.Engine.Texture ResolveEngineTexture(object spritePart, object category, object spriteSheet, out string runtimePath)
         {
+            var sheetId = GetInt(spritePart, "SheetID") ?? -1;
+            runtimePath = "Category=" + (category == null ? "<null>" : (GetString(category, "Name") ?? category.GetType().FullName))
+                + "; SheetID=" + sheetId
+                + "; SpriteSheet=" + (spriteSheet == null ? "<null>" : spriteSheet.GetType().FullName)
+                + "; SpriteSheet.Name=" + (GetString(spriteSheet, "Name") ?? "<null>");
+
+            if (spriteSheet != null)
+            {
+                var sheetPlatform = GetPropertyValue(spriteSheet, "PlatformTexture");
+                runtimePath += "; SpriteSheet.PlatformTexture=" + (sheetPlatform == null ? "<null>" : sheetPlatform.GetType().FullName)
+                    + "; Name=" + (GetString(sheetPlatform, "Name") ?? "<null>");
+                if (sheetPlatform is TaleWorlds.Engine.Texture directSheet)
+                {
+                    runtimePath += " [Engine.Texture]";
+                    return directSheet;
+                }
+
+                var sheetEngine = GetPropertyValue(sheetPlatform, "Texture");
+                runtimePath += "; SpriteSheet.PlatformTexture.Texture=" + (sheetEngine == null ? "<null>" : sheetEngine.GetType().FullName);
+                if (sheetEngine is TaleWorlds.Engine.Texture wrappedSheet)
+                {
+                    runtimePath += " [EngineTexture]";
+                    return wrappedSheet;
+                }
+            }
+
             var texture2D = GetPropertyValue(spritePart, "Texture");
-            runtimePath = "SpritePart.Texture=" + (texture2D == null ? "<null>" : texture2D.GetType().FullName);
+            runtimePath += "; SpritePart.Texture=" + (texture2D == null ? "<null>" : texture2D.GetType().FullName);
             if (texture2D == null) return null;
 
             var platform = GetPropertyValue(texture2D, "PlatformTexture");
-            runtimePath += "; PlatformTexture=" + (platform == null ? "<null>" : platform.GetType().FullName);
+            runtimePath += "; PlatformTexture=" + (platform == null ? "<null>" : platform.GetType().FullName)
+                + "; PlatformTexture.Name=" + (GetString(platform, "Name") ?? "<null>");
             if (platform == null) return null;
 
             if (platform is TaleWorlds.Engine.Texture direct)
@@ -300,6 +262,33 @@ namespace BannerlordHtmlUI
                 return wrapped;
             }
 
+            return null;
+        }
+
+        private static object ResolveSpriteSheet(object category, int sheetId)
+        {
+            if (category == null || sheetId < 0) return null;
+            var sheets = GetPropertyValue(category, "SpriteSheets");
+            if (sheets == null) return null;
+            return GetIndexedValue(sheets, sheetId);
+        }
+
+        private static object GetIndexedValue(object collection, int index)
+        {
+            if (collection == null || index < 0) return null;
+            try
+            {
+                if (collection is IList list)
+                    return index < list.Count ? list[index] : null;
+
+                var type = collection.GetType();
+                var countProperty = type.GetProperty("Count", BindingFlags.Instance | BindingFlags.Public);
+                var count = countProperty == null ? (int?)null : Convert.ToInt32(countProperty.GetValue(collection, null));
+                if (count.HasValue && index >= count.Value) return null;
+                var itemProperty = type.GetProperty("Item", BindingFlags.Instance | BindingFlags.Public);
+                if (itemProperty != null) return itemProperty.GetValue(collection, new object[] { index });
+            }
+            catch { }
             return null;
         }
 
