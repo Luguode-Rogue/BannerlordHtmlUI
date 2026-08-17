@@ -1,7 +1,11 @@
 using System;
 using System.Collections.Concurrent;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using TaleWorlds.Engine;
@@ -120,20 +124,64 @@ namespace BannerlordHtmlUI
             if (!texture.IsValid)
                 throw new InvalidOperationException("Engine Texture is invalid for '" + resourceName + "'.");
 
+            var width = texture.Width > 0 ? texture.Width : sheetWidth;
+            var height = texture.Height > 0 ? texture.Height : sheetHeight;
+            if (width <= 0 || height <= 0)
+                throw new InvalidOperationException("Engine Texture dimensions are unavailable for '" + resourceName + "'.");
+
+            var pixelCount = checked(width * height);
+            var raw = new byte[checked(pixelCount * 4)];
+            texture.GetPixelData(raw);
+
             var hash = Sha256(identity).Substring(0, 24);
             var filename = "sprite-" + hash + ".png";
             var path = System.IO.Path.Combine(_cacheDirectory, filename);
 
             if (!File.Exists(path))
-            {
-                texture.SaveToFile(path);
-                if (!File.Exists(path) || new FileInfo(path).Length == 0)
-                    throw new IOException("Engine Texture.SaveToFile did not produce a valid file: " + path);
-            }
+                WritePng(path, raw, width, height);
+
+            if (!File.Exists(path) || new FileInfo(path).Length == 0)
+                throw new IOException("Texture pixel readback did not produce a valid PNG: " + path);
 
             var url = _publicHost + "/" + filename;
             CachedUrls[identity] = url;
             return url;
+        }
+
+        private static void WritePng(string path, byte[] raw, int width, int height)
+        {
+            var directory = System.IO.Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+
+            using (var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb))
+            {
+                var rectangle = new Rectangle(0, 0, width, height);
+                var data = bitmap.LockBits(rectangle, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                try
+                {
+                    var stride = Math.Abs(data.Stride);
+                    var rowBytes = width * 4;
+                    if (stride == rowBytes)
+                    {
+                        Marshal.Copy(raw, 0, data.Scan0, raw.Length);
+                    }
+                    else
+                    {
+                        for (var y = 0; y < height; y++)
+                        {
+                            var sourceOffset = y * rowBytes;
+                            var destination = IntPtr.Add(data.Scan0, y * data.Stride);
+                            Marshal.Copy(raw, sourceOffset, destination, rowBytes);
+                        }
+                    }
+                }
+                finally
+                {
+                    bitmap.UnlockBits(data);
+                }
+
+                bitmap.Save(path, ImageFormat.Png);
+            }
         }
 
         private static object GetPropertyValue(object instance, string name)
