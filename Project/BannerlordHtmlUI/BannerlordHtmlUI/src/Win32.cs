@@ -54,9 +54,22 @@ namespace BannerlordHtmlUI
         internal static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
         internal const int GWL_EXSTYLE = -20;
+        internal const int GWL_HWNDPARENT = -8;
         internal const long WS_EX_NOACTIVATE = 0x08000000L;
         internal const long WS_EX_TOOLWINDOW = 0x00000080L;
         internal const int SW_SHOWNOACTIVATE = 4;
+
+        internal static void SetOwner(IntPtr hWnd, IntPtr ownerHwnd)
+        {
+            if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return;
+            if (ownerHwnd != IntPtr.Zero && !IsWindow(ownerHwnd)) return;
+
+            var value = ownerHwnd;
+            if (Environment.Is64BitProcess)
+                SetWindowLongPtr64(hWnd, GWL_HWNDPARENT, value);
+            else
+                SetWindowLongPtr32(hWnd, GWL_HWNDPARENT, value);
+        }
 
         internal static void SetNoActivate(IntPtr hWnd, bool enabled)
         {
