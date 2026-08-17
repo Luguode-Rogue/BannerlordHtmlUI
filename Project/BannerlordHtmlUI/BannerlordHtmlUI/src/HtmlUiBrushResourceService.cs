@@ -66,6 +66,7 @@ namespace BannerlordHtmlUI
             object pixelDiagnostics = null;
             object variantUrls = null;
             string exportSource = null;
+            string runtimeTexturePath = null;
             if (includeResource)
             {
                 var identity = (resourceName ?? string.Empty) + "|" + sheetId + "|" + sheetWidth + "x" + sheetHeight;
@@ -82,6 +83,7 @@ namespace BannerlordHtmlUI
                         pixelDiagnostics = export.Diagnostics;
                         variantUrls = export.Variants;
                         exportSource = export.Source;
+                        runtimeTexturePath = export.RuntimeTexturePath;
                     }
                     catch (Exception ex)
                     {
@@ -101,6 +103,7 @@ namespace BannerlordHtmlUI
                 resourceUrl = url,
                 resourceError = cacheError,
                 resourceSource = exportSource,
+                runtimeTexturePath,
                 textureName,
                 resourceName,
                 sheetId,
@@ -123,36 +126,102 @@ namespace BannerlordHtmlUI
             public object Diagnostics;
             public object Variants;
             public string Source;
+            public string RuntimeTexturePath;
         }
 
         private static TextureExportResult EnsureTextureCached(object spritePart, string resourceName, int sheetWidth, int sheetHeight, int sheetX, int sheetY, int spriteWidth, int spriteHeight)
         {
             if (!_initialized)
                 throw new InvalidOperationException("Native Brush resource cache is not initialized.");
+            if (spritePart == null)
+                throw new InvalidOperationException("SpritePart is unavailable.");
 
-            var sheetTexture2D = ResolveActualSpriteSheet(spritePart);
-            var source = "SpriteCategory.SpriteSheets[SheetID]";
-            TaleWorlds.Engine.Texture texture = ResolveEngineTexture(sheetTexture2D);
+            var textureWrapper = GetPropertyValue(spritePart, "Texture");
+            if (textureWrapper == null)
+                throw new InvalidOperationException("SpritePart.Texture is null.");
 
-            if (texture == null && !string.IsNullOrWhiteSpace(resourceName))
+            var platformTexture = GetPropertyValue(textureWrapper, "PlatformTexture");
+            var runtimePath = "SpritePart.Texture=" + textureWrapper.GetType().FullName
+                + "; PlatformTexture=" + (platformTexture == null ? "<null>" : platformTexture.GetType().FullName);
+
+            if (platformTexture == null)
+                throw new InvalidOperationException("SpritePart.Texture.PlatformTexture is null. " + runtimePath);
+
+            TaleWorlds.Engine.Texture texture = null;
+            string source = "SpritePart.Texture.PlatformTexture";
+
+            if (platformTexture is TaleWorlds.Engine.Texture direct)
             {
-                texture = TaleWorlds.Engine.Texture.GetFromResource(resourceName);
-                source = "Texture.GetFromResource(resourceName) fallback";
+                texture = direct;
+                source = "SpritePart.Texture.PlatformTexture [Engine.Texture]";
+            }
+            else
+            {
+                var engineTexture = GetPropertyValue(platformTexture, "Texture");
+                if (engineTexture is TaleWorlds.Engine.Texture wrapped)
+                {
+                    texture = wrapped;
+                    source = "SpritePart.Texture.PlatformTexture.Texture [EngineTexture]";
+                }
+                else
+                {
+                    runtimePath += "; PlatformTexture.Texture=" + (engineTexture == null ? "<null>" : engineTexture.GetType().FullName);
+                }
             }
 
             if (texture == null)
-                throw new InvalidOperationException("Unable to resolve the native engine texture used by the SpritePart. resource='" + resourceName + "'.");
+            {
+                var category = GetPropertyValue(spritePart, "Category");
+                var sheets = category == null ? null : GetPropertyValue(category, "SpriteSheets") as IEnumerable;
+                var sheetId = GetInt(spritePart, "SheetID") ?? -1;
+                runtimePath += "; Category=" + (category == null ? "<null>" : category.GetType().FullName)
+                    + "; SpriteSheets=" + (sheets == null ? "<null>" : sheets.GetType().FullName)
+                    + "; SheetID=" + sheetId;
+
+                if (sheets != null && sheetId >= 0)
+                {
+                    var index = 0;
+                    foreach (var sheet in sheets)
+                    {
+                        if (index == sheetId)
+                        {
+                            runtimePath += "; SheetObject=" + (sheet == null ? "<null>" : sheet.GetType().FullName);
+                            var sheetPlatform = GetPropertyValue(sheet, "PlatformTexture");
+                            runtimePath += "; Sheet.PlatformTexture=" + (sheetPlatform == null ? "<null>" : sheetPlatform.GetType().FullName);
+                            if (sheetPlatform is TaleWorlds.Engine.Texture sheetEngine)
+                            {
+                                texture = sheetEngine;
+                                source = "SpriteCategory.SpriteSheets[SheetID].PlatformTexture [Engine.Texture]";
+                            }
+                            else
+                            {
+                                var sheetEngineTexture = GetPropertyValue(sheetPlatform, "Texture");
+                                if (sheetEngineTexture is TaleWorlds.Engine.Texture sheetWrapped)
+                                {
+                                    texture = sheetWrapped;
+                                    source = "SpriteCategory.SpriteSheets[SheetID].PlatformTexture.Texture [EngineTexture]";
+                                }
+                            }
+                            break;
+                        }
+                        index++;
+                    }
+                }
+            }
+
+            if (texture == null)
+                throw new InvalidOperationException("Unable to unwrap the SpritePart's loaded PlatformTexture. " + runtimePath);
 
             try { texture.PreloadTexture(true); } catch (Exception ex) { HtmlUiLogger.Debug("Native Brush texture preload failed: " + ex.Message); }
             try { texture.SetTextureAsAlwaysValid(); } catch { }
 
             if (!texture.IsValid)
-                throw new InvalidOperationException("Resolved native engine texture is invalid. resource='" + resourceName + "', source='" + source + "'.");
+                throw new InvalidOperationException("Resolved native engine texture is invalid. source='" + source + "'. " + runtimePath);
 
             var width = texture.Width > 0 ? texture.Width : sheetWidth;
             var height = texture.Height > 0 ? texture.Height : sheetHeight;
             if (width <= 0 || height <= 0)
-                throw new InvalidOperationException("Resolved native engine texture dimensions are unavailable. resource='" + resourceName + "'.");
+                throw new InvalidOperationException("Resolved native engine texture dimensions are unavailable. source='" + source + "'. " + runtimePath);
 
             var pixelCount = checked(width * height);
             var raw = new byte[checked(pixelCount * 4)];
@@ -191,48 +260,9 @@ namespace BannerlordHtmlUI
                 FullTextureUrl = _publicHost + "/" + filename,
                 Diagnostics = diagnostics,
                 Variants = variantPayload,
-                Source = source
+                Source = source,
+                RuntimeTexturePath = runtimePath
             };
-        }
-
-        private static object ResolveActualSpriteSheet(object spritePart)
-        {
-            if (spritePart == null) return null;
-            var category = GetPropertyValue(spritePart, "Category");
-            if (category == null) return null;
-
-            var sheetId = GetInt(spritePart, "SheetID") ?? -1;
-            var sheets = GetPropertyValue(category, "SpriteSheets") as IEnumerable;
-            if (sheets == null) return null;
-
-            var index = 0;
-            foreach (var sheet in sheets)
-            {
-                if (index == sheetId)
-                    return sheet;
-                index++;
-            }
-            return null;
-        }
-
-        private static TaleWorlds.Engine.Texture ResolveEngineTexture(object twoDimensionTexture)
-        {
-            if (twoDimensionTexture == null) return null;
-
-            if (twoDimensionTexture is TaleWorlds.Engine.Texture directEngineTexture)
-                return directEngineTexture;
-
-            var platformTexture = GetPropertyValue(twoDimensionTexture, "PlatformTexture");
-            if (platformTexture == null) return null;
-
-            if (platformTexture is TaleWorlds.Engine.Texture platformEngineTexture)
-                return platformEngineTexture;
-
-            var engineTexture = GetPropertyValue(platformTexture, "Texture");
-            if (engineTexture is TaleWorlds.Engine.Texture nestedEngineTexture)
-                return nestedEngineTexture;
-
-            return null;
         }
 
         private enum PixelLayout
@@ -266,7 +296,8 @@ namespace BannerlordHtmlUI
             var first = string.Join(",", raw.Take(Math.Min(32, raw.Length)).Select(b => b.ToString("X2")));
             return "source=" + source
                 + ", dimensions=" + width + "x" + height
-                + ", bytes=" + raw.Length + ", expectedBytes=" + expected
+                + ", bytes=" + raw.Length
+                + ", expectedBytes=" + expected
                 + ", samplePixels=" + count
                 + ", min=[" + string.Join(",", min) + "]"
                 + ", max=[" + string.Join(",", max) + "]"
@@ -335,6 +366,7 @@ namespace BannerlordHtmlUI
                 {
                     bitmap.UnlockBits(data);
                 }
+
                 bitmap.Save(path, ImageFormat.Png);
             }
         }
@@ -390,8 +422,7 @@ namespace BannerlordHtmlUI
         {
             var chars = (value ?? string.Empty).ToLowerInvariant().ToCharArray();
             for (var i = 0; i < chars.Length; i++)
-                if (!((chars[i] >= 'a' && chars[i] <= 'z') || (chars[i] >= '0' && chars[i] <= '9') || chars[i] == '-'))
-                    chars[i] = '-';
+                if (!((chars[i] >= 'a' && chars[i] <= 'z') || (chars[i] >= '0' && chars[i] <= '9') || chars[i] == '-')) chars[i] = '-';
             var result = new string(chars).Trim('-');
             return result.Length == 0 ? "mod" : result;
         }
