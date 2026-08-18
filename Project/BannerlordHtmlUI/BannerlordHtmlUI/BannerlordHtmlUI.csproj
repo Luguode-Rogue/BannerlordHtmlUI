@@ -20,7 +20,9 @@
     <!-- Installed Mod root is the module directory; runtime binaries/resources live below bin\<game-binary-dir>. -->
     <FrameworkModuleDeployDir Condition="'$(FrameworkModuleDeployDir)' == ''">$(GameFolder)\Modules\$(ModuleId)</FrameworkModuleDeployDir>
     <FrameworkBinaryDeployDir Condition="'$(FrameworkBinaryDeployDir)' == ''">$(FrameworkModuleDeployDir)\bin\$(GameBinariesFolder)</FrameworkBinaryDeployDir>
-    <FrameworkWebSourceDir Condition="'$(FrameworkWebSourceDir)' == ''">$(MSBuildProjectDirectory)\web</FrameworkWebSourceDir>
+    <!-- The BUTR _Module folder is the canonical packaged copy of runtime Web assets. -->
+    <FrameworkWebSourceDir Condition="'$(FrameworkWebSourceDir)' == '' and '$(GameBinariesFolder)' == 'Win64_Shipping_Client'">$(MSBuildProjectDirectory)\_Module\bin\Win64_Shipping_Client\web</FrameworkWebSourceDir>
+    <FrameworkWebSourceDir Condition="'$(FrameworkWebSourceDir)' == '' and '$(GameBinariesFolder)' == 'Gaming.Desktop.x64_Shipping_Client'">$(MSBuildProjectDirectory)\_Module\bin\Gaming.Desktop.x64_Shipping_Client\web</FrameworkWebSourceDir>
     <FrameworkWebDeployDir Condition="'$(FrameworkWebDeployDir)' == ''">$(FrameworkBinaryDeployDir)\web</FrameworkWebDeployDir>
 
     <!-- Path created by the earlier implicit output deployment. -->
@@ -72,29 +74,31 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2849.39" />
   </ItemGroup>
 
-  <!-- Keep source assets in the repository. Runtime deployment is explicit below. -->
+  <!-- Keep packaged _Module assets visible to the project system. -->
   <ItemGroup>
     <None Include="_Module\SubModule.xml" />
-    <None Include="web\**\*" />
+    <None Include="_Module\bin\Win64_Shipping_Client\web\**\*" />
+    <None Include="_Module\bin\Gaming.Desktop.x64_Shipping_Client\web\**\*" />
   </ItemGroup>
 
   <!--
     Runtime deployment layout:
       Modules\BannerlordHtmlUI\
         SubModule.xml
-        bin\Win64_Shipping_Client\
+        bin\<GameBinariesFolder>\
           BannerlordHtmlUI.dll
           web\...
 
     SubModule.cs resolves its web root from Assembly.Location, so the web folder must be
     beside the loaded Framework assembly inside bin\<GameBinariesFolder>.
+    The source assets now live in the BUTR _Module mirror at the same final relative path.
   -->
   <Target Name="DeployFrameworkRuntimeAssets"
           AfterTargets="Build"
           Condition="'$(DesignTimeBuild)' != 'true' and Exists('$(GameFolder)') and Exists('$(GameFolder)\bin\$(GameBinariesFolder)') and Exists('$(FrameworkWebSourceDir)')">
     <Message Importance="High" Text="[BannerlordHtmlUI] Framework module: '$(FrameworkModuleDeployDir)'" />
     <Message Importance="High" Text="[BannerlordHtmlUI] Framework binary directory: '$(FrameworkBinaryDeployDir)'" />
-    <Message Importance="High" Text="[BannerlordHtmlUI] Deploy web: '$(FrameworkWebSourceDir)' -> '$(FrameworkWebDeployDir)'" />
+    <Message Importance="High" Text="[BannerlordHtmlUI] Deploy web from _Module: '$(FrameworkWebSourceDir)' -> '$(FrameworkWebDeployDir)'" />
 
     <RemoveDir Directories="$(LegacyFrameworkWebDir)"
               Condition="Exists('$(LegacyFrameworkWebDir)')" />
@@ -116,9 +120,9 @@
       SkipUnchangedFiles="true" />
 
     <!--
-      Source runtime modules stay split for maintainability, but Bannerlord WebView2 must
-      receive one already-built DocumentCreated script. Do not load sibling JS files from
-      inside runtime.js with sync XHR: that is not reliable during WebView2 document creation.
+      Keep runtime.js generated from the split source modules. The generated file is what
+      Bannerlord WebView2 receives; runtime-bootstrap/core/i18n remain packaged source assets
+      so the repository's _Module layout is complete and inspectable.
     -->
     <ReadLinesFromFile File="$(FrameworkWebSourceDir)\runtime-bootstrap.js">
       <Output TaskParameter="Lines" ItemName="_RuntimeBootstrapLines" />
