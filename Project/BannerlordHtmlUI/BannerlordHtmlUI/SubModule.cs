@@ -17,6 +17,11 @@ namespace BannerlordHtmlUI
             _moduleDirectory = Path.GetDirectoryName(typeof(SubModule).Assembly.Location);
             var webRoot = Path.Combine(_moduleDirectory, "web");
 
+            // WebView2 defaults to a white background. The framework supports
+            // transparent consumer overlays, so establish transparency before
+            // the WebView2 environment is created.
+            Environment.SetEnvironmentVariable("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000");
+
             HtmlUiService.OnReady(RegisterFrameworkPages);
             _initTask = HtmlUiService.InitializeAsync(_moduleDirectory, webRoot);
             _initTask.ContinueWith(t =>
@@ -36,6 +41,7 @@ namespace BannerlordHtmlUI
                 HtmlUiWindowTrackingPatch.Install(HtmlUiService.Host);
                 HtmlUiProcessRecovery.Install(HtmlUiService.Host);
                 HtmlUiContextMenuPatch.Install(HtmlUiService.Host);
+                HtmlUiTransparencyPatch.Install();
 
                 // WebView2-dependent Runtime patches are installed by HtmlUiHost.ConfigureAfterWebViewReady()
                 // on the dedicated WebView2 UI thread. Do not reinstall them from Bannerlord's game thread.
