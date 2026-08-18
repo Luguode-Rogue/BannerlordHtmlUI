@@ -10,6 +10,7 @@
 - [文档任务地图](DOCUMENT_MAP.md)：不知道该看哪份文档时先看这里。
 - [项目状态](PROJECT_STATUS.md)：当前到底完成了什么、哪些还没验收。
 - [Bug 知识库](BUG_KNOWLEDGE_BASE.md)：遇到故障先查，包含失败方案和快速定位。
+- [BUTR 工程资源放置规则](../../../../BUTR_PROJECT_LAYOUT_RULES.md)：新建文件时如何决定放 `_Module`、`web`、`UI` 或其他部署位置。
 
 ## 文档分层
 
@@ -40,6 +41,16 @@ docs/ARCHITECTURE_MASTER.md / API.md / TESTING_AND_REGRESSION.md
 ```
 
 如果历史 Handoff 与当前代码冲突，以当前代码和最近验证为准；历史文档继续保留用于追溯设计原因和修复过程。
+
+## 新建文件与资源的默认规则
+
+本项目默认采用 BUTR Bannerlord 项目结构。**以后新增工程文件时，不要先想着“最后再复制到游戏目录”，而要先确定最终 Bannerlord 部署路径。**
+
+- 最终属于 `Modules/<ModId>/` 根目录的文件：放到对应工程的 `_Module/<相同相对路径>`。
+- Framework / Consumer 的 DLL 旁 Web/UI 资源：先检查该项目的 `SubModule.cs` 与 `.csproj`，按 `Assembly.Location` 和部署 Target 的实际规则放置。
+- 不要求用户手工复制文件到游戏 `Modules` 目录；工程的 Build/Deploy 规则应负责部署。
+
+统一规则见：[BUTR 工程资源放置规则](../../../../BUTR_PROJECT_LAYOUT_RULES.md)。
 
 ## 原有细分文档如何使用
 
