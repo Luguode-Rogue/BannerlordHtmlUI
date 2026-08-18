@@ -25,8 +25,44 @@ Framework 当前工程版本：`0.44.0`
 ```text
 Project/
 ├─ BannerlordHtmlUI/          # Framework
+│  └─ BannerlordHtmlUI/
+│     └─ _Module/             # 最终 Framework Mod 根目录的工程镜像
 └─ HtmlUiConsumerTestMod/     # Consumer / 实机验收 Mod
+   └─ HtmlUiConsumerTestMod/
+      └─ _Module/             # 最终 Consumer Mod 根目录的工程镜像
 ```
+
+## BUTR `_Module` 文件规则
+
+本工程采用 BUTR 的项目结构。**`_Module/` 是最终 Bannerlord Mod 根目录的工程内镜像，而不是普通资源收纳目录。**
+
+规则只有一个：
+
+```text
+工程中的 _Module/<相对路径>
+        ↓ Build / Deploy
+游戏中的 Modules/<ModId>/<相对路径>
+```
+
+因此，凡是最终需要出现在 `Modules/<ModId>/` 根目录层级或其子目录中的文件，都应在对应工程的 `_Module/` 下使用**完全相同的相对路径**。
+
+例如最终需要：
+
+```text
+Modules/MyMod/ModuleData/Languages/zh-CN.xml
+```
+
+工程中就应放：
+
+```text
+Project/MyMod/MyMod/_Module/ModuleData/Languages/zh-CN.xml
+```
+
+不要把这类文件直接手工复制到游戏的 `Modules/<ModId>/` 目录；先放入 `_Module/`，由 BUTR 的构建/部署流程处理最终 Mod 布局。
+
+这条规则只针对最终属于 Mod 根目录的文件。源码、工程文件以及明确位于 `bin/<GameBinariesFolder>/`、由程序集相对路径加载的 Web/UI 资源，不应因为“是资源”就全部塞进 `_Module/`；应按照它们的实际运行时位置处理。
+
+详细的 Framework / Consumer 资源部署说明见 `Project/README.md` 与 `docs/DEVELOPMENT_GUIDE.md`。
 
 ## 当前原则
 
