@@ -11,6 +11,7 @@ namespace BannerlordHtmlUI
         public string OwnerId { get; internal set; } = "framework";
         public bool HotReload { get; set; }
         public HtmlUiInputMode DefaultInputMode { get; set; } = HtmlUiInputMode.Passive;
+        public bool CloseOnEscape { get; set; } = true;
         public Action Opened { get; set; }
         public Action Closed { get; set; }
 
