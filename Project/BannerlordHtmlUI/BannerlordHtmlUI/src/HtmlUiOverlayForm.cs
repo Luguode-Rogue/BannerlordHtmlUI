@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Windows.Forms;
 
 namespace BannerlordHtmlUI
@@ -6,6 +7,7 @@ namespace BannerlordHtmlUI
     internal sealed class HtmlUiOverlayForm : Form
     {
         private bool _passThrough;
+        private bool _restoreFocusPending;
 
         public Func<bool> EscapePressed { get; set; }
 
@@ -51,8 +53,14 @@ namespace BannerlordHtmlUI
         {
             const int WM_NCHITTEST = 0x0084;
             const int WM_MOUSEACTIVATE = 0x0021;
+            const int WM_LBUTTONDOWN = 0x0201;
+            const int WM_LBUTTONUP = 0x0202;
+            const int WM_RBUTTONDOWN = 0x0204;
+            const int WM_RBUTTONUP = 0x0205;
+            const int WM_MBUTTONDOWN = 0x0207;
+            const int WM_MBUTTONUP = 0x0208;
             const int HTTRANSPARENT = -1;
-            const int MA_NOACTIVATE = 3;
+            const int MA_ACTIVATE = 1;
 
             if (_passThrough && m.Msg == WM_NCHITTEST)
             {
@@ -60,16 +68,54 @@ namespace BannerlordHtmlUI
                 return;
             }
 
-            // MouseCaptured deliberately keeps Bannerlord as the foreground/keyboard
-            // owner. Return MA_NOACTIVATE so an inactive overlay still receives the
-            // original mouse message instead of activating itself or eating the click.
             if (!_passThrough && m.Msg == WM_MOUSEACTIVATE)
             {
-                m.Result = (IntPtr)MA_NOACTIVATE;
+                HtmlUiLogger.Info("MouseCaptured WM_MOUSEACTIVATE -> MA_ACTIVATE.");
+                m.Result = (IntPtr)MA_ACTIVATE;
                 return;
             }
 
+            var shouldRestoreKeyboard = !_passThrough &&
+                (m.Msg == WM_LBUTTONDOWN || m.Msg == WM_LBUTTONUP ||
+                 m.Msg == WM_RBUTTONDOWN || m.Msg == WM_RBUTTONUP ||
+                 m.Msg == WM_MBUTTONDOWN || m.Msg == WM_MBUTTONUP);
+
             base.WndProc(ref m);
+
+            if (shouldRestoreKeyboard && !_restoreFocusPending)
+                RestoreBannerlordKeyboardFocusSoon();
+        }
+
+        private void RestoreBannerlordKeyboardFocusSoon()
+        {
+            _restoreFocusPending = true;
+            try
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        var gameWindow = Process.GetCurrentProcess().MainWindowHandle;
+                        if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
+                        {
+                            Win32.SetForegroundWindow(gameWindow);
+                            HtmlUiLogger.Info("MouseCaptured click delivered; Bannerlord keyboard focus restored.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        HtmlUiLogger.Debug("Failed to restore Bannerlord keyboard focus after mouse click: " + ex.GetBaseException().Message);
+                    }
+                    finally
+                    {
+                        _restoreFocusPending = false;
+                    }
+                }));
+            }
+            catch
+            {
+                _restoreFocusPending = false;
+            }
         }
     }
 }
