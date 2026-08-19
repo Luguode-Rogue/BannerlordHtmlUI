@@ -101,9 +101,7 @@ namespace BannerlordHtmlUI
                 {
                     Dock = DockStyle.Fill
                 };
-                _web.MouseUp += OnWebViewMouseUp;
 
-                _form.MouseReleased = () => RestoreBannerlordFocus();
                 _form.Controls.Add(_web);
 
                 _followTimer = new System.Windows.Forms.Timer { Interval = 100 };
@@ -120,43 +118,6 @@ namespace BannerlordHtmlUI
             {
                 HtmlUiLogger.Error("WebView2 UI thread failed.", ex);
                 _ready.TrySetException(ex);
-            }
-        }
-
-        private void OnWebViewMouseUp(object sender, MouseEventArgs e)
-        {
-            if (_inputMode != HtmlUiInputMode.MouseCaptured) return;
-            if (e.Button != MouseButtons.Left && e.Button != MouseButtons.Right && e.Button != MouseButtons.Middle) return;
-            BeginRestoreBannerlordFocus();
-        }
-
-        private void BeginRestoreBannerlordFocus()
-        {
-            if (_form == null || _form.IsDisposed) return;
-            try
-            {
-                _form.BeginInvoke(new Action(RestoreBannerlordFocus));
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Debug("Failed to schedule Bannerlord focus restore: " + ex.GetBaseException().Message);
-            }
-        }
-
-        private void RestoreBannerlordFocus()
-        {
-            try
-            {
-                var gameWindow = Process.GetCurrentProcess().MainWindowHandle;
-                if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
-                {
-                    Win32.SetForegroundWindow(gameWindow);
-                    HtmlUiLogger.Info("WebView2 mouse release completed; Bannerlord keyboard focus restored.");
-                }
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Debug("Failed to restore Bannerlord keyboard focus: " + ex.GetBaseException().Message);
             }
         }
 
@@ -393,7 +354,6 @@ namespace BannerlordHtmlUI
         public void Reload()
         {
             if (_disposed) return;
-            if (_web == null) return;
             EnsureUiThread(() => _web.Reload());
         }
 
@@ -437,12 +397,12 @@ namespace BannerlordHtmlUI
                 }
                 else if (mode == HtmlUiInputMode.MouseCaptured)
                 {
-                    // Interactive map: receive mouse input, but do not deliberately
-                    // steal keyboard focus. The WebView2 mouse-release handler above
-                    // returns foreground ownership to Bannerlord after each click.
-                    Win32.SetNoActivate(_form.Handle, false);
-                    Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNORMAL);
-                    HtmlUiLogger.Info("MouseCaptured applied: overlay is hit-testable and WebView2 focus is transient.");
+                    Win32.SetNoActivate(_form.Handle, true);
+                    Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
+                    Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
+                    if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
+                        Win32.SetForegroundWindow(gameWindow);
+                    HtmlUiLogger.Info("MouseCaptured applied: overlay hit-testing enabled without keyboard focus.");
                 }
                 else
                 {
@@ -471,8 +431,9 @@ namespace BannerlordHtmlUI
             }
             else if (_inputMode == HtmlUiInputMode.MouseCaptured)
             {
-                Win32.SetNoActivate(_form.Handle, false);
-                Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNORMAL);
+                Win32.SetNoActivate(_form.Handle, true);
+                Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
+                Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
             }
             else
             {
@@ -493,6 +454,12 @@ namespace BannerlordHtmlUI
             Bridge.RegisterCommand(name, handler);
         }
 
+        internal void RegisterCommand(string name, Action<JToken> handler, string ownerId)
+        {
+            if (Bridge == null) throw new InvalidOperationException("HTML UI host is not ready.");
+            Bridge.RegisterCommand(name, handler, ownerId);
+        }
+
         public void RegisterRequest(string name, Func<JToken, Task<object>> handler)
         {
             if (Bridge == null) throw new InvalidOperationException("HTML UI host is not ready.");
@@ -503,6 +470,18 @@ namespace BannerlordHtmlUI
         {
             if (Bridge == null) throw new InvalidOperationException("HTML UI host is not ready.");
             Bridge.RegisterRequest(name, handler);
+        }
+
+        internal void RegisterRequest(string name, Func<JToken, Task<object>> handler, string ownerId)
+        {
+            if (Bridge == null) throw new InvalidOperationException("HTML UI host is not ready.");
+            Bridge.RegisterRequest(name, handler, ownerId);
+        }
+
+        internal void RegisterRequest(string name, Func<JToken, CancellationToken, Task<object>> handler, string ownerId)
+        {
+            if (Bridge == null) throw new InvalidOperationException("HTML UI host is not ready.");
+            Bridge.RegisterRequest(name, handler, ownerId);
         }
 
         public void SendEvent(string name, object payload)
@@ -575,8 +554,6 @@ namespace BannerlordHtmlUI
                     _followTimer.Dispose();
                     _followTimer = null;
                 }
-                if (_web != null) _web.MouseUp -= OnWebViewMouseUp;
-                if (_form != null) _form.MouseReleased = null;
                 if (_form != null && !_form.IsDisposed)
                 {
                     if (_form.InvokeRequired) _form.BeginInvoke(new Action(() =>
