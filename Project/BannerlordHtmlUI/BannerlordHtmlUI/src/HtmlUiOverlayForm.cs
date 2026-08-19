@@ -7,7 +7,7 @@ namespace BannerlordHtmlUI
     {
         private bool _passThrough;
 
-        public Action EscapePressed { get; set; }
+        public Func<bool> EscapePressed { get; set; }
 
         public HtmlUiOverlayForm()
         {
@@ -34,15 +34,14 @@ namespace BannerlordHtmlUI
             {
                 try
                 {
-                    HtmlUiLogger.Info("ESC detected by HtmlUiOverlayForm. Dispatching page close.");
-                    EscapePressed?.Invoke();
+                    HtmlUiLogger.Info("ESC detected by HtmlUiOverlayForm.");
+                    if (EscapePressed != null && EscapePressed()) return true;
                 }
                 catch (Exception ex)
                 {
                     HtmlUiLogger.Error("ESC page close dispatch failed.", ex);
+                    return true;
                 }
-
-                return true;
             }
 
             return base.ProcessCmdKey(ref msg, keyData);
