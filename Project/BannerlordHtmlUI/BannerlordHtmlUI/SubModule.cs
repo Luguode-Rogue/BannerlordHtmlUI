@@ -17,8 +17,6 @@ namespace BannerlordHtmlUI
             _moduleDirectory = Path.GetDirectoryName(typeof(SubModule).Assembly.Location);
             var webRoot = Path.Combine(_moduleDirectory, "web");
 
-            // WebView2 defaults to a white background. Establish transparency
-            // before the environment/controller are created.
             Environment.SetEnvironmentVariable("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000");
             try
             {
@@ -27,6 +25,15 @@ namespace BannerlordHtmlUI
             catch (Exception ex)
             {
                 HtmlUiLogger.Error("Failed to install transparent overlay patch.", ex);
+            }
+
+            try
+            {
+                HtmlUiKeyboardPolicyPatch.Install();
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Error("Failed to install page keyboard policy patch.", ex);
             }
 
             HtmlUiService.OnReady(RegisterFrameworkPages);
@@ -48,9 +55,6 @@ namespace BannerlordHtmlUI
                 HtmlUiWindowTrackingPatch.Install(HtmlUiService.Host);
                 HtmlUiProcessRecovery.Install(HtmlUiService.Host);
                 HtmlUiContextMenuPatch.Install(HtmlUiService.Host);
-
-                // WebView2-dependent Runtime patches are installed by HtmlUiHost.ConfigureAfterWebViewReady()
-                // on the dedicated WebView2 UI thread. Do not reinstall them from Bannerlord's game thread.
 
                 if (!HtmlUiCommands.CommandExists("runtime.error"))
                 {
@@ -87,7 +91,6 @@ namespace BannerlordHtmlUI
             {
                 HtmlUiService.Tick();
 
-                // Temporary framework diagnostic hotkey. Remove or remap in production consumers.
                 if (Input.IsKeyPressed(InputKey.F10))
                 {
                     HtmlUiLogger.Warn("===== F10 DIAGNOSTICS OPEN =====");
@@ -115,6 +118,7 @@ namespace BannerlordHtmlUI
             try { HtmlUiWindowTrackingPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Window tracking patch uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiProcessRecovery.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("WebView2 process recovery uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiContextMenuPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Context menu patch uninstall failed: " + ex.GetBaseException().Message); }
+            try { HtmlUiKeyboardPolicyPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Keyboard policy patch uninstall failed: " + ex.GetBaseException().Message); }
             HtmlUiService.Dispose();
             base.OnSubModuleUnloaded();
         }
