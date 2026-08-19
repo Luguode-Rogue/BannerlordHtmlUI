@@ -10,6 +10,7 @@ namespace BannerlordHtmlUI
         private bool _restoreFocusPending;
 
         public Func<bool> EscapePressed { get; set; }
+        public Action MouseReleased { get; set; }
 
         public HtmlUiOverlayForm()
         {
@@ -74,8 +75,6 @@ namespace BannerlordHtmlUI
 
             base.WndProc(ref m);
 
-            // Do not restore game focus on mouse-down: WebView2 may need the active
-            // mouse capture for drag/camera interactions. Restore it after release.
             if (!_passThrough &&
                 (m.Msg == WM_LBUTTONUP || m.Msg == WM_RBUTTONUP || m.Msg == WM_MBUTTONUP) &&
                 !_restoreFocusPending)
@@ -93,6 +92,7 @@ namespace BannerlordHtmlUI
                 {
                     try
                     {
+                        MouseReleased?.Invoke();
                         var gameWindow = Process.GetCurrentProcess().MainWindowHandle;
                         if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
                         {
