@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace BannerlordHtmlUI
@@ -102,7 +103,7 @@ namespace BannerlordHtmlUI
         internal static bool TryGetGameWindowHandle(IntPtr excludedWindow, out IntPtr handle)
         {
             handle = IntPtr.Zero;
-            var processId = unchecked((uint)Environment.ProcessId);
+            var processId = unchecked((uint)Process.GetCurrentProcess().Id);
 
             lock (GameWindowSync)
             {
@@ -115,7 +116,7 @@ namespace BannerlordHtmlUI
 
             try
             {
-                var main = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                var main = Process.GetCurrentProcess().MainWindowHandle;
                 if (IsUsableGameWindow(main, processId, excludedWindow))
                     return RememberGameWindow(main, out handle);
             }
