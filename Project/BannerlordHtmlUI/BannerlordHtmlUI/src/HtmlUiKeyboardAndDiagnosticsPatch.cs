@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Reflection;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -126,11 +125,16 @@ namespace BannerlordHtmlUI
                 {
                     try
                     {
-                        var gameWindow = Process.GetCurrentProcess().MainWindowHandle;
-                        if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
+                        if (Win32.TryGetGameWindowHandle(form.Handle, out var gameWindow))
                         {
-                            Win32.SetForegroundWindow(gameWindow);
-                            HtmlUiLogger.Info("WebView2 mouse release: Bannerlord keyboard focus restored. button=" + e.Button);
+                            var restored = Win32.SetForegroundWindow(gameWindow);
+                            HtmlUiLogger.Info(
+                                "WebView2 mouse release: Bannerlord keyboard focus restored=" + restored + ", hwnd=" + gameWindow + ", button=" + e.Button);
+                        }
+                        else
+                        {
+                            HtmlUiLogger.Warn(
+                                "WebView2 mouse release: Bannerlord game window could not be resolved; keyboard focus was not restored. button=" + e.Button);
                         }
                     }
                     catch (Exception ex)

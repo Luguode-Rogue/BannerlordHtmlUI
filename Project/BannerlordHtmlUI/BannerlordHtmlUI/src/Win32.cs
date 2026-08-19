@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace BannerlordHtmlUI
@@ -13,6 +14,10 @@ namespace BannerlordHtmlUI
             public int Right;
             public int Bottom;
         }
+
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+        private static readonly object GameWindowSync = new object();
+        private static IntPtr _lastKnownGameWindow;
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -56,6 +61,13 @@ namespace BannerlordHtmlUI
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
         internal static readonly IntPtr HWND_TOP = IntPtr.Zero;
         internal static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         internal const uint SWP_NOSIZE = 0x0001;
@@ -88,15 +100,85 @@ namespace BannerlordHtmlUI
                 SetWindowLongPtr32(hWnd, GWL_EXSTYLE, value);
         }
 
+        internal static bool TryGetGameWindowHandle(IntPtr excludedWindow, out IntPtr handle)
+        {
+            handle = IntPtr.Zero;
+            var processId = unchecked((uint)Process.GetCurrentProcess().Id);
+
+            lock (GameWindowSync)
+            {
+                if (IsUsableGameWindow(_lastKnownGameWindow, processId, excludedWindow))
+                {
+                    handle = _lastKnownGameWindow;
+                    return true;
+                }
+            }
+
+            try
+            {
+                var main = Process.GetCurrentProcess().MainWindowHandle;
+                if (IsUsableGameWindow(main, processId, excludedWindow))
+                    return RememberGameWindow(main, out handle);
+            }
+            catch { }
+
+            try
+            {
+                var foreground = GetForegroundWindow();
+                if (IsUsableGameWindow(foreground, processId, excludedWindow))
+                    return RememberGameWindow(foreground, out handle);
+            }
+            catch { }
+
+            try
+            {
+                IntPtr candidate = IntPtr.Zero;
+                EnumWindows((hWnd, _) =>
+                {
+                    if (IsUsableGameWindow(hWnd, processId, excludedWindow))
+                    {
+                        candidate = hWnd;
+                        return false;
+                    }
+                    return true;
+                }, IntPtr.Zero);
+
+                if (candidate != IntPtr.Zero)
+                    return RememberGameWindow(candidate, out handle);
+            }
+            catch { }
+
+            return false;
+        }
+
+        private static bool RememberGameWindow(IntPtr handle, out IntPtr result)
+        {
+            var changed = false;
+            lock (GameWindowSync)
+            {
+                changed = _lastKnownGameWindow != handle;
+                _lastKnownGameWindow = handle;
+            }
+            result = handle;
+            if (changed)
+                HtmlUiLogger.Info("Bannerlord game window resolved: hwnd=" + handle);
+            return true;
+        }
+
+        private static bool IsUsableGameWindow(IntPtr hWnd, uint processId, IntPtr excludedWindow)
+        {
+            if (hWnd == IntPtr.Zero || hWnd == excludedWindow || !IsWindow(hWnd) || !IsWindowVisible(hWnd))
+                return false;
+            if (IsIconic(hWnd)) return false;
+
+            GetWindowThreadProcessId(hWnd, out var ownerProcessId);
+            return ownerProcessId == processId;
+        }
+
         internal static void BringWindowAboveOwnerWithoutActivate(IntPtr hWnd)
         {
             if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return;
 
-            // MouseCaptured is deliberately a non-activating overlay.  It must
-            // remain above the Bannerlord window even when Bannerlord regains
-            // keyboard foreground after a Passive -> MouseCaptured transition.
-            // HWND_TOP is insufficient here because the overlay is TopMost and
-            // its Z-order can become stale after Hide/Show cycles.
             SetWindowPos(
                 hWnd,
                 HWND_TOPMOST,
