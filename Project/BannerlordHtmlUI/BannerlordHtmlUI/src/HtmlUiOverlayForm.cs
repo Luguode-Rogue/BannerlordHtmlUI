@@ -10,7 +10,6 @@ namespace BannerlordHtmlUI
         private bool _restoreFocusPending;
 
         public Func<bool> EscapePressed { get; set; }
-        public Action MouseReleased { get; set; }
 
         public HtmlUiOverlayForm()
         {
@@ -92,7 +91,6 @@ namespace BannerlordHtmlUI
                 {
                     try
                     {
-                        MouseReleased?.Invoke();
                         var gameWindow = Process.GetCurrentProcess().MainWindowHandle;
                         if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
                         {
