@@ -157,16 +157,10 @@ namespace BannerlordHtmlUI
                     _form.Bounds = new Rectangle(rect.Left, rect.Top, width, height);
                     if (!_form.Visible) _form.Show();
                 }
-                else if (_form.Visible)
-                {
-                    _form.Hide();
-                }
+                else if (_form.Visible) _form.Hide();
                 ApplyWindowState(new HtmlUiWindowState(foreground, active, minimized, rect.Left, rect.Top, width, height));
             }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("Window tracking failed.", ex);
-            }
+            catch (Exception ex) { HtmlUiLogger.Error("Window tracking failed.", ex); }
         }
 
         private void ApplyWindowState(HtmlUiWindowState state)
@@ -178,6 +172,7 @@ namespace BannerlordHtmlUI
         }
 
         private void ConfigureLocalHost() => MapContentRoot("framework", _webRoot);
+
         internal bool UnregisterContentRoot(string id)
         {
             if (string.IsNullOrWhiteSpace(id) || string.Equals(id, "framework", StringComparison.OrdinalIgnoreCase)) return false;
@@ -186,6 +181,7 @@ namespace BannerlordHtmlUI
             HtmlUiLogger.Info("Content root unregistered: " + id);
             return true;
         }
+
         public void RegisterContentRoot(string id, string directory)
         {
             if (string.IsNullOrWhiteSpace(id)) throw new ArgumentException("Content root id is required.", nameof(id));
@@ -199,6 +195,7 @@ namespace BannerlordHtmlUI
             }
             RunOnUiThreadSync(() => MapContentRoot(id, full));
         }
+
         private void RunOnUiThreadSync(Action action)
         {
             if (_form == null || _form.IsDisposed) throw new InvalidOperationException("HTML UI host is not ready.");
@@ -211,6 +208,7 @@ namespace BannerlordHtmlUI
             }
             if (error != null) throw error;
         }
+
         private void MapContentRoot(string id, string directory)
         {
             var host = id.Equals("framework", StringComparison.OrdinalIgnoreCase) ? "bannerlord-htmlui.local" : "bannerlord-htmlui-" + SanitizeHostPart(id) + ".local";
@@ -218,6 +216,7 @@ namespace BannerlordHtmlUI
             _contentHosts[id] = host;
             _web.CoreWebView2.SetVirtualHostNameToFolderMapping(host, directory, CoreWebView2HostResourceAccessKind.Allow);
         }
+
         private static string SanitizeHostPart(string value)
         {
             var chars = value.ToLowerInvariant().ToCharArray();
@@ -226,6 +225,7 @@ namespace BannerlordHtmlUI
             if (result.Length == 0) result = "mod";
             return result;
         }
+
         private string GetContentHost(HtmlUiPage page)
         {
             if (!_contentHosts.TryGetValue(page.ContentRootId, out var host)) throw new InvalidOperationException("Content root is not registered: " + page.ContentRootId);
@@ -272,6 +272,7 @@ namespace BannerlordHtmlUI
             if (!allowedPrefix) { e.Cancel = true; HtmlUiLogger.Warn("Blocked navigation outside BannerlordHtmlUI content roots: " + e.Uri); return; }
             if (relative.IndexOf("../", StringComparison.Ordinal) >= 0 || relative.StartsWith("../", StringComparison.Ordinal)) { e.Cancel = true; HtmlUiLogger.Warn("Blocked unsafe relative navigation: " + relative); }
         }
+
         public void Reload() { if (_disposed) return; EnsureUiThread(() => _web.Reload()); }
         public void OpenDevTools() { if (!DevToolsEnabled) return; EnsureUiThread(() => _web.CoreWebView2?.OpenDevToolsWindow()); }
         public void Show() => SetInputMode(HtmlUiInputMode.Passive);
@@ -319,6 +320,7 @@ namespace BannerlordHtmlUI
                 }
             });
         }
+
         private void ApplyInputModeOnUiThread()
         {
             if (_form == null || _form.IsDisposed) return;
@@ -329,6 +331,7 @@ namespace BannerlordHtmlUI
             else if (_inputMode == HtmlUiInputMode.MouseCaptured) { Win32.SetNoActivate(_form.Handle, true); Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE); Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle); }
             else { Win32.SetNoActivate(_form.Handle, true); Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE); }
         }
+
         internal void DispatchToGameThread(Action action) => GameThread.Post(action);
         public bool CommandExists(string name) => Bridge != null && Bridge.CommandExists(name);
         public bool UnregisterCommand(string name) => Bridge != null && Bridge.UnregisterCommand(name);
