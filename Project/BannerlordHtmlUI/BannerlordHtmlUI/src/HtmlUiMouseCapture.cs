@@ -6,7 +6,9 @@ using System.Windows.Forms;
 namespace BannerlordHtmlUI
 {
     /// <summary>
-    /// Mouse-only input capture for overlays that must remain visible and clickable without taking keyboard focus from the game.
+    /// Mouse-only input capture for overlays. The overlay is allowed to become the
+    /// active window for the mouse click, then immediately returns keyboard focus
+    /// to Bannerlord after the button-down message has entered WebView2.
     /// </summary>
     public static class HtmlUiMouseCapture
     {
@@ -66,7 +68,7 @@ namespace BannerlordHtmlUI
                 var form = _formField.GetValue(__instance) as HtmlUiOverlayForm;
                 if (form == null || form.IsDisposed) return false;
 
-                Action apply = () => ApplyMouseOnlyWindow(form);
+                Action apply = () => ApplyMouseWindow(form);
                 if (form.InvokeRequired) form.BeginInvoke(apply);
                 else apply();
                 return false;
@@ -85,22 +87,24 @@ namespace BannerlordHtmlUI
             {
                 var form = _formField.GetValue(__instance) as HtmlUiOverlayForm;
                 if (form == null || form.IsDisposed) return;
-                ApplyMouseOnlyWindow(form);
+                ApplyMouseWindow(form);
             }
             catch (Exception ex)
             {
-                HtmlUiLogger.Debug("Failed to reapply mouse-only activation policy: " + ex.GetBaseException().Message);
+                HtmlUiLogger.Debug("Failed to reapply mouse input policy: " + ex.GetBaseException().Message);
             }
         }
 
-        private static void ApplyMouseOnlyWindow(HtmlUiOverlayForm form)
+        private static void ApplyMouseWindow(HtmlUiOverlayForm form)
         {
             form.SetPassThrough(false);
             if (!form.IsHandleCreated) return;
 
-            // Keep the overlay hit-testable but prevent it from becoming the keyboard foreground window.
-            Win32.SetNoActivate(form.Handle, true);
-            Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
+            // MouseCaptured must not carry WS_EX_NOACTIVATE. That style prevents the
+            // inactive WinForms/WebView2 window from receiving the click at all.
+            Win32.SetNoActivate(form.Handle, false);
+            Win32.ShowWindow(form.Handle, 1 /* SW_SHOWNORMAL */);
+            HtmlUiLogger.Info("MouseCaptured native window configured as activatable/hit-testable.");
         }
     }
 }
