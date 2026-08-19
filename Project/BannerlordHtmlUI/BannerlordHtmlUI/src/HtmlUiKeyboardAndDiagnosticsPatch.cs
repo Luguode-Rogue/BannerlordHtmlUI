@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using System.Diagnostics;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -15,6 +16,7 @@ namespace BannerlordHtmlUI
         private static HtmlUiHost _host;
         private static IMessageFilter _filter;
         private static CoreWebView2 _core;
+        private static WebView2 _web;
         private static object _controller;
         private static EventInfo _acceleratorEvent;
         private static Delegate _acceleratorHandler;
@@ -47,10 +49,13 @@ namespace BannerlordHtmlUI
                 if (core != null && !ReferenceEquals(_core, core))
                 {
                     DetachWebViewAccelerator();
+                    DetachWebViewMouseHandler();
                     _core = core;
+                    _web = web;
                     AttachWebViewAccelerator(web);
+                    AttachWebViewMouseHandler(web);
                     core.NavigationCompleted += OnNavigationCompleted;
-                    HtmlUiLogger.Info("UI navigation/accelerator diagnostics hooks installed for current WebView2 instance.");
+                    HtmlUiLogger.Info("UI navigation/accelerator/mouse diagnostics hooks installed for current WebView2 instance.");
                 }
 
                 InstallRuntimeStateRemovalPatch(host);
@@ -72,6 +77,7 @@ namespace BannerlordHtmlUI
             }
 
             DetachWebViewAccelerator();
+            DetachWebViewMouseHandler();
 
             if (_core != null)
             {
@@ -79,6 +85,8 @@ namespace BannerlordHtmlUI
                 catch { }
                 _core = null;
             }
+
+            _web = null;
 
             if (host != null)
             {
@@ -115,6 +123,64 @@ namespace BannerlordHtmlUI
             {
                 HtmlUiLogger.Error("ESC page close failed.", ex);
                 return true;
+            }
+        }
+
+        private static void AttachWebViewMouseHandler(WebView2 web)
+        {
+            if (web == null) return;
+            try
+            {
+                web.MouseUp += OnWebViewMouseUp;
+                HtmlUiLogger.Info("WebView2 mouse-release focus restore hook installed.");
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Warn("WebView2 mouse-release hook failed: " + ex.GetBaseException().Message);
+            }
+        }
+
+        private static void DetachWebViewMouseHandler()
+        {
+            if (_web == null) return;
+            try { _web.MouseUp -= OnWebViewMouseUp; }
+            catch { }
+        }
+
+        private static void OnWebViewMouseUp(object sender, MouseEventArgs e)
+        {
+            if (e == null) return;
+            if (e.Button != MouseButtons.Left && e.Button != MouseButtons.Right && e.Button != MouseButtons.Middle) return;
+
+            var host = _host;
+            if (host == null || !host.IsVisible || host.InputMode != HtmlUiInputMode.MouseCaptured) return;
+
+            try
+            {
+                var field = typeof(HtmlUiHost).GetField("_form", BindingFlags.Instance | BindingFlags.NonPublic);
+                var form = field?.GetValue(host) as HtmlUiOverlayForm;
+                if (form == null || form.IsDisposed) return;
+
+                form.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        var gameWindow = Process.GetCurrentProcess().MainWindowHandle;
+                        if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
+                        {
+                            Win32.SetForegroundWindow(gameWindow);
+                            HtmlUiLogger.Info("WebView2 mouse release: Bannerlord keyboard focus restored. button=" + e.Button);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        HtmlUiLogger.Debug("Failed to restore Bannerlord focus from WebView2 mouse release: " + ex.GetBaseException().Message);
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Debug("Failed to schedule Bannerlord focus restore from WebView2 mouse release: " + ex.GetBaseException().Message);
             }
         }
 
