@@ -43,67 +43,40 @@ Consumer 不复制 Framework 内部 WebView2 逻辑。
 
 迁移旧 Gauntlet UI 时，应先复用业务层，再逐步替换 View；不要把旧 XML 的 Widget Tree 原样翻译成一套重复业务逻辑。
 
-## 3. BUTR `_Module` 与最终 Mod 文件
+## 3. 资源放置与部署
 
-BannerlordHtmlUI 工程默认采用 BUTR 模板的项目结构。对于**最终应该位于 `Modules/<ModId>/` 根目录或其子目录中的文件**，请在对应项目的 `_Module/` 中按照最终 Mod 路径放置。
+工程资源的统一放置规则以仓库根目录的：
 
-映射关系：
+[`Project/BUTR_PROJECT_LAYOUT_RULES.md`](../../BUTR_PROJECT_LAYOUT_RULES.md)
 
-```text
-Project/<YourMod>/_Module/<relative path>
-        ↓ build/deploy
-Modules/<YourMod>/<relative path>
-```
+为唯一规范。
 
-例如需要最终部署：
+该规则负责定义：
 
-```text
-Modules/MyMod/ModuleData/Languages/zh-CN.xml
-```
+- `_Module/` 与最终 `Modules/<ModId>/` 的映射
+- Mod-root 文件与程序集旁运行时资源的区别
+- Framework `web/` 的运行时位置
+- Consumer `UI/` 的运行时位置
+- `Assembly.Location` 与 `.csproj` Deployment Target 的关系
+- 新增文件时如何从最终部署路径反推工程源路径
 
-就把文件放到：
-
-```text
-Project/MyMod/MyMod/_Module/ModuleData/Languages/zh-CN.xml
-```
-
-再例如最终需要：
-
-```text
-Modules/MyMod/GUI/Prefabs/MyPage.xml
-```
-
-对应工程路径就是：
-
-```text
-Project/MyMod/MyMod/_Module/GUI/Prefabs/MyPage.xml
-```
-
-**不要让用户手工把这些文件复制到游戏 Mod 目录。** `_Module/` 就是最终 Mod 根目录的工程镜像，构建/部署流程负责把它放到正确位置。
-
-### 什么不应该放进 `_Module`
-
-不要把源码、`.csproj`、`.slnx`、`bin/`、`obj/` 或所有前端源文件无条件放进 `_Module`。
-
-判断标准不是“它是不是资源”，而是：
-
-> **这个文件最终应该出现在 `Modules/<ModId>/` 的什么相对路径？**
-
-如果答案是 Mod 根目录下的某个路径，就在 `_Module/` 下创建相同相对路径；如果它是程序集旁的运行时资源，则按照该功能自己的部署规则处理。
+本文件不再重复维护另一套资源目录规则。修改或新增 UI/资源时，应先查上述文件，再检查具体 Consumer 的 `.csproj` 与 `Assembly.Location` 实现。
 
 ## 4. ContentRoot
 
-运行时资源路径以实际加载 DLL 的 `Assembly.Location` 为准。
+ContentRoot 的具体运行时路径必须遵循上述统一资源规则，并以实际加载 DLL 的 `Assembly.Location` 为准。
+
+典型 Consumer：
 
 ```csharp
 var assemblyDir = Path.GetDirectoryName(typeof(MyUi).Assembly.Location) ?? ".";
-var uiRoot = Path.Combine(assemblyDir, "MyPageUI");
+var uiRoot = Path.Combine(assemblyDir, "UI");
 _scope.RegisterContentRoot("myui", uiRoot);
 ```
 
 Page ID、ContentRoot ID、Windows 实际目录是三个不同概念，不能混用。
 
-Framework 自身的 `web/` 与 Consumer 的 `UI/` 如果属于程序集旁运行时资源，应遵循项目 `.csproj` 的部署目标，不要因为存在 `_Module/` 就改变其运行时位置。
+Framework 自身的 `web/` 与 Consumer 的 `UI/` 如果属于程序集旁运行时资源，应按照项目 `.csproj` 的部署目标处理，不要仅因为存在 `_Module/` 就改变其运行时位置。
 
 ## 5. API 选择
 
@@ -196,11 +169,13 @@ pagehide/dispose
 长期运行
 ```
 
-修改 Mod-root 资源或部署路径：
+修改资源或部署路径：
 
 ```text
-确认文件应出现的最终 Modules/<ModId>/<relative path>
-→ 在 _Module/<relative path> 放置源文件
+读取 Project/BUTR_PROJECT_LAYOUT_RULES.md
+→ 确认最终 Modules/<ModId>/<relative path>
+→ 核对对应 .csproj Deployment Target
+→ 核对 Assembly.Location 读取路径
 → Build / Deploy
 → 检查最终 Mod 目录
 ```
@@ -215,4 +190,5 @@ pagehide/dispose
 - 不用 object spread 替换带 prototype/非枚举成员的 Component。
 - 不用随机 Win32 style 实验解决 Overlay 渲染问题。
 - 不为解决 C# 10 语法问题提高 LangVersion。
-- 不让用户手工复制 `_Module` 中本应由 BUTR 构建/部署流程处理的 Mod-root 文件。
+- 不让用户手工复制本应由 BUTR 构建/部署流程处理的 Mod-root 文件。
+- 不在其他文档中重新定义资源放置规则；统一引用 `Project/BUTR_PROJECT_LAYOUT_RULES.md`。
