@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Drawing;
 using System.Reflection;
 using HarmonyLib;
 
@@ -11,6 +12,7 @@ namespace BannerlordHtmlUI
         private static bool _installed;
         private static Harmony _harmony;
         private static FieldInfo _requestedVisibleField;
+        private static FieldInfo _formField;
         private static bool _diagnosticLogged;
 
         public static void Install(HtmlUiHost host)
@@ -27,6 +29,9 @@ namespace BannerlordHtmlUI
 
                 _requestedVisibleField = typeof(HtmlUiHost).GetField(
                     "_requestedVisible",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                _formField = typeof(HtmlUiHost).GetField(
+                    "_form",
                     BindingFlags.Instance | BindingFlags.NonPublic);
 
                 _harmony = new Harmony("BannerlordHtmlUI.WindowTracking");
@@ -56,6 +61,7 @@ namespace BannerlordHtmlUI
                 {
                     _harmony = null;
                     _requestedVisibleField = null;
+                    _formField = null;
                     _installed = false;
                     _diagnosticLogged = false;
                 }
@@ -75,8 +81,42 @@ namespace BannerlordHtmlUI
                     return true;
                 }
 
-                var hwnd = Process.GetCurrentProcess().MainWindowHandle;
-                if (hwnd != IntPtr.Zero && Win32.IsWindow(hwnd))
+                // MouseCaptured is intentionally independent from keyboard focus.
+                // The normal Host tracking path treats a non-foreground overlay as
+                // inactive and hides it, which breaks mouse capture after a
+                // Passive -> MouseCaptured transition. Handle this mode here by
+                // following the Bannerlord window without activating either window.
+                if (__instance.InputMode == HtmlUiInputMode.MouseCaptured)
+                {
+                    var hwnd = Process.GetCurrentProcess().MainWindowHandle;
+                    if (hwnd == IntPtr.Zero || !Win32.IsWindow(hwnd) || !Win32.GetWindowRect(hwnd, out var rect))
+                    {
+                        if (!_diagnosticLogged)
+                        {
+                            HtmlUiLogger.Warn(
+                                "MouseCaptured window tracking skipped: Bannerlord main window is temporarily unavailable; preserving overlay state.");
+                            _diagnosticLogged = true;
+                        }
+                        return false;
+                    }
+
+                    _diagnosticLogged = false;
+                    var form = _formField?.GetValue(__instance) as HtmlUiOverlayForm;
+                    if (form == null || form.IsDisposed || !form.IsHandleCreated)
+                        return false;
+
+                    var width = Math.Max(0, rect.Right - rect.Left);
+                    var height = Math.Max(0, rect.Bottom - rect.Top);
+                    form.Bounds = new Rectangle(rect.Left, rect.Top, width, height);
+                    form.SetPassThrough(false);
+                    Win32.SetNoActivate(form.Handle, true);
+                    Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
+                    Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
+                    return false;
+                }
+
+                var normalHwnd = Process.GetCurrentProcess().MainWindowHandle;
+                if (normalHwnd != IntPtr.Zero && Win32.IsWindow(normalHwnd))
                 {
                     _diagnosticLogged = false;
                     return true;
@@ -97,7 +137,7 @@ namespace BannerlordHtmlUI
             catch (Exception ex)
             {
                 HtmlUiLogger.Debug(
-                    "Window tracking HWND=0 guard failed: " + ex.GetBaseException().Message);
+                    "Window tracking guard failed: " + ex.GetBaseException().Message);
                 return true;
             }
         }
