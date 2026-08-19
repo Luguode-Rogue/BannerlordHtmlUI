@@ -30,18 +30,7 @@ namespace BannerlordHtmlUI
                 var form = formField?.GetValue(host) as HtmlUiOverlayForm;
                 if (form != null)
                 {
-                    form.EscapePressed = () =>
-                    {
-                        try
-                        {
-                            HtmlUiLogger.Info("ESC callback received by overlay form. Closing current page.");
-                            host.Pages.CloseCurrent();
-                        }
-                        catch (Exception ex)
-                        {
-                            HtmlUiLogger.Error("ESC overlay callback failed.", ex);
-                        }
-                    };
+                    form.EscapePressed = () => CloseCurrentPageOnEscape(host);
                     HtmlUiLogger.Info("Overlay ESC callback wired.");
                 }
 
@@ -104,6 +93,29 @@ namespace BannerlordHtmlUI
 
             if (ReferenceEquals(_host, host)) _host = null;
             HtmlUiLogger.Info("Global UI ESC close diagnostics uninstalled.");
+        }
+
+        private static bool CloseCurrentPageOnEscape(HtmlUiHost host)
+        {
+            if (host == null || !host.IsVisible) return false;
+            var page = host.Pages.Current;
+            if (page != null && !page.CloseOnEscape)
+            {
+                HtmlUiLogger.Info("ESC left to page because CloseOnEscape=false: " + page.Id);
+                return false;
+            }
+
+            try
+            {
+                HtmlUiLogger.Info("ESC closing current page: " + (host.Pages.CurrentId ?? "<null>"));
+                host.Pages.CloseCurrent();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Error("ESC page close failed.", ex);
+                return true;
+            }
         }
 
         private static void AttachWebViewAccelerator(WebView2 web)
@@ -174,6 +186,12 @@ namespace BannerlordHtmlUI
 
             var host = _host;
             if (host == null || !host.IsVisible) return;
+            var page = host.Pages.Current;
+            if (page != null && !page.CloseOnEscape)
+            {
+                HtmlUiLogger.Info("WebView2 Escape left to page because CloseOnEscape=false: " + page.Id);
+                return;
+            }
 
             try
             {
@@ -204,9 +222,6 @@ namespace BannerlordHtmlUI
                 const string script = @"
 (() => {
   try {
-    // runtime.js keeps its state Map private. Capture that Map from its early
-    // framework.* writes, then restore Map.prototype.set immediately so this
-    // patch does not permanently affect unrelated page code.
     const originalMapSet = Map.prototype.set;
     let stateMap = null;
     let restored = false;
@@ -296,6 +311,13 @@ namespace BannerlordHtmlUI
 
                 var key = unchecked((int)m.WParam.ToInt64());
                 if (key != VkEscape) return false;
+
+                var page = host.Pages.Current;
+                if (page != null && !page.CloseOnEscape)
+                {
+                    HtmlUiLogger.Info("UI keyboard Escape left to page because CloseOnEscape=false: " + page.Id);
+                    return false;
+                }
 
                 try
                 {
