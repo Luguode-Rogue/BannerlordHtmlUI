@@ -38,7 +38,6 @@ namespace BannerlordHtmlUI
         internal static extern bool SetForegroundWindow(IntPtr hWnd);
 
         [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
@@ -58,6 +57,7 @@ namespace BannerlordHtmlUI
         internal static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
         internal static readonly IntPtr HWND_TOP = IntPtr.Zero;
+        internal static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         internal const uint SWP_NOSIZE = 0x0001;
         internal const uint SWP_NOMOVE = 0x0002;
         internal const uint SWP_NOACTIVATE = 0x0010;
@@ -72,6 +72,7 @@ namespace BannerlordHtmlUI
         internal static void SetNoActivate(IntPtr hWnd, bool enabled)
         {
             if (hWnd == IntPtr.Zero) return;
+
             var current = Environment.Is64BitProcess
                 ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64()
                 : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
@@ -90,14 +91,20 @@ namespace BannerlordHtmlUI
         internal static void BringWindowAboveOwnerWithoutActivate(IntPtr hWnd)
         {
             if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return;
+
+            // MouseCaptured is deliberately a non-activating overlay.  It must
+            // remain above the Bannerlord window even when Bannerlord regains
+            // keyboard foreground after a Passive -> MouseCaptured transition.
+            // HWND_TOP is insufficient here because the overlay is TopMost and
+            // its Z-order can become stale after Hide/Show cycles.
             SetWindowPos(
                 hWnd,
-                HWND_TOP,
+                HWND_TOPMOST,
                 0,
                 0,
                 0,
                 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
         }
     }
 }
