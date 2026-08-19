@@ -26,7 +26,7 @@ namespace BannerlordHtmlUI
             Win32.SetNoActivate(Handle, enabled);
         }
 
-        protected override bool ShowWithoutActivation => _passThrough;
+        protected override bool ShowWithoutActivation => _passThrough || Win32.IsMouseCaptureNoActivateMode(Handle);
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
@@ -50,11 +50,22 @@ namespace BannerlordHtmlUI
         protected override void WndProc(ref Message m)
         {
             const int WM_NCHITTEST = 0x0084;
+            const int WM_MOUSEACTIVATE = 0x0021;
             const int HTTRANSPARENT = -1;
+            const int MA_NOACTIVATE = 3;
 
             if (_passThrough && m.Msg == WM_NCHITTEST)
             {
                 m.Result = (IntPtr)HTTRANSPARENT;
+                return;
+            }
+
+            // MouseCaptured deliberately keeps Bannerlord as the foreground/keyboard
+            // owner.  Return MA_NOACTIVATE so an inactive overlay still receives the
+            // original mouse message instead of activating itself or eating the click.
+            if (!_passThrough && m.Msg == WM_MOUSEACTIVATE)
+            {
+                m.Result = (IntPtr)MA_NOACTIVATE;
                 return;
             }
 
