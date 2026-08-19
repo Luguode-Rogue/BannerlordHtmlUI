@@ -153,8 +153,15 @@ namespace BannerlordHtmlUI
 
         private static bool RememberGameWindow(IntPtr handle, out IntPtr result)
         {
-            lock (GameWindowSync) _lastKnownGameWindow = handle;
+            var changed = false;
+            lock (GameWindowSync)
+            {
+                changed = _lastKnownGameWindow != handle;
+                _lastKnownGameWindow = handle;
+            }
             result = handle;
+            if (changed)
+                HtmlUiLogger.Info("Bannerlord game window resolved: hwnd=" + handle);
             return true;
         }
 
