@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Windows.Forms;
 
 namespace BannerlordHtmlUI
@@ -7,7 +6,6 @@ namespace BannerlordHtmlUI
     internal sealed class HtmlUiOverlayForm : Form
     {
         private bool _passThrough;
-        private bool _restoreFocusPending;
 
         public Func<bool> EscapePressed { get; set; }
 
@@ -53,9 +51,6 @@ namespace BannerlordHtmlUI
         {
             const int WM_NCHITTEST = 0x0084;
             const int WM_MOUSEACTIVATE = 0x0021;
-            const int WM_LBUTTONUP = 0x0202;
-            const int WM_RBUTTONUP = 0x0205;
-            const int WM_MBUTTONUP = 0x0208;
             const int HTTRANSPARENT = -1;
             const int MA_ACTIVATE = 1;
 
@@ -67,51 +62,14 @@ namespace BannerlordHtmlUI
 
             if (!_passThrough && m.Msg == WM_MOUSEACTIVATE)
             {
+                // MouseCaptured deliberately allows the overlay to activate for the
+                // click. Keyboard ownership is restored by the WebView2 mouse-up hook.
                 HtmlUiLogger.Info("MouseCaptured WM_MOUSEACTIVATE -> MA_ACTIVATE.");
                 m.Result = (IntPtr)MA_ACTIVATE;
                 return;
             }
 
             base.WndProc(ref m);
-
-            if (!_passThrough &&
-                (m.Msg == WM_LBUTTONUP || m.Msg == WM_RBUTTONUP || m.Msg == WM_MBUTTONUP) &&
-                !_restoreFocusPending)
-            {
-                RestoreBannerlordKeyboardFocusSoon();
-            }
-        }
-
-        private void RestoreBannerlordKeyboardFocusSoon()
-        {
-            _restoreFocusPending = true;
-            try
-            {
-                BeginInvoke(new Action(() =>
-                {
-                    try
-                    {
-                        var gameWindow = Process.GetCurrentProcess().MainWindowHandle;
-                        if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
-                        {
-                            Win32.SetForegroundWindow(gameWindow);
-                            HtmlUiLogger.Info("MouseCaptured mouse release completed; Bannerlord keyboard focus restored.");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        HtmlUiLogger.Debug("Failed to restore Bannerlord keyboard focus after mouse release: " + ex.GetBaseException().Message);
-                    }
-                    finally
-                    {
-                        _restoreFocusPending = false;
-                    }
-                }));
-            }
-            catch
-            {
-                _restoreFocusPending = false;
-            }
         }
     }
 }
