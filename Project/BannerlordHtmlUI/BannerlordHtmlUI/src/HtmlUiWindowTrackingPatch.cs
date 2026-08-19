@@ -78,9 +78,12 @@ namespace BannerlordHtmlUI
                     return true;
                 }
 
+                var form = _formField?.GetValue(__instance) as HtmlUiOverlayForm;
+                var excludedWindow = form != null && form.IsHandleCreated ? form.Handle : IntPtr.Zero;
+
                 if (__instance.InputMode == HtmlUiInputMode.MouseCaptured)
                 {
-                    if (!Win32.TryGetGameWindowHandle(IntPtr.Zero, out var hwnd) ||
+                    if (!Win32.TryGetGameWindowHandle(excludedWindow, out var hwnd) ||
                         !Win32.GetWindowRect(hwnd, out var rect))
                     {
                         if (!_diagnosticLogged)
@@ -93,7 +96,6 @@ namespace BannerlordHtmlUI
                     }
 
                     _diagnosticLogged = false;
-                    var form = _formField?.GetValue(__instance) as HtmlUiOverlayForm;
                     if (form == null || form.IsDisposed || !form.IsHandleCreated)
                         return false;
 
@@ -107,7 +109,7 @@ namespace BannerlordHtmlUI
                     return false;
                 }
 
-                if (Win32.TryGetGameWindowHandle(IntPtr.Zero, out _))
+                if (Win32.TryGetGameWindowHandle(excludedWindow, out _))
                 {
                     _diagnosticLogged = false;
                     return true;
