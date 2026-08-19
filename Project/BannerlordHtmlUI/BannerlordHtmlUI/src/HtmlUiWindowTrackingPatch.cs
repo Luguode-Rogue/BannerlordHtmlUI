@@ -28,11 +28,9 @@ namespace BannerlordHtmlUI
                     throw new MissingMethodException("HtmlUiHost.FollowBannerlordWindow was not found.");
 
                 _requestedVisibleField = typeof(HtmlUiHost).GetField(
-                    "_requestedVisible",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
+                    "_requestedVisible", BindingFlags.Instance | BindingFlags.NonPublic);
                 _formField = typeof(HtmlUiHost).GetField(
-                    "_form",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
+                    "_form", BindingFlags.Instance | BindingFlags.NonPublic);
 
                 _harmony = new Harmony("BannerlordHtmlUI.WindowTracking");
                 _harmony.Patch(
@@ -81,11 +79,11 @@ namespace BannerlordHtmlUI
                     return true;
                 }
 
-                // MouseCaptured is intentionally independent from keyboard focus.
-                // The normal Host tracking path treats a non-foreground overlay as
-                // inactive and hides it, which breaks mouse capture after a
-                // Passive -> MouseCaptured transition. Handle this mode here by
-                // following the Bannerlord window without activating either window.
+                // MouseCaptured is allowed to activate when the user clicks the
+                // overlay. The old tracking path repeatedly re-applied
+                // WS_EX_NOACTIVATE every 100 ms, which prevented WebView2 from ever
+                // receiving pointerdown. Keep the overlay visible/hit-testable and
+                // let the overlay form manage keyboard focus explicitly.
                 if (__instance.InputMode == HtmlUiInputMode.MouseCaptured)
                 {
                     var hwnd = Process.GetCurrentProcess().MainWindowHandle;
@@ -109,8 +107,8 @@ namespace BannerlordHtmlUI
                     var height = Math.Max(0, rect.Bottom - rect.Top);
                     form.Bounds = new Rectangle(rect.Left, rect.Top, width, height);
                     form.SetPassThrough(false);
-                    Win32.SetNoActivate(form.Handle, true);
-                    Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
+                    Win32.SetNoActivate(form.Handle, false);
+                    Win32.ShowWindow(form.Handle, 1 /* SW_SHOWNORMAL */);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
                     return false;
                 }
@@ -122,9 +120,6 @@ namespace BannerlordHtmlUI
                     return true;
                 }
 
-                // MainWindowHandle can transiently become zero during Bannerlord
-                // focus/scene transitions. A missing HWND means "cannot resync
-                // position this tick", not "hide the active HTML UI".
                 if (!_diagnosticLogged)
                 {
                     HtmlUiLogger.Warn(
