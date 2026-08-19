@@ -1,6 +1,6 @@
 using System;
-using System.Reflection;
 using System.Diagnostics;
+using System.Reflection;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -24,17 +24,12 @@ namespace BannerlordHtmlUI
         public static void Install(HtmlUiHost host)
         {
             if (host == null) return;
-
             _host = host;
             try
             {
                 var formField = typeof(HtmlUiHost).GetField("_form", BindingFlags.Instance | BindingFlags.NonPublic);
                 var form = formField?.GetValue(host) as HtmlUiOverlayForm;
-                if (form != null)
-                {
-                    form.EscapePressed = () => CloseCurrentPageOnEscape(host);
-                    HtmlUiLogger.Info("Overlay ESC callback wired.");
-                }
+                if (form != null) form.EscapePressed = () => CloseCurrentPageOnEscape(host);
 
                 if (_filter == null)
                 {
@@ -71,23 +66,17 @@ namespace BannerlordHtmlUI
         {
             if (_filter != null)
             {
-                try { Application.RemoveMessageFilter(_filter); }
-                catch (Exception ex) { HtmlUiLogger.Debug("Failed to remove global UI ESC close filter: " + ex.GetBaseException().Message); }
+                try { Application.RemoveMessageFilter(_filter); } catch { }
                 _filter = null;
             }
-
             DetachWebViewAccelerator();
             DetachWebViewMouseHandler();
-
             if (_core != null)
             {
-                try { _core.NavigationCompleted -= OnNavigationCompleted; }
-                catch { }
+                try { _core.NavigationCompleted -= OnNavigationCompleted; } catch { }
                 _core = null;
             }
-
             _web = null;
-
             if (host != null)
             {
                 try
@@ -98,32 +87,8 @@ namespace BannerlordHtmlUI
                 }
                 catch { }
             }
-
             if (ReferenceEquals(_host, host)) _host = null;
             HtmlUiLogger.Info("Global UI ESC close diagnostics uninstalled.");
-        }
-
-        private static bool CloseCurrentPageOnEscape(HtmlUiHost host)
-        {
-            if (host == null || !host.IsVisible) return false;
-            var page = host.Pages.Current;
-            if (page != null && !page.CloseOnEscape)
-            {
-                HtmlUiLogger.Info("ESC left to page because CloseOnEscape=false: " + page.Id);
-                return false;
-            }
-
-            try
-            {
-                HtmlUiLogger.Info("ESC closing current page: " + (host.Pages.CurrentId ?? "<null>"));
-                host.Pages.CloseCurrent();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("ESC page close failed.", ex);
-                return true;
-            }
         }
 
         private static void AttachWebViewMouseHandler(WebView2 web)
@@ -143,24 +108,20 @@ namespace BannerlordHtmlUI
         private static void DetachWebViewMouseHandler()
         {
             if (_web == null) return;
-            try { _web.MouseUp -= OnWebViewMouseUp; }
-            catch { }
+            try { _web.MouseUp -= OnWebViewMouseUp; } catch { }
         }
 
         private static void OnWebViewMouseUp(object sender, MouseEventArgs e)
         {
             if (e == null) return;
             if (e.Button != MouseButtons.Left && e.Button != MouseButtons.Right && e.Button != MouseButtons.Middle) return;
-
             var host = _host;
             if (host == null || !host.IsVisible || host.InputMode != HtmlUiInputMode.MouseCaptured) return;
-
             try
             {
                 var field = typeof(HtmlUiHost).GetField("_form", BindingFlags.Instance | BindingFlags.NonPublic);
                 var form = field?.GetValue(host) as HtmlUiOverlayForm;
                 if (form == null || form.IsDisposed) return;
-
                 form.BeginInvoke(new Action(() =>
                 {
                     try
@@ -184,10 +145,18 @@ namespace BannerlordHtmlUI
             }
         }
 
+        private static bool CloseCurrentPageOnEscape(HtmlUiHost host)
+        {
+            if (host == null || !host.IsVisible) return false;
+            var page = host.Pages.Current;
+            if (page != null && !page.CloseOnEscape) return false;
+            try { host.Pages.CloseCurrent(); return true; }
+            catch (Exception ex) { HtmlUiLogger.Error("ESC page close failed.", ex); return true; }
+        }
+
         private static void AttachWebViewAccelerator(WebView2 web)
         {
             if (web == null) return;
-
             try
             {
                 var fields = web.GetType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic);
@@ -198,23 +167,10 @@ namespace BannerlordHtmlUI
                     controller = field.GetValue(web);
                     if (controller != null) break;
                 }
-
-                if (controller == null)
-                {
-                    HtmlUiLogger.Warn("WebView2 controller could not be resolved; keeping WinForms ESC fallback.");
-                    return;
-                }
-
+                if (controller == null) return;
                 var eventInfo = controller.GetType().GetEvent("AcceleratorKeyPressed", BindingFlags.Instance | BindingFlags.Public);
-                var method = typeof(HtmlUiKeyboardAndDiagnosticsPatch).GetMethod(
-                    nameof(OnWebViewAcceleratorKeyPressed),
-                    BindingFlags.Static | BindingFlags.NonPublic);
-                if (eventInfo == null || method == null)
-                {
-                    HtmlUiLogger.Warn("WebView2 AcceleratorKeyPressed event is unavailable; keeping WinForms ESC fallback.");
-                    return;
-                }
-
+                var method = typeof(HtmlUiKeyboardAndDiagnosticsPatch).GetMethod(nameof(OnWebViewAcceleratorKeyPressed), BindingFlags.Static | BindingFlags.NonPublic);
+                if (eventInfo == null || method == null) return;
                 var handler = Delegate.CreateDelegate(eventInfo.EventHandlerType, method);
                 eventInfo.AddEventHandler(controller, handler);
                 _controller = controller;
@@ -222,23 +178,15 @@ namespace BannerlordHtmlUI
                 _acceleratorHandler = handler;
                 HtmlUiLogger.Info("WebView2 controller AcceleratorKeyPressed hook installed.");
             }
-            catch (Exception ex)
-            {
-                _controller = null;
-                _acceleratorEvent = null;
-                _acceleratorHandler = null;
-                HtmlUiLogger.Warn("WebView2 controller accelerator hook failed: " + ex.GetBaseException().Message);
-            }
+            catch (Exception ex) { HtmlUiLogger.Warn("WebView2 controller accelerator hook failed: " + ex.GetBaseException().Message); }
         }
 
         private static void DetachWebViewAccelerator()
         {
             if (_controller != null && _acceleratorEvent != null && _acceleratorHandler != null)
             {
-                try { _acceleratorEvent.RemoveEventHandler(_controller, _acceleratorHandler); }
-                catch { }
+                try { _acceleratorEvent.RemoveEventHandler(_controller, _acceleratorHandler); } catch { }
             }
-
             _controller = null;
             _acceleratorEvent = null;
             _acceleratorHandler = null;
@@ -247,29 +195,13 @@ namespace BannerlordHtmlUI
         private static void OnWebViewAcceleratorKeyPressed(object sender, CoreWebView2AcceleratorKeyPressedEventArgs e)
         {
             if (e == null || e.VirtualKey != VkEscape) return;
-            if (e.KeyEventKind != CoreWebView2KeyEventKind.KeyDown &&
-                e.KeyEventKind != CoreWebView2KeyEventKind.SystemKeyDown) return;
-
+            if (e.KeyEventKind != CoreWebView2KeyEventKind.KeyDown && e.KeyEventKind != CoreWebView2KeyEventKind.SystemKeyDown) return;
             var host = _host;
             if (host == null || !host.IsVisible) return;
             var page = host.Pages.Current;
-            if (page != null && !page.CloseOnEscape)
-            {
-                HtmlUiLogger.Info("WebView2 Escape left to page because CloseOnEscape=false: " + page.Id);
-                return;
-            }
-
-            try
-            {
-                e.Handled = true;
-                HtmlUiLogger.Info("WebView2 AcceleratorKeyPressed detected Escape. Closing current page: "
-                    + (host.Pages.CurrentId ?? "<null>"));
-                host.Pages.CloseCurrent();
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("WebView2 Escape close failed.", ex);
-            }
+            if (page != null && !page.CloseOnEscape) return;
+            try { e.Handled = true; host.Pages.CloseCurrent(); }
+            catch (Exception ex) { HtmlUiLogger.Error("WebView2 Escape close failed.", ex); }
         }
 
         private static void InstallRuntimeStateRemovalPatch(HtmlUiHost host)
@@ -279,36 +211,25 @@ namespace BannerlordHtmlUI
                 var webField = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
                 var web = webField?.GetValue(host) as WebView2;
                 var core = web?.CoreWebView2;
-                if (core == null)
-                {
-                    HtmlUiLogger.Warn("State removal runtime patch deferred: CoreWebView2 is not ready.");
-                    return;
-                }
-
+                if (core == null) return;
                 const string script = @"
 (() => {
   try {
     const originalMapSet = Map.prototype.set;
     let stateMap = null;
     let restored = false;
-
     Map.prototype.set = function(key, value) {
       if (!stateMap && typeof key === 'string' && key.indexOf('framework.') === 0) {
         stateMap = this;
-        if (!restored) {
-          Map.prototype.set = originalMapSet;
-          restored = true;
-        }
+        if (!restored) { Map.prototype.set = originalMapSet; restored = true; }
       }
       return originalMapSet.call(this, key, value);
     };
-
     const game = window.game;
     if (!game || typeof game.__receive !== 'function') {
       if (!restored) Map.prototype.set = originalMapSet;
       return;
     }
-
     const originalReceive = game.__receive;
     game.__receive = function(messageJson) {
       try {
@@ -322,48 +243,27 @@ namespace BannerlordHtmlUI
     };
   } catch (_) {}
 })();";
-
                 core.AddScriptToExecuteOnDocumentCreatedAsync(script);
                 HtmlUiLogger.Info("Runtime state removal patch installed.");
             }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("Failed to install runtime state removal patch.", ex);
-            }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install runtime state removal patch.", ex); }
         }
 
         private static async void OnNavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
         {
             var core = sender as CoreWebView2 ?? _core;
             if (!e.IsSuccess || core == null) return;
-
             const string script = @"
 (() => {
   try {
     const selector='[data-bhui-i18n],[data-bhui-i18n-placeholder],[data-bhui-i18n-title],[data-bhui-i18n-alt]';
-    const items=[...document.querySelectorAll(selector)].map(el=>({
-      key:el.getAttribute('data-bhui-i18n')||el.getAttribute('data-bhui-i18n-placeholder')||el.getAttribute('data-bhui-i18n-title')||el.getAttribute('data-bhui-i18n-alt')||'',
-      text:el.textContent||'',
-      placeholder:el.getAttribute('placeholder')||'',
-      title:el.getAttribute('title')||'',
-      alt:el.getAttribute('alt')||''
-    }));
+    const items=[...document.querySelectorAll(selector)].map(el=>({key:el.getAttribute('data-bhui-i18n')||el.getAttribute('data-bhui-i18n-placeholder')||el.getAttribute('data-bhui-i18n-title')||el.getAttribute('data-bhui-i18n-alt')||'',text:el.textContent||'',placeholder:el.getAttribute('placeholder')||'',title:el.getAttribute('title')||'',alt:el.getAttribute('alt')||''}));
     const locale=window.game&&window.game.i18n?window.game.i18n.locale:null;
     return JSON.stringify({url:location.href,locale,items});
-  } catch(e) {
-    return JSON.stringify({error:String(e)});
-  }
+  } catch(e) { return JSON.stringify({error:String(e)}); }
 })();";
-
-            try
-            {
-                var result = await core.ExecuteScriptAsync(script);
-                HtmlUiLogger.Info("i18n DOM audit: " + result);
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("i18n DOM audit failed.", ex);
-            }
+            try { var result = await core.ExecuteScriptAsync(script); HtmlUiLogger.Info("i18n DOM audit: " + result); }
+            catch (Exception ex) { HtmlUiLogger.Error("i18n DOM audit failed.", ex); }
         }
 
         private sealed class KeyboardFilter : IMessageFilter
@@ -371,37 +271,14 @@ namespace BannerlordHtmlUI
             public bool PreFilterMessage(ref Message m)
             {
                 if (m.Msg != WmKeyDown && m.Msg != WmSysKeyDown) return false;
-
                 var host = _host;
                 if (host == null || !host.IsVisible) return false;
-
                 var key = unchecked((int)m.WParam.ToInt64());
                 if (key != VkEscape) return false;
-
                 var page = host.Pages.Current;
-                if (page != null && !page.CloseOnEscape)
-                {
-                    HtmlUiLogger.Info("UI keyboard Escape left to page because CloseOnEscape=false: " + page.Id);
-                    return false;
-                }
-
-                try
-                {
-                    HtmlUiLogger.Info("UI keyboard close detected: key=Escape"
-                        + ", currentPage=" + (host.Pages.CurrentId ?? "<null>")
-                        + ", inputMode=" + host.InputMode);
-                    host.Pages.CloseCurrent();
-                    HtmlUiLogger.Info("UI keyboard Escape close completed. currentPage="
-                        + (host.Pages.CurrentId ?? "<null>")
-                        + ", inputMode=" + host.InputMode
-                        + ", hostVisible=" + host.IsVisible);
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    HtmlUiLogger.Error("UI keyboard Escape close failed.", ex);
-                    return false;
-                }
+                if (page != null && !page.CloseOnEscape) return false;
+                try { host.Pages.CloseCurrent(); return true; }
+                catch (Exception ex) { HtmlUiLogger.Error("UI keyboard Escape close failed.", ex); return false; }
             }
         }
     }
