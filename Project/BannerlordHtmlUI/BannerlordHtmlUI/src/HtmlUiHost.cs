@@ -57,7 +57,7 @@ namespace BannerlordHtmlUI
         public bool HotReloadEnabled { get; set; } = false;
         public bool IsVisible => _requestedVisible;
         public bool IsWebViewReady => _webViewReady;
-        public bool IsInputCaptured => _inputMode == HtmlUiInputMode.Captured;
+        public bool IsInputCaptured => _inputMode == HtmlUiInputMode.Captured || _inputMode == HtmlUiInputMode.MouseCaptured;
         public HtmlUiInputMode InputMode => _inputMode;
         public string CurrentPagePath => _currentRelativePath;
         public int ContentRootCount => _contentRoots.Count;
@@ -586,6 +586,7 @@ namespace BannerlordHtmlUI
         public void Show() => SetInputMode(HtmlUiInputMode.Passive);
         public void Hide() => SetInputMode(HtmlUiInputMode.Hidden);
         public void CaptureInput() => SetInputMode(HtmlUiInputMode.Captured);
+        public void CaptureMouse() => SetInputMode(HtmlUiInputMode.MouseCaptured);
         public void ReleaseInput() => SetInputMode(HtmlUiInputMode.Passive);
 
         public void SetInputMode(HtmlUiInputMode mode)
@@ -601,6 +602,7 @@ namespace BannerlordHtmlUI
                 if (mode == HtmlUiInputMode.Hidden)
                 {
                     _form.Hide();
+                    Win32.SetNoActivate(_form.Handle, false);
                     if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
                         Win32.SetForegroundWindow(gameWindow);
                     return;
@@ -609,11 +611,22 @@ namespace BannerlordHtmlUI
                 if (!_form.Visible) _form.Show();
                 if (mode == HtmlUiInputMode.Captured)
                 {
+                    Win32.SetNoActivate(_form.Handle, false);
                     _form.Activate();
                     _web?.Focus();
                 }
+                else if (mode == HtmlUiInputMode.MouseCaptured)
+                {
+                    Win32.SetNoActivate(_form.Handle, true);
+                    Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
+                    Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
+                    if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
+                        Win32.SetForegroundWindow(gameWindow);
+                    HtmlUiLogger.Info("MouseCaptured applied: overlay hit-testing enabled without keyboard focus.");
+                }
                 else
                 {
+                    Win32.SetNoActivate(_form.Handle, true);
                     Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
                 }
             });
@@ -626,16 +639,25 @@ namespace BannerlordHtmlUI
             if (_inputMode == HtmlUiInputMode.Hidden)
             {
                 _form.Hide();
+                Win32.SetNoActivate(_form.Handle, false);
                 return;
             }
             if (!_form.Visible) _form.Show();
             if (_inputMode == HtmlUiInputMode.Captured)
             {
+                Win32.SetNoActivate(_form.Handle, false);
                 _form.Activate();
                 _web?.Focus();
             }
+            else if (_inputMode == HtmlUiInputMode.MouseCaptured)
+            {
+                Win32.SetNoActivate(_form.Handle, true);
+                Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
+                Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
+            }
             else
             {
+                Win32.SetNoActivate(_form.Handle, true);
                 Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
             }
         }
