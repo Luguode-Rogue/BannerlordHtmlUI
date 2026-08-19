@@ -27,15 +27,6 @@ namespace BannerlordHtmlUI
                 HtmlUiLogger.Error("Failed to install transparent overlay patch.", ex);
             }
 
-            try
-            {
-                HtmlUiKeyboardPolicyPatch.Install();
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("Failed to install page keyboard policy patch.", ex);
-            }
-
             HtmlUiService.OnReady(RegisterFrameworkPages);
             _initTask = HtmlUiService.InitializeAsync(_moduleDirectory, webRoot);
             _initTask.ContinueWith(t =>
@@ -118,7 +109,6 @@ namespace BannerlordHtmlUI
             try { HtmlUiWindowTrackingPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Window tracking patch uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiProcessRecovery.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("WebView2 process recovery uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiContextMenuPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Context menu patch uninstall failed: " + ex.GetBaseException().Message); }
-            try { HtmlUiKeyboardPolicyPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Keyboard policy patch uninstall failed: " + ex.GetBaseException().Message); }
             HtmlUiService.Dispose();
             base.OnSubModuleUnloaded();
         }
