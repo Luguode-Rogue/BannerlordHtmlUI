@@ -14,11 +14,12 @@ Framework 当前工程版本：`0.44.0`
 ### 推荐阅读顺序
 
 1. [`Project/BannerlordHtmlUI/BannerlordHtmlUI/docs/README.md`](Project/BannerlordHtmlUI/BannerlordHtmlUI/docs/README.md) — 文档总入口
-2. `docs/PROJECT_STATUS.md` — 当前真实状态与待验收项
-3. `docs/ARCHITECTURE_MASTER.md` — 当前架构与线程边界
-4. `docs/API.md` / `docs/DEVELOPMENT_GUIDE.md` — Framework 接入与公共 API
-5. `docs/BUG_KNOWLEDGE_BASE.md` — 已解决问题、失败方案与快速排错
-6. `docs/TESTING_AND_REGRESSION.md` — 实机回归与 StressLab
+2. [`Project/BUTR_PROJECT_LAYOUT_RULES.md`](Project/BUTR_PROJECT_LAYOUT_RULES.md) — **工程资源放置、Mod-root 与程序集旁运行时资源的统一规则**
+3. `docs/PROJECT_STATUS.md` — 当前真实状态与待验收项
+4. `docs/ARCHITECTURE_MASTER.md` — 当前架构与线程边界
+5. `docs/API.md` / `docs/DEVELOPMENT_GUIDE.md` — Framework 接入与公共 API
+6. `docs/BUG_KNOWLEDGE_BASE.md` — 已解决问题、失败方案与快速排错
+7. `docs/TESTING_AND_REGRESSION.md` — 实机回归与 StressLab
 
 ## 工程结构
 
@@ -32,37 +33,15 @@ Project/
       └─ _Module/             # 最终 Consumer Mod 根目录的工程镜像
 ```
 
-## BUTR `_Module` 文件规则
+## 资源放置规则
 
-本工程采用 BUTR 的项目结构。**`_Module/` 是最终 Bannerlord Mod 根目录的工程内镜像，而不是普通资源收纳目录。**
+工程资源的最终 Bannerlord 部署位置、`_Module` 规则、程序集旁 `bin/<GameBinariesFolder>/` 资源、Consumer UI、Framework `web/` 以及构建/部署映射，统一以：
 
-规则只有一个：
+[`Project/BUTR_PROJECT_LAYOUT_RULES.md`](Project/BUTR_PROJECT_LAYOUT_RULES.md)
 
-```text
-工程中的 _Module/<相对路径>
-        ↓ Build / Deploy
-游戏中的 Modules/<ModId>/<相对路径>
-```
+为准。
 
-因此，凡是最终需要出现在 `Modules/<ModId>/` 根目录层级或其子目录中的文件，都应在对应工程的 `_Module/` 下使用**完全相同的相对路径**。
-
-例如最终需要：
-
-```text
-Modules/MyMod/ModuleData/Languages/zh-CN.xml
-```
-
-工程中就应放：
-
-```text
-Project/MyMod/MyMod/_Module/ModuleData/Languages/zh-CN.xml
-```
-
-不要把这类文件直接手工复制到游戏的 `Modules/<ModId>/` 目录；先放入 `_Module/`，由 BUTR 的构建/部署流程处理最终 Mod 布局。
-
-这条规则只针对最终属于 Mod 根目录的文件。源码、工程文件以及明确位于 `bin/<GameBinariesFolder>/`、由程序集相对路径加载的 Web/UI 资源，不应因为“是资源”就全部塞进 `_Module/`；应按照它们的实际运行时位置处理。
-
-详细的 Framework / Consumer 资源部署说明见 `Project/README.md` 与 `docs/DEVELOPMENT_GUIDE.md`。
+其他文档不得另行维护一套相互独立的“资源应该放哪里”规则；发现路径问题时，应回到该文档，再结合具体 Consumer 的 `.csproj` 与 `Assembly.Location` 验证实际部署路径。
 
 ## 当前原则
 
