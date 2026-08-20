@@ -99,6 +99,14 @@ namespace BannerlordHtmlUI
                     if (form == null || form.IsDisposed || !form.IsHandleCreated)
                         return false;
 
+                    // MouseCaptured is only valid while Bannerlord owns the foreground.
+                    // Do not leave a topmost overlay covering unrelated applications.
+                    if (Win32.GetForegroundWindow() != hwnd || Win32.IsIconic(hwnd) || !Win32.IsWindowVisible(hwnd))
+                    {
+                        if (form.Visible) form.Hide();
+                        return false;
+                    }
+
                     var width = Math.Max(0, rect.Right - rect.Left);
                     var height = Math.Max(0, rect.Bottom - rect.Top);
                     form.Bounds = new Rectangle(rect.Left, rect.Top, width, height);
