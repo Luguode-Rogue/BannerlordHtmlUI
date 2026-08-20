@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Windows.Forms;
 
 namespace BannerlordHtmlUI
@@ -14,19 +15,48 @@ namespace BannerlordHtmlUI
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            TopMost = true;
+            // Keep the overlay in Bannerlord's owned-window Z-order. A permanent TopMost window
+            // can cover unrelated applications after ALT-TAB or when the game is suspended.
+            TopMost = false;
             Width = 1;
             Height = 1;
             KeyPreview = true;
         }
 
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+
+            try
+            {
+                var ownerHwnd = Process.GetCurrentProcess().MainWindowHandle;
+                if (ownerHwnd != IntPtr.Zero && ownerHwnd != Handle && Win32.IsWindow(ownerHwnd))
+                    Win32.SetOwner(Handle, ownerHwnd);
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Debug("Failed to bind HtmlUI overlay owner window: " + ex.GetBaseException().Message);
+            }
+        }
+
+        public void SetOwner(IntPtr ownerHwnd)
+        {
+            if (!IsHandleCreated || IsDisposed) return;
+            try
+            {
+                Win32.SetOwner(Handle, ownerHwnd);
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Debug("Failed to update HtmlUI overlay owner: " + ex.GetBaseException().Message);
+            }
+        }
+
         public void SetPassThrough(bool enabled)
         {
             _passThrough = enabled;
-            // Passive mode must not activate. MouseCaptured deliberately allows
-            // activation so the WinForms/WebView2 child gets the native mouse
-            // sequence; HtmlUiKeyboardAndDiagnosticsPatch restores Bannerlord
-            // keyboard focus on WebView2 MouseUp.
+            // Passive mode must not activate. MouseCaptured deliberately allows activation so
+            // the WinForms/WebView2 child receives a native mouse sequence.
             Win32.SetNoActivate(Handle, enabled);
         }
 
@@ -66,9 +96,8 @@ namespace BannerlordHtmlUI
 
             if (!_passThrough && m.Msg == WM_MOUSEACTIVATE)
             {
-                // MouseCaptured needs a real activation so WebView2 receives
-                // the native click. Keyboard focus is explicitly returned to
-                // Bannerlord from the WebView2 MouseUp hook.
+                // MouseCaptured must activate the overlay so WebView2 can receive the click.
+                // Keyboard focus is returned to Bannerlord after mouse release by the WebView hook.
                 m.Result = (IntPtr)MA_ACTIVATE;
                 return;
             }
