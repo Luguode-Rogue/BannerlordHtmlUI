@@ -23,10 +23,13 @@ namespace BannerlordHtmlUI
         public void SetPassThrough(bool enabled)
         {
             _passThrough = enabled;
-            Win32.SetNoActivate(Handle, enabled);
+            // The overlay remains non-activating. Passive mode additionally uses
+            // HTTRANSPARENT; interactive mouse mode uses real hit-testing plus
+            // WM_MOUSEACTIVATE=MA_NOACTIVATE.
+            Win32.SetNoActivate(Handle, true);
         }
 
-        protected override bool ShowWithoutActivation => _passThrough;
+        protected override bool ShowWithoutActivation => true;
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
@@ -52,7 +55,7 @@ namespace BannerlordHtmlUI
             const int WM_NCHITTEST = 0x0084;
             const int WM_MOUSEACTIVATE = 0x0021;
             const int HTTRANSPARENT = -1;
-            const int MA_ACTIVATE = 1;
+            const int MA_NOACTIVATE = 3;
 
             if (_passThrough && m.Msg == WM_NCHITTEST)
             {
@@ -62,10 +65,9 @@ namespace BannerlordHtmlUI
 
             if (!_passThrough && m.Msg == WM_MOUSEACTIVATE)
             {
-                // MouseCaptured deliberately allows the overlay to activate for the
-                // click. Keyboard ownership is restored by the WebView2 mouse-up hook.
-                HtmlUiLogger.Info("MouseCaptured WM_MOUSEACTIVATE -> MA_ACTIVATE.");
-                m.Result = (IntPtr)MA_ACTIVATE;
+                // Mouse capture must receive mouse messages without activating the
+                // overlay, otherwise Bannerlord loses keyboard ownership.
+                m.Result = (IntPtr)MA_NOACTIVATE;
                 return;
             }
 
