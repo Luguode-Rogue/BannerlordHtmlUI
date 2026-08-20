@@ -6,8 +6,8 @@ using System.Windows.Forms;
 namespace BannerlordHtmlUI
 {
     /// <summary>
-    /// Mouse-only input capture. The overlay remains non-activating so Bannerlord
-    /// keeps keyboard ownership while mouse messages are delivered to WebView2.
+    /// Framework-wide mouse-only input policy. Mouse capture never activates the
+    /// overlay, so Bannerlord remains the keyboard owner while WebView2 receives clicks.
     /// </summary>
     public static class HtmlUiMouseCapture
     {
@@ -20,13 +20,7 @@ namespace BannerlordHtmlUI
         private static FieldInfo _formField;
         private static MethodInfo _applyInputModeOnUiThread;
 
-        public static void Capture()
-        {
-            Install();
-            HtmlUiService.SetInputMode(HtmlUiInputMode.MouseCaptured);
-        }
-
-        private static void Install()
+        internal static void Install()
         {
             lock (Sync)
             {
@@ -50,8 +44,32 @@ namespace BannerlordHtmlUI
                     postfix: new HarmonyMethod(typeof(HtmlUiMouseCapture), nameof(ApplyInputModePostfix)));
 
                 _installed = true;
-                HtmlUiLogger.Info("Mouse-only HTML UI input capture installed.");
+                HtmlUiLogger.Info("Mouse-only HTML UI input policy installed.");
             }
+        }
+
+        internal static void Uninstall()
+        {
+            lock (Sync)
+            {
+                if (!_installed) return;
+                try { _harmony?.UnpatchAll(HarmonyId); }
+                finally
+                {
+                    _harmony = null;
+                    _inputModeField = null;
+                    _requestedVisibleField = null;
+                    _formField = null;
+                    _applyInputModeOnUiThread = null;
+                    _installed = false;
+                }
+            }
+        }
+
+        public static void Capture()
+        {
+            Install();
+            HtmlUiService.SetInputMode(HtmlUiInputMode.MouseCaptured);
         }
 
         private static bool SetInputModePrefix(HtmlUiHost __instance, HtmlUiInputMode mode)
@@ -99,9 +117,6 @@ namespace BannerlordHtmlUI
             form.SetPassThrough(false);
             if (!form.IsHandleCreated) return;
 
-            // Keep the overlay permanently non-activating. WM_MOUSEACTIVATE returns
-            // MA_NOACTIVATE so WebView2 still receives the click without stealing the
-            // game's keyboard focus.
             Win32.SetNoActivate(form.Handle, true);
             Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
             Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
