@@ -99,6 +99,11 @@ namespace BannerlordHtmlUI
                     if (form == null || form.IsDisposed || !form.IsHandleCreated)
                         return false;
 
+                    // The overlay may be created before Bannerlord exposes a usable main HWND.
+                    // Rebind the owner every time the game HWND is successfully resolved so the
+                    // overlay is always in Bannerlord's owned-window Z-order.
+                    form.SetOwner(hwnd);
+
                     var foreground = Win32.GetForegroundWindow();
                     if (Win32.IsIconic(hwnd) || !Win32.IsWindowVisible(hwnd))
                     {
@@ -130,9 +135,11 @@ namespace BannerlordHtmlUI
                     return false;
                 }
 
-                if (Win32.TryGetGameWindowHandle(excludedWindow, out _))
+                if (Win32.TryGetGameWindowHandle(excludedWindow, out var passiveHwnd))
                 {
                     _diagnosticLogged = false;
+                    if (form != null && !form.IsDisposed && form.IsHandleCreated)
+                        form.SetOwner(passiveHwnd);
                     return true;
                 }
 
