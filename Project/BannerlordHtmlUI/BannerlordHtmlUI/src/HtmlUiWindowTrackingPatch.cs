@@ -99,12 +99,23 @@ namespace BannerlordHtmlUI
                     if (form == null || form.IsDisposed || !form.IsHandleCreated)
                         return false;
 
+                    // MouseCaptured is only valid while Bannerlord owns the foreground.
+                    // Do not leave a topmost overlay covering unrelated applications.
+                    if (Win32.GetForegroundWindow() != hwnd || Win32.IsIconic(hwnd) || !Win32.IsWindowVisible(hwnd))
+                    {
+                        if (form.Visible) form.Hide();
+                        return false;
+                    }
+
                     var width = Math.Max(0, rect.Right - rect.Left);
                     var height = Math.Max(0, rect.Bottom - rect.Top);
                     form.Bounds = new Rectangle(rect.Left, rect.Top, width, height);
                     form.SetPassThrough(false);
-                    Win32.SetNoActivate(form.Handle, false);
-                    Win32.ShowWindow(form.Handle, 1 /* SW_SHOWNORMAL */);
+
+                    // Never activate the overlay. Bannerlord remains foreground/keyboard owner,
+                    // while WM_MOUSEACTIVATE on the overlay permits mouse delivery without activation.
+                    Win32.SetNoActivate(form.Handle, true);
+                    Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
                     return false;
                 }
