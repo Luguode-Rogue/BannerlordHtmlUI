@@ -41,6 +41,7 @@ namespace BannerlordHtmlUI
             try
             {
                 HtmlUiService.NotifyGameContext("application", true);
+                HtmlUiMouseCapture.Install();
                 HtmlUiHotReloadPatch.Install(HtmlUiService.Host);
                 HtmlUiStateRemovalPatch.Install(HtmlUiService.Host);
                 HtmlUiWindowTrackingPatch.Install(HtmlUiService.Host);
@@ -107,6 +108,7 @@ namespace BannerlordHtmlUI
             try { HtmlUiService.NotifyGameContext("application", false); } catch { }
             try { HtmlUiHotReloadPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("HotReload patch uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiWindowTrackingPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Window tracking patch uninstall failed: " + ex.GetBaseException().Message); }
+            try { HtmlUiMouseCapture.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Mouse capture policy uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiProcessRecovery.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("WebView2 process recovery uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiContextMenuPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Context menu patch uninstall failed: " + ex.GetBaseException().Message); }
             HtmlUiService.Dispose();
