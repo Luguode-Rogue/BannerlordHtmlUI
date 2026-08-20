@@ -99,9 +99,19 @@ namespace BannerlordHtmlUI
                     if (form == null || form.IsDisposed || !form.IsHandleCreated)
                         return false;
 
-                    // MouseCaptured is only valid while Bannerlord owns the foreground.
-                    // Do not leave a topmost overlay covering unrelated applications.
-                    if (Win32.GetForegroundWindow() != hwnd || Win32.IsIconic(hwnd) || !Win32.IsWindowVisible(hwnd))
+                    var foreground = Win32.GetForegroundWindow();
+                    if (Win32.IsIconic(hwnd) || !Win32.IsWindowVisible(hwnd))
+                    {
+                        if (form.Visible) form.Hide();
+                        return false;
+                    }
+
+                    // MouseCaptured deliberately allows the overlay to become foreground
+                    // for the duration of a real WebView2 mouse interaction. MouseUp restores
+                    // Bannerlord focus through HtmlUiKeyboardAndDiagnosticsPatch.
+                    var overlayForeground = foreground == form.Handle;
+                    var gameForeground = foreground == hwnd;
+                    if (!gameForeground && !overlayForeground)
                     {
                         if (form.Visible) form.Hide();
                         return false;
@@ -112,9 +122,9 @@ namespace BannerlordHtmlUI
                     form.Bounds = new Rectangle(rect.Left, rect.Top, width, height);
                     form.SetPassThrough(false);
 
-                    // Never activate the overlay. Bannerlord remains foreground/keyboard owner,
-                    // while WM_MOUSEACTIVATE on the overlay permits mouse delivery without activation.
-                    Win32.SetNoActivate(form.Handle, true);
+                    // MouseCaptured must be activatable. SetPassThrough(false) removes
+                    // WS_EX_NOACTIVATE; do not re-add it here or WM_MOUSEACTIVATE/pointer
+                    // delivery will be suppressed at the native window boundary.
                     Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
                     return false;
