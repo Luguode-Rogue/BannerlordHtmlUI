@@ -43,6 +43,7 @@ namespace BannerlordHtmlUI
         internal static extern bool SetForegroundWindow(IntPtr hWnd);
 
         [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
@@ -69,17 +70,28 @@ namespace BannerlordHtmlUI
         private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
 
         internal static readonly IntPtr HWND_TOP = IntPtr.Zero;
-        internal static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         internal const uint SWP_NOSIZE = 0x0001;
         internal const uint SWP_NOMOVE = 0x0002;
         internal const uint SWP_NOACTIVATE = 0x0010;
         internal const uint SWP_SHOWWINDOW = 0x0040;
-        internal const uint SWP_NOOWNERZORDER = 0x0200;
 
         internal const int GWL_EXSTYLE = -20;
+        internal const int GWL_HWNDPARENT = -8;
         internal const long WS_EX_NOACTIVATE = 0x08000000L;
         internal const long WS_EX_TOOLWINDOW = 0x00000080L;
         internal const int SW_SHOWNOACTIVATE = 4;
+
+        internal static void SetOwner(IntPtr hWnd, IntPtr ownerHwnd)
+        {
+            if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return;
+            if (ownerHwnd != IntPtr.Zero && !IsWindow(ownerHwnd)) return;
+
+            var value = ownerHwnd;
+            if (Environment.Is64BitProcess)
+                SetWindowLongPtr64(hWnd, GWL_HWNDPARENT, value);
+            else
+                SetWindowLongPtr32(hWnd, GWL_HWNDPARENT, value);
+        }
 
         internal static void SetNoActivate(IntPtr hWnd, bool enabled)
         {
@@ -179,9 +191,11 @@ namespace BannerlordHtmlUI
         {
             if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return;
 
+            // The overlay is explicitly owned by Bannerlord. Use normal Z-order so it stays
+            // above the owner without becoming globally TOPMOST and without stealing focus.
             SetWindowPos(
                 hWnd,
-                HWND_TOPMOST,
+                HWND_TOP,
                 0,
                 0,
                 0,
