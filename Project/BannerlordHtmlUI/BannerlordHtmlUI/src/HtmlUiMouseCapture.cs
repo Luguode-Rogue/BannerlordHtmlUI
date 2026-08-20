@@ -6,9 +6,8 @@ using System.Windows.Forms;
 namespace BannerlordHtmlUI
 {
     /// <summary>
-    /// Mouse-only input capture for overlays. The overlay is allowed to become the
-    /// active window for the mouse click, then immediately returns keyboard focus
-    /// to Bannerlord after the button-down message has entered WebView2.
+    /// Mouse-only input capture. The overlay remains non-activating so Bannerlord
+    /// keeps keyboard ownership while mouse messages are delivered to WebView2.
     /// </summary>
     public static class HtmlUiMouseCapture
     {
@@ -100,11 +99,13 @@ namespace BannerlordHtmlUI
             form.SetPassThrough(false);
             if (!form.IsHandleCreated) return;
 
-            // MouseCaptured must not carry WS_EX_NOACTIVATE. That style prevents the
-            // inactive WinForms/WebView2 window from receiving the click at all.
-            Win32.SetNoActivate(form.Handle, false);
-            Win32.ShowWindow(form.Handle, 1 /* SW_SHOWNORMAL */);
-            HtmlUiLogger.Info("MouseCaptured native window configured as activatable/hit-testable.");
+            // Keep the overlay permanently non-activating. WM_MOUSEACTIVATE returns
+            // MA_NOACTIVATE so WebView2 still receives the click without stealing the
+            // game's keyboard focus.
+            Win32.SetNoActivate(form.Handle, true);
+            Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
+            Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
+            HtmlUiLogger.Info("MouseCaptured native window configured as non-activating/hit-testable.");
         }
     }
 }
