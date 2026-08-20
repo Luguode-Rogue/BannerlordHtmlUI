@@ -6,9 +6,8 @@ using System.Windows.Forms;
 namespace BannerlordHtmlUI
 {
     /// <summary>
-    /// Mouse-only input capture for overlays. The overlay is allowed to become the
-    /// active window for the mouse click, then immediately returns keyboard focus
-    /// to Bannerlord after the button-down message has entered WebView2.
+    /// Framework-wide mouse-only input policy. Mouse capture never activates the
+    /// overlay, so Bannerlord remains the keyboard owner while WebView2 receives clicks.
     /// </summary>
     public static class HtmlUiMouseCapture
     {
@@ -21,13 +20,7 @@ namespace BannerlordHtmlUI
         private static FieldInfo _formField;
         private static MethodInfo _applyInputModeOnUiThread;
 
-        public static void Capture()
-        {
-            Install();
-            HtmlUiService.SetInputMode(HtmlUiInputMode.MouseCaptured);
-        }
-
-        private static void Install()
+        internal static void Install()
         {
             lock (Sync)
             {
@@ -51,8 +44,32 @@ namespace BannerlordHtmlUI
                     postfix: new HarmonyMethod(typeof(HtmlUiMouseCapture), nameof(ApplyInputModePostfix)));
 
                 _installed = true;
-                HtmlUiLogger.Info("Mouse-only HTML UI input capture installed.");
+                HtmlUiLogger.Info("Mouse-only HTML UI input policy installed.");
             }
+        }
+
+        internal static void Uninstall()
+        {
+            lock (Sync)
+            {
+                if (!_installed) return;
+                try { _harmony?.UnpatchAll(HarmonyId); }
+                finally
+                {
+                    _harmony = null;
+                    _inputModeField = null;
+                    _requestedVisibleField = null;
+                    _formField = null;
+                    _applyInputModeOnUiThread = null;
+                    _installed = false;
+                }
+            }
+        }
+
+        public static void Capture()
+        {
+            Install();
+            HtmlUiService.SetInputMode(HtmlUiInputMode.MouseCaptured);
         }
 
         private static bool SetInputModePrefix(HtmlUiHost __instance, HtmlUiInputMode mode)
@@ -100,11 +117,10 @@ namespace BannerlordHtmlUI
             form.SetPassThrough(false);
             if (!form.IsHandleCreated) return;
 
-            // MouseCaptured must not carry WS_EX_NOACTIVATE. That style prevents the
-            // inactive WinForms/WebView2 window from receiving the click at all.
-            Win32.SetNoActivate(form.Handle, false);
-            Win32.ShowWindow(form.Handle, 1 /* SW_SHOWNORMAL */);
-            HtmlUiLogger.Info("MouseCaptured native window configured as activatable/hit-testable.");
+            Win32.SetNoActivate(form.Handle, true);
+            Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
+            Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
+            HtmlUiLogger.Info("MouseCaptured native window configured as non-activating/hit-testable.");
         }
     }
 }
