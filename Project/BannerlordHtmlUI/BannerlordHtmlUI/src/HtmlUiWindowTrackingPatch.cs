@@ -103,8 +103,11 @@ namespace BannerlordHtmlUI
                     var height = Math.Max(0, rect.Bottom - rect.Top);
                     form.Bounds = new Rectangle(rect.Left, rect.Top, width, height);
                     form.SetPassThrough(false);
-                    Win32.SetNoActivate(form.Handle, false);
-                    Win32.ShowWindow(form.Handle, 1 /* SW_SHOWNORMAL */);
+
+                    // Never activate the overlay. Bannerlord remains foreground/keyboard owner,
+                    // while WM_MOUSEACTIVATE on the overlay permits mouse delivery without activation.
+                    Win32.SetNoActivate(form.Handle, true);
+                    Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
                     return false;
                 }
