@@ -23,7 +23,10 @@ namespace BannerlordHtmlUI
         public void SetPassThrough(bool enabled)
         {
             _passThrough = enabled;
-            Win32.SetNoActivate(Handle, enabled || true);
+            // The overlay must never become the active top-level window. Passive mode
+            // additionally uses HTTRANSPARENT; interactive mouse mode uses real hit-testing
+            // plus WM_MOUSEACTIVATE=MA_NOACTIVATE.
+            Win32.SetNoActivate(Handle, true);
         }
 
         protected override bool ShowWithoutActivation => true;
