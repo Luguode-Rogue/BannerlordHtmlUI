@@ -15,7 +15,6 @@ namespace BannerlordHtmlUI
         private static HtmlUiHost _host;
         private static IMessageFilter _filter;
         private static CoreWebView2 _core;
-        private static WebView2 _web;
         private static object _controller;
         private static EventInfo _acceleratorEvent;
         private static Delegate _acceleratorHandler;
@@ -28,7 +27,15 @@ namespace BannerlordHtmlUI
             {
                 var formField = typeof(HtmlUiHost).GetField("_form", BindingFlags.Instance | BindingFlags.NonPublic);
                 var form = formField?.GetValue(host) as HtmlUiOverlayForm;
-                if (form != null) form.EscapePressed = () => CloseCurrentPageOnEscape(host);
+                if (form != null)
+                {
+                    form.EscapePressed = () =>
+                    {
+                        try { HtmlUiLogger.Info("ESC callback received by overlay form. Closing current page."); host.Pages.CloseCurrent(); }
+                        catch (Exception ex) { HtmlUiLogger.Error("ESC overlay callback failed.", ex); }
+                    };
+                    HtmlUiLogger.Info("Overlay ESC callback wired.");
+                }
 
                 if (_filter == null)
                 {
@@ -43,39 +50,32 @@ namespace BannerlordHtmlUI
                 if (core != null && !ReferenceEquals(_core, core))
                 {
                     DetachWebViewAccelerator();
-                    DetachWebViewMouseHandler();
                     _core = core;
-                    _web = web;
                     AttachWebViewAccelerator(web);
-                    AttachWebViewMouseHandler(web);
                     core.NavigationCompleted += OnNavigationCompleted;
-                    HtmlUiLogger.Info("UI navigation/accelerator/mouse diagnostics hooks installed for current WebView2 instance.");
+                    HtmlUiLogger.Info("UI navigation/accelerator diagnostics hooks installed for current WebView2 instance.");
                 }
 
                 InstallRuntimeStateRemovalPatch(host);
                 HtmlUiWindowTrackingPatch.Install(host);
             }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("Failed to install ESC/i18n diagnostics hook.", ex);
-            }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install ESC/i18n diagnostics hook.", ex); }
         }
 
         public static void Uninstall(HtmlUiHost host)
         {
             if (_filter != null)
             {
-                try { Application.RemoveMessageFilter(_filter); } catch { }
+                try { Application.RemoveMessageFilter(_filter); }
+                catch (Exception ex) { HtmlUiLogger.Debug("Failed to remove global UI ESC close filter: " + ex.GetBaseException().Message); }
                 _filter = null;
             }
             DetachWebViewAccelerator();
-            DetachWebViewMouseHandler();
             if (_core != null)
             {
                 try { _core.NavigationCompleted -= OnNavigationCompleted; } catch { }
                 _core = null;
             }
-            _web = null;
             if (host != null)
             {
                 try
@@ -88,74 +88,6 @@ namespace BannerlordHtmlUI
             }
             if (ReferenceEquals(_host, host)) _host = null;
             HtmlUiLogger.Info("Global UI ESC close diagnostics uninstalled.");
-        }
-
-        private static void AttachWebViewMouseHandler(WebView2 web)
-        {
-            if (web == null) return;
-            try
-            {
-                web.MouseUp += OnWebViewMouseUp;
-                HtmlUiLogger.Info("WebView2 mouse-release focus restore hook installed.");
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Warn("WebView2 mouse-release hook failed: " + ex.GetBaseException().Message);
-            }
-        }
-
-        private static void DetachWebViewMouseHandler()
-        {
-            if (_web == null) return;
-            try { _web.MouseUp -= OnWebViewMouseUp; } catch { }
-        }
-
-        private static void OnWebViewMouseUp(object sender, MouseEventArgs e)
-        {
-            if (e == null) return;
-            if (e.Button != MouseButtons.Left && e.Button != MouseButtons.Right && e.Button != MouseButtons.Middle) return;
-            var host = _host;
-            if (host == null || !host.IsVisible || host.InputMode != HtmlUiInputMode.MouseCaptured) return;
-            try
-            {
-                var field = typeof(HtmlUiHost).GetField("_form", BindingFlags.Instance | BindingFlags.NonPublic);
-                var form = field?.GetValue(host) as HtmlUiOverlayForm;
-                if (form == null || form.IsDisposed) return;
-                form.BeginInvoke(new Action(() =>
-                {
-                    try
-                    {
-                        if (Win32.TryGetGameWindowHandle(form.Handle, out var gameWindow))
-                        {
-                            var restored = Win32.SetForegroundWindow(gameWindow);
-                            HtmlUiLogger.Info(
-                                "WebView2 mouse release: Bannerlord keyboard focus restored=" + restored + ", hwnd=" + gameWindow + ", button=" + e.Button);
-                        }
-                        else
-                        {
-                            HtmlUiLogger.Warn(
-                                "WebView2 mouse release: Bannerlord game window could not be resolved; keyboard focus was not restored. button=" + e.Button);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        HtmlUiLogger.Debug("Failed to restore Bannerlord focus from WebView2 mouse release: " + ex.GetBaseException().Message);
-                    }
-                }));
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Debug("Failed to schedule Bannerlord focus restore from WebView2 mouse release: " + ex.GetBaseException().Message);
-            }
-        }
-
-        private static bool CloseCurrentPageOnEscape(HtmlUiHost host)
-        {
-            if (host == null || !host.IsVisible) return false;
-            var page = host.Pages.Current;
-            if (page != null && !page.CloseOnEscape) return false;
-            try { host.Pages.CloseCurrent(); return true; }
-            catch (Exception ex) { HtmlUiLogger.Error("ESC page close failed.", ex); return true; }
         }
 
         private static void AttachWebViewAccelerator(WebView2 web)
@@ -171,10 +103,18 @@ namespace BannerlordHtmlUI
                     controller = field.GetValue(web);
                     if (controller != null) break;
                 }
-                if (controller == null) return;
+                if (controller == null)
+                {
+                    HtmlUiLogger.Warn("WebView2 controller could not be resolved; keeping WinForms ESC fallback.");
+                    return;
+                }
                 var eventInfo = controller.GetType().GetEvent("AcceleratorKeyPressed", BindingFlags.Instance | BindingFlags.Public);
                 var method = typeof(HtmlUiKeyboardAndDiagnosticsPatch).GetMethod(nameof(OnWebViewAcceleratorKeyPressed), BindingFlags.Static | BindingFlags.NonPublic);
-                if (eventInfo == null || method == null) return;
+                if (eventInfo == null || method == null)
+                {
+                    HtmlUiLogger.Warn("WebView2 AcceleratorKeyPressed event is unavailable; keeping WinForms ESC fallback.");
+                    return;
+                }
                 var handler = Delegate.CreateDelegate(eventInfo.EventHandlerType, method);
                 eventInfo.AddEventHandler(controller, handler);
                 _controller = controller;
@@ -182,7 +122,11 @@ namespace BannerlordHtmlUI
                 _acceleratorHandler = handler;
                 HtmlUiLogger.Info("WebView2 controller AcceleratorKeyPressed hook installed.");
             }
-            catch (Exception ex) { HtmlUiLogger.Warn("WebView2 controller accelerator hook failed: " + ex.GetBaseException().Message); }
+            catch (Exception ex)
+            {
+                _controller = null; _acceleratorEvent = null; _acceleratorHandler = null;
+                HtmlUiLogger.Warn("WebView2 controller accelerator hook failed: " + ex.GetBaseException().Message);
+            }
         }
 
         private static void DetachWebViewAccelerator()
@@ -191,9 +135,7 @@ namespace BannerlordHtmlUI
             {
                 try { _acceleratorEvent.RemoveEventHandler(_controller, _acceleratorHandler); } catch { }
             }
-            _controller = null;
-            _acceleratorEvent = null;
-            _acceleratorHandler = null;
+            _controller = null; _acceleratorEvent = null; _acceleratorHandler = null;
         }
 
         private static void OnWebViewAcceleratorKeyPressed(object sender, CoreWebView2AcceleratorKeyPressedEventArgs e)
@@ -202,9 +144,12 @@ namespace BannerlordHtmlUI
             if (e.KeyEventKind != CoreWebView2KeyEventKind.KeyDown && e.KeyEventKind != CoreWebView2KeyEventKind.SystemKeyDown) return;
             var host = _host;
             if (host == null || !host.IsVisible) return;
-            var page = host.Pages.Current;
-            if (page != null && !page.CloseOnEscape) return;
-            try { e.Handled = true; host.Pages.CloseCurrent(); }
+            try
+            {
+                e.Handled = true;
+                HtmlUiLogger.Info("WebView2 AcceleratorKeyPressed detected Escape. Closing current page: " + (host.Pages.CurrentId ?? "<null>"));
+                host.Pages.CloseCurrent();
+            }
             catch (Exception ex) { HtmlUiLogger.Error("WebView2 Escape close failed.", ex); }
         }
 
@@ -215,7 +160,7 @@ namespace BannerlordHtmlUI
                 var webField = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
                 var web = webField?.GetValue(host) as WebView2;
                 var core = web?.CoreWebView2;
-                if (core == null) return;
+                if (core == null) { HtmlUiLogger.Warn("State removal runtime patch deferred: CoreWebView2 is not ready."); return; }
                 const string script = @"
 (() => {
   try {
@@ -261,7 +206,10 @@ namespace BannerlordHtmlUI
 (() => {
   try {
     const selector='[data-bhui-i18n],[data-bhui-i18n-placeholder],[data-bhui-i18n-title],[data-bhui-i18n-alt]';
-    const items=[...document.querySelectorAll(selector)].map(el=>({key:el.getAttribute('data-bhui-i18n')||el.getAttribute('data-bhui-i18n-placeholder')||el.getAttribute('data-bhui-i18n-title')||el.getAttribute('data-bhui-i18n-alt')||'',text:el.textContent||'',placeholder:el.getAttribute('placeholder')||'',title:el.getAttribute('title')||'',alt:el.getAttribute('alt')||''}));
+    const items=[...document.querySelectorAll(selector)].map(el=>({
+      key:el.getAttribute('data-bhui-i18n')||el.getAttribute('data-bhui-i18n-placeholder')||el.getAttribute('data-bhui-i18n-title')||el.getAttribute('data-bhui-i18n-alt')||'',
+      text:el.textContent||'', placeholder:el.getAttribute('placeholder')||'', title:el.getAttribute('title')||'', alt:el.getAttribute('alt')||''
+    }));
     const locale=window.game&&window.game.i18n?window.game.i18n.locale:null;
     return JSON.stringify({url:location.href,locale,items});
   } catch(e) { return JSON.stringify({error:String(e)}); }
@@ -279,9 +227,13 @@ namespace BannerlordHtmlUI
                 if (host == null || !host.IsVisible) return false;
                 var key = unchecked((int)m.WParam.ToInt64());
                 if (key != VkEscape) return false;
-                var page = host.Pages.Current;
-                if (page != null && !page.CloseOnEscape) return false;
-                try { host.Pages.CloseCurrent(); return true; }
+                try
+                {
+                    HtmlUiLogger.Info("UI keyboard close detected: key=Escape, currentPage=" + (host.Pages.CurrentId ?? "<null>") + ", inputMode=" + host.InputMode);
+                    host.Pages.CloseCurrent();
+                    HtmlUiLogger.Info("UI keyboard Escape close completed. currentPage=" + (host.Pages.CurrentId ?? "<null>") + ", inputMode=" + host.InputMode + ", hostVisible=" + host.IsVisible);
+                    return true;
+                }
                 catch (Exception ex) { HtmlUiLogger.Error("UI keyboard Escape close failed.", ex); return false; }
             }
         }
