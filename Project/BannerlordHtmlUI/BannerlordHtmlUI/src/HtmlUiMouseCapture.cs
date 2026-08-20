@@ -6,8 +6,9 @@ using System.Windows.Forms;
 namespace BannerlordHtmlUI
 {
     /// <summary>
-    /// Framework-wide mouse-only input policy. Mouse capture never activates the
-    /// overlay, so Bannerlord remains the keyboard owner while WebView2 receives clicks.
+    /// Framework-wide mouse-only input policy. Mouse capture temporarily allows
+    /// the overlay to own the native click. WebView2 MouseUp restores Bannerlord
+    /// as the keyboard owner immediately after the click sequence completes.
     /// </summary>
     public static class HtmlUiMouseCapture
     {
@@ -117,10 +118,12 @@ namespace BannerlordHtmlUI
             form.SetPassThrough(false);
             if (!form.IsHandleCreated) return;
 
-            Win32.SetNoActivate(form.Handle, true);
-            Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
+            // MouseCaptured must be a real native hit-testable/activatable window;
+            // otherwise WebView2 does not receive the click sequence on this game.
+            Win32.SetNoActivate(form.Handle, false);
+            Win32.ShowWindow(form.Handle, 1 /* SW_SHOWNORMAL */);
             Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
-            HtmlUiLogger.Info("MouseCaptured native window configured as non-activating/hit-testable.");
+            HtmlUiLogger.Info("MouseCaptured native window configured as activatable/hit-testable.");
         }
     }
 }
