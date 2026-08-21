@@ -1,67 +1,50 @@
 # Architecture
 
-## Threads
+本文件现在只作为旧入口兼容页，不再维护第二套架构描述。
+
+当前真实架构规范：
+
+- [`ARCHITECTURE_MASTER.md`](ARCHITECTURE_MASTER.md)：线程、生命周期、状态 owner、输入、Window、Runtime 总架构。
+- [`FRAMEWORK_MODULE_MAP.md`](FRAMEWORK_MODULE_MAP.md)：每个 C# 模块的职责与禁止事项。
+- [`CODE_PLACEMENT_RULES.md`](CODE_PLACEMENT_RULES.md)：修改代码时必须遵守的归属规则。
+- [`API.md`](API.md)：Consumer 可使用的公共 API。
+- [`BUG_KNOWLEDGE_BASE.md`](BUG_KNOWLEDGE_BASE.md)：历史 Bug、失败方案和定位入口。
+
+## 最重要的三个边界
 
 ```text
-Bannerlord thread
-    │
-    ├── HtmlUiService.Tick()
-    │       └── GameThreadDispatcher.Drain()
-    │
-    └── gameplay handlers
+WindowTracker
+    = 窗口事实 / HWND / Bounds / Minimize / Foreground
 
-WebView2 STA thread
-    │
-    ├── browser initialization
-    ├── JS bridge
-    └── page rendering
+InputController
+    = Hidden / Passive / Captured / MouseCaptured
+
+PageManager
+    = Register / Open / Close / Reload / Navigation lifecycle
 ```
 
-WebView callbacks never execute gameplay handlers directly. They enqueue work into `GameThreadDispatcher`.
+它们不得互相复制职责。
 
-## Layers
+## 线程边界
 
-- `HtmlUiService`: public framework facade.
-- `HtmlUiHost`: WebView2/WinForms host.
-- `HtmlUiBridge`: protocol transport and handler routing.
-- `HtmlUiStateStore`: generic state/value synchronization.
-- `HtmlUiPageManager`: logical page registration and lifecycle.
-- `GameThreadDispatcher`: cross-thread handoff into Bannerlord's tick.
-- `HtmlUiDevTools`: local development support.
-- `HtmlUiLogger`: framework logging.
-
-## Browser protocol
-
-Message envelope:
-
-```json
-{
-  "version": 1,
-  "type": "request",
-  "id": "uuid",
-  "name": "example",
-  "payload": {}
-}
+```text
+Bannerlord Game Thread
+        ↓
+Framework C#
+        ↓ marshal
+WebView2 UI Thread
+        ↓
+Chromium / JavaScript Runtime
 ```
 
-Supported types:
+`CoreWebView2` 只在 WebView2 UI thread 使用；Bannerlord Game API 只在 Game Thread 使用。
 
-- `command`
-- `request`
-- `event`
-- `state:set`
-- `state:get`
+## Consumer 边界
 
-## Page lifecycle
+Consumer 不创建 WebView2，不修改 Framework 私有窗口状态，不添加 Framework Harmony input/window workaround。
 
-`Registered → Open → Navigated → Closed`.
+Consumer-specific 行为必须留在 Consumer。
 
-Pages are logical entries. v0.10 keeps a single WebView host and navigates it between page URLs. A future version can add multiple concurrent browser hosts if required.
+## 历史复盘
 
-## Threading boundary
-
-WebView2 callbacks execute on the WebView2 UI thread. Framework consumers must treat those callbacks as untrusted input and let Bannerlord game logic run through `GameThreadDispatcher` / `HtmlUiService.Tick()`.
-
-## Public vs internal types
-
-`HtmlUiService`, `HtmlUiCommands`, `HtmlUiPage`, `HtmlUiPageManager`, and `HtmlUiStateStore` form the consumer-facing layer. `HtmlUiHost`, `HtmlUiBridge`, and Win32/WebView2 integration remain implementation details.
+旧 `Handoff/` 和历史 Changelog 继续保存完整排错过程；不要把历史文件重新当作当前架构规范。
