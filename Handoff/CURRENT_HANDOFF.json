@@ -1,9 +1,0 @@
-{
-  "baseline": "dev",
-  "framework": "BannerlordHtmlUI",
-  "consumer": "HtmlUiConsumerTestMod",
-  "engine": "Mount & Blade II: Bannerlord",
-  "template": "BUTR Team Bannerlord Module",
-  "runtime_target": "net472",
-  "status": "Stability hardening in progress. State.Remove, owner request cancellation, pre-cancel TTL, HotReload lifecycle, ESC/HWND guards, and cancellable requestId race hardening are landed. Remaining major work: WebView2 ProcessFailed recovery state machine, EnsureUiThread disposed-host semantics, and Page/WebView2 reinitialize lifecycle audit. Real-device acceptance is still pending."
-}
