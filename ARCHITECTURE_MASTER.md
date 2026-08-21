@@ -93,7 +93,6 @@ Browser policy 只有一个 owner；F12 是安全兜底，不是页面关闭协�
 
 ## 严禁重新引入
 
-- 新的 100ms window polling / FollowTimer
 - Chromium 子窗口 `Chrome_RenderWidgetHostHWND` 的随机 extended-style 实验
 - Consumer 专用的 Framework Patch
 - 第二套线程 queue / Task.Run / Invoke 体系
