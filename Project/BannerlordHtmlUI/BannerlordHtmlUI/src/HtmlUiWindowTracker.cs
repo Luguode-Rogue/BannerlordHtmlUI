@@ -108,7 +108,7 @@ namespace BannerlordHtmlUI
 
             SyncNow();
             HtmlUiInputTraceLogger.Event("WINDOW_TRACKER_STARTED uiThread=" + ThreadId());
-            HtmlUiLogger.Info("Event-driven Bannerlord window tracker started; legacy 100ms follow timer disabled.");
+            HtmlUiLogger.Info("Event-driven Bannerlord window tracker started.");
         }
 
         private void StopLegacyFollowTimer()
@@ -123,7 +123,7 @@ namespace BannerlordHtmlUI
                 _timerField.SetValue(_host, null);
                 HtmlUiInputTraceLogger.Event("WINDOW_TRACKER_LEGACY_TIMER_DISABLED");
             }
-            catch (Exception ex) { HtmlUiLogger.Debug("Failed to disable legacy 100ms follow timer: " + ex.GetBaseException().Message); }
+            catch (Exception ex) { HtmlUiLogger.Debug("Failed to disable legacy follow timer: " + ex.GetBaseException().Message); }
         }
 
         private void OnWinEvent(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint idEventThread, uint msEventTime)
@@ -182,11 +182,11 @@ namespace BannerlordHtmlUI
             }
 
             Win32.RECT rect;
-            Win32.GetWindowRect(gameHwnd, out rect);
+            if (!Win32.GetWindowRect(gameHwnd, out rect)) return;
             var minimized = Win32.IsIconic(gameHwnd);
             var gameVisible = Win32.IsWindowVisible(gameHwnd) && !minimized;
             var foreground = Win32.GetForegroundWindow() == gameHwnd;
-            var overlayForeground = _host.InputMode != HtmlUiInputMode.Passive && form.IsHandleCreated && Win32.GetForegroundWindow() == form.Handle;
+            var overlayForeground = form.IsHandleCreated && Win32.GetForegroundWindow() == form.Handle;
             var requestedVisible = _host.IsVisible;
             var showOverlay = requestedVisible && gameVisible && (foreground || overlayForeground);
             var windowWidth = Math.Max(0, rect.Right - rect.Left);
@@ -216,15 +216,14 @@ namespace BannerlordHtmlUI
             }
 
             var actualBounds = form.Bounds;
-            var state = new HtmlUiWindowState(
+            PublishState(new HtmlUiWindowState(
                 foreground || overlayForeground,
                 showOverlay && form.Visible,
                 minimized,
                 actualBounds.Left,
                 actualBounds.Top,
                 Math.Max(0, actualBounds.Width),
-                Math.Max(0, actualBounds.Height));
-            PublishState(state);
+                Math.Max(0, actualBounds.Height)));
         }
 
         private void PublishState(HtmlUiWindowState state)
