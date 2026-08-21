@@ -139,18 +139,24 @@ namespace BannerlordHtmlUI
 
                 // Passive means display-only: keep the WebView painted, but disable the WebView
                 // control itself so Chromium cannot consume mouse/keyboard/context-menu input.
-                try { if (web != null) web.Enabled = mode != HtmlUiInputMode.Passive; } catch { }
-                try { form.SetOwner(gameHwnd); } catch { }
-                try { form.Show(); } catch { }
-
                 if (mode == HtmlUiInputMode.Passive)
                 {
+                    // Passive must release any native mouse capture left by a previous
+                    // MouseCaptured transition. Otherwise the transparent overlay can continue
+                    // receiving mouse messages even after input ownership has been relinquished.
+                    try { Win32.ReleaseMouseCapture(); } catch { }
+                    try { if (web != null) web.Enabled = false; } catch { }
+                    try { form.SetOwner(gameHwnd); } catch { }
+                    try { form.Show(); } catch { }
                     form.SetPassThrough(true);
                     Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
                 }
                 else
                 {
+                    try { if (web != null) web.Enabled = true; } catch { }
+                    try { form.SetOwner(gameHwnd); } catch { }
+                    try { form.Show(); } catch { }
                     form.SetPassThrough(false);
                     Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
