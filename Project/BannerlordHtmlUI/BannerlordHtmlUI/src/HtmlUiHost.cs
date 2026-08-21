@@ -25,13 +25,8 @@ namespace BannerlordHtmlUI
 
         public HtmlUiWindowState(bool isForeground, bool isVisible, bool isMinimized, int left, int top, int width, int height)
         {
-            IsForeground = isForeground;
-            IsVisible = isVisible;
-            IsMinimized = isMinimized;
-            Left = left;
-            Top = top;
-            Width = width;
-            Height = height;
+            IsForeground = isForeground; IsVisible = isVisible; IsMinimized = isMinimized;
+            Left = left; Top = top; Width = width; Height = height;
         }
     }
 
@@ -47,7 +42,7 @@ namespace BannerlordHtmlUI
         private HtmlUiBridge _bridge;
         private FileSystemWatcher _watcher;
         private string _currentRelativePath;
-        private HtmlUiPage _pendingPage;
+        private volatile HtmlUiPage _pendingPage;
         private bool _navigationInProgress;
         private bool _disposed;
         private volatile bool _webViewReady;
@@ -247,12 +242,9 @@ namespace BannerlordHtmlUI
                     _form.SetPassThrough(false);
                     Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
-                    if (_inputMode == HtmlUiInputMode.Captured && !foreground && !overlayForeground && Win32.IsWindow(_form.Handle))
-                    {
-                        Win32.SetForegroundWindow(_form.Handle);
-                        _form.Activate();
-                        _web?.Focus();
-                    }
+                    // IMPORTANT: FollowBannerlordWindow is a placement/visibility loop.
+                    // It must never reacquire foreground focus. Captured input acquires
+                    // focus once when SetInputMode(Captured) is explicitly called.
                 }
                 ApplyWindowState(new HtmlUiWindowState(foreground || overlayForeground, _form.Visible, minimized, rect.Left, rect.Top, width, height));
             }
@@ -316,7 +308,7 @@ namespace BannerlordHtmlUI
             using (var gate = new ManualResetEventSlim(false))
             {
                 _form.BeginInvoke(new Action(() => { try { action(); } catch (Exception ex) { error = ex; } finally { gate.Set(); } }));
-                gate.Wait();
+                if (!gate.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException("Timed out waiting for the HTML UI thread.");
             }
             if (error != null) throw error;
         }
@@ -419,6 +411,11 @@ namespace BannerlordHtmlUI
             if (_disposed) throw new ObjectDisposedException(nameof(HtmlUiHost));
             if (!IsWebViewReady) { _pendingPage = page; return; }
             NavigateOnUiThread(page);
+        }
+
+        internal void ClearPendingNavigation()
+        {
+            _pendingPage = null;
         }
 
         private void FlushPendingPage()
@@ -596,6 +593,7 @@ namespace BannerlordHtmlUI
             _webViewReady = false;
             _requestedVisible = false;
             _inputMode = HtmlUiInputMode.Hidden;
+            _pendingPage = null;
             try { Win32.ReleaseMouseCapture(); } catch { }
             try { if (_web != null) _web.Enabled = false; } catch { }
             try { if (_form != null && _form.IsHandleCreated) _form.SetPassThrough(true); } catch { }
