@@ -9,14 +9,16 @@ namespace BannerlordHtmlUI
         private readonly ConcurrentQueue<Action> _queue = new ConcurrentQueue<Action>();
         private long _lastDrainTimestamp;
         private int _drainActive;
+        private int _hasDrained;
 
         public GameThreadDispatcher()
         {
-            _lastDrainTimestamp = StopwatchTicks();
+            _lastDrainTimestamp = 0L;
         }
 
         public int QueueCount => _queue.Count;
         public bool IsDrainActive => Volatile.Read(ref _drainActive) != 0;
+        public bool HasDrained => Volatile.Read(ref _hasDrained) != 0;
         public long LastDrainTimestamp => Interlocked.Read(ref _lastDrainTimestamp);
 
         public void Post(Action action)
@@ -27,6 +29,7 @@ namespace BannerlordHtmlUI
 
         public int Drain(int maxItems = 256)
         {
+            if (maxItems <= 0) return 0;
             var processed = 0;
             Interlocked.Exchange(ref _drainActive, 1);
             try
@@ -43,6 +46,7 @@ namespace BannerlordHtmlUI
             {
                 Interlocked.Exchange(ref _drainActive, 0);
                 Interlocked.Exchange(ref _lastDrainTimestamp, StopwatchTicks());
+                Volatile.Write(ref _hasDrained, 1);
             }
         }
 
