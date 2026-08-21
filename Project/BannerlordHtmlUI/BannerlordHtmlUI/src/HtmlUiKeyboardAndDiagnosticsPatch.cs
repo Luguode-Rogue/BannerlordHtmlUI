@@ -29,10 +29,21 @@ namespace BannerlordHtmlUI
                 var form = formField?.GetValue(host) as HtmlUiOverlayForm;
                 if (form != null)
                 {
+                    // HtmlUiOverlayForm.EscapePressed is Func<bool>, not Action.
+                    // Returning true marks the ESC key as handled when page closure succeeds.
                     form.EscapePressed = () =>
                     {
-                        try { HtmlUiLogger.Info("ESC callback received by overlay form. Closing current page."); host.Pages.CloseCurrent(); }
-                        catch (Exception ex) { HtmlUiLogger.Error("ESC overlay callback failed.", ex); }
+                        try
+                        {
+                            HtmlUiLogger.Info("ESC callback received by overlay form. Closing current page.");
+                            host.Pages.CloseCurrent();
+                            return true;
+                        }
+                        catch (Exception ex)
+                        {
+                            HtmlUiLogger.Error("ESC overlay callback failed.", ex);
+                            return false;
+                        }
                     };
                     HtmlUiLogger.Info("Overlay ESC callback wired.");
                 }
