@@ -1,38 +1,29 @@
 # Handoff 历史归档
 
-`Handoff/` 保存阶段性交接、审计、Bug Postmortem、里程碑和历史决策。它是**证据与历史上下文仓库**，不是当前规范的唯一入口。
+这里**不是当前项目文档入口**，只保存已经发生过的排错现场和审计证据。
 
-## 当前工作先看
+## 当前文档
 
-1. `../Project/BannerlordHtmlUI/BannerlordHtmlUI/docs/README.md`
-2. `../Project/BannerlordHtmlUI/BannerlordHtmlUI/docs/PROJECT_STATUS.md`
-3. `../Project/BannerlordHtmlUI/BannerlordHtmlUI/docs/ARCHITECTURE_MASTER.md`
-4. `../Project/BannerlordHtmlUI/BannerlordHtmlUI/docs/BUG_KNOWLEDGE_BASE.md`
-5. `../Project/BannerlordHtmlUI/BannerlordHtmlUI/docs/TESTING_AND_REGRESSION.md`
+请直接看仓库根目录：
 
-## 历史资料
-
-本目录中的：
-
-- `PROJECT_HANDOFF_*.md`
+- `README.md`
+- `ARCHITECTURE_MASTER.md`
+- `BUG_KNOWLEDGE_BASE.md`
+- `API.md`
+- `DEVELOPMENT_GUIDE.md`
 - `PROJECT_STATUS.md`
-- `FULL_CODE_AUDIT_*.md`
-- `BUG_POSTMORTEM_*.md`
-- `BUGFIX_*.md`
-- `M*_*.md`
-- `DECISIONS.md`
-- `KNOWN_ISSUES.md`
-- `ROADMAP.md`
-- `REGRESSION_TESTS.md`
 
-均保留作为历史上下文。**不要为了整理文档删除 Bug 复盘或失败方案。**
+## 保留内容
 
-## 当前状态冲突说明
+只保留以下类型：
 
-旧交接文件可能反映不同日期、不同版本和不同分支的状态。例如某些历史文件中的版本号与当前 `dev` 文档目标并不一致。
+- `BUGFIX_*.md`：真实修复现场与验证证据
+- `BUG_POSTMORTEM_*.md`：事故/回归复盘
+- `FULL_CODE_AUDIT_*.md`：历史全量审计
+- `NAVIGATION_RACE_*.md`：关键竞态排查证据
 
-遇到冲突时，以 `Project/BannerlordHtmlUI/BannerlordHtmlUI/docs/PROJECT_STATUS.md`、当前代码和最近一次实机验证为准；旧 Handoff 只用于追溯“为什么曾经这样设计/修复”。
+这些文件记录“当时发生了什么、为什么这样修、哪些方案失败”，不能覆盖当前代码事实。
 
-## 文档治理
+## 删除原则
 
-未来新的修复继续写入完整 Bug/Postmortem；同时在 `docs/BUG_KNOWLEDGE_BASE.md` 增加检索入口。不要只更新摘要而丢失原始排查过程。
+阶段性交接、旧项目状态、旧路线图、旧测试表、里程碑说明不再作为独立文档长期维护；当前状态统一写入根目录 `PROJECT_STATUS.md`，当前规则统一写入根目录 `ARCHITECTURE_MASTER.md`。
