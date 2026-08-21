@@ -29,8 +29,6 @@ namespace BannerlordHtmlUI
                 var form = formField?.GetValue(host) as HtmlUiOverlayForm;
                 if (form != null)
                 {
-                    // HtmlUiOverlayForm.EscapePressed is Func<bool>, not Action.
-                    // Returning true marks the ESC key as handled when page closure succeeds.
                     form.EscapePressed = () =>
                     {
                         try
@@ -68,9 +66,9 @@ namespace BannerlordHtmlUI
                     HtmlUiLogger.Info("UI navigation/accelerator diagnostics hooks installed for current WebView2 instance.");
                 }
 
-                // Do not install the legacy WindowTrackingPatch here. HtmlUiInputModePatch is
-                // now the sole owner of overlay visibility, z-order and input arbitration.
                 InstallRuntimeStateRemovalPatch(host);
+                // Window placement/focus is owned exclusively by HtmlUiInputModePatch.
+                // Do not install the legacy HtmlUiWindowTrackingPatch here.
             }
             catch (Exception ex) { HtmlUiLogger.Error("Failed to install ESC/i18n diagnostics hook.", ex); }
         }
