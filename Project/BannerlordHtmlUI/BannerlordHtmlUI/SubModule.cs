@@ -78,8 +78,17 @@ namespace BannerlordHtmlUI
                     HtmlUiLogger.Warn("F10 Open result=" + opened + ", initialized=" + HtmlUiService.IsInitialized + ", ready=" + HtmlUiService.IsReady + ", lifecycle=" + HtmlUiService.LifecycleState + ", currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>") + ", hostVisible=" + HtmlUiService.Host.IsVisible + ", webViewReady=" + HtmlUiService.Host.IsWebViewReady + ", inputMode=" + HtmlUiService.Host.InputMode);
                     HtmlUiInputTraceLogger.Event("F10_RESULT opened=" + opened + " current=" + (HtmlUiService.Pages.CurrentId ?? "<null>"));
                 }
+                HtmlUiInputTraceLogger.TickAfterF10();
             }
-            catch (Exception ex) { HtmlUiLogger.Error("Application tick failed.", ex); HtmlUiInputTraceLogger.Event("APPLICATION_TICK_ERROR " + ex.GetBaseException().Message); }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Error("Application tick failed.", ex);
+                HtmlUiInputTraceLogger.Event("APPLICATION_TICK_ERROR " + ex.GetBaseException().Message);
+            }
+            finally
+            {
+                HtmlUiInputTraceLogger.TickCompleted();
+            }
         }
 
         protected override void OnSubModuleUnloaded()
