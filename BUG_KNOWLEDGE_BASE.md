@@ -21,18 +21,21 @@
 临时无法解析 Bannerlord HWND 不等于游戏退出。不得因此直接 Hide 正在显示的 UI。
 
 ### ccf3231 WindowTracker 回归记录
-提交 `ccf3231a97c8d26b6439f36db96e235e79994506` 曾同时修改 WindowTracker 的启动/卸载调度、`PostToUi` 调度语义、Overlay HWND exclusion，以及 Overlay foreground 判定。
+提交 `ccf3231a97c8d26b6439f36db96e235e79994506` 同时修改了 WindowTracker 的启动/卸载调度、`PostToUi` 调度语义、Overlay HWND exclusion，以及 Overlay foreground 判定。
 
-该提交已经确认会改变运行时行为，并与后续“输入重新失效”回归高度相关；但**具体根因不得在未经过完整实机证据链确认前定性**。因此这里不记录“某一处单独修改就是根因”的结论。
+已实机确认的回归现象是：页面请求进入 `Captured` 后，Framework 日志可以显示 `InputMode=Captured` / `INPUT_MODE_APPLIED`，但 Bannerlord 仍可能继续收到鼠标与 ESC；也可能同时出现 WindowTracker 的 `game=0`、异常 Foreground/Visible/Bounds 状态。
 
-当前处理原则：
+目前只能确认 `ccf3231` 改变了窗口状态建立与输入切换的运行时行为；**不得把 `IntPtr.Zero`、无条件 `BeginInvoke` 或任何单一 diff 点单独定性为唯一根因**。这些是回归链中的具体行为变化，需要结合实机日志逐项验证。
 
-- 出现输入重新失效时，必须比较 `ccf3231` 前后的完整 WindowTracker 行为，不得只挑一个 diff 点下结论。
-- `PostToUi` 的同步/异步语义属于 WindowTracker 线程边界的一部分，修改后必须检查 `Install → StartCore → RequestSync → InputController` 的时序。
-- `TryGetGameWindowHandle(...)` 的 Overlay exclusion 不能被线程修复顺手破坏。
+当前已恢复/修正的原则：
+
+- `PostToUi` 在 UI thread 必须保持同步执行；只有跨线程才 `BeginInvoke`。
+- `TryGetGameWindowHandle(...)` 必须继续排除当前 Overlay HWND。
 - WindowTracker 不得读取或修改 `InputMode`；输入语义归 `HtmlUiInputControllerPatch`。
+- `Captured` 的输入所有权必须由 `HtmlUiInputControllerPatch` 在一次完整的 mode transition 中建立，包括 Overlay 激活和 WebView 控件获得焦点；不能只把 `_inputMode` 写成 `Captured` 就视为输入已经接管。
+- `Captured` 失败排查必须同时查看：`INPUT_MODE_APPLIED`、`CAPTURED_ACTIVATE_ATTEMPT/RESULT`、Foreground HWND、WebView Focus，以及后续实际 `GAME_INPUT`/WebView input trace。
 
-`ccf3231` 的运行时代码已在当前 `dev` 恢复到该提交之前的 WindowTracker 基线；后续如需重新引入其中任何改动，必须单独验证并记录实机回归结果。
+`ccf3231` 的 WindowTracker 运行时基线已经恢复；后续任何重新引入的调度或 HWND 行为必须单独验证，不得与输入修复混在同一职责之外。
 
 ### Passive
 `Passive` = 可见但 HTML 完全不拥有输入。只读 Consumer 使用 Framework Passive，不增加 Consumer Harmony 输入 Patch。
