@@ -164,8 +164,13 @@ namespace BannerlordHtmlUI
 
             if (e.VirtualKey == VkF12 && !host.DevToolsEnabled)
             {
-                HtmlUiInputTraceLogger.Event("WEBVIEW_ACCELERATOR F12 blocked; DevTools disabled by Framework policy");
-                e.Handled = true;
+                // F12 is only a Framework safety block while HTML owns keyboard input.
+                // Passive and MouseCaptured must let the game receive keyboard diagnostics.
+                if (host.InputMode == HtmlUiInputMode.Captured)
+                {
+                    HtmlUiInputTraceLogger.Event("WEBVIEW_ACCELERATOR F12 blocked; DevTools disabled by Framework policy");
+                    e.Handled = true;
+                }
                 return;
             }
 
@@ -202,8 +207,14 @@ namespace BannerlordHtmlUI
                         var key = unchecked((int)m.WParam.ToInt64());
                         if (key == VkF12 && !host.DevToolsEnabled)
                         {
-                            HtmlUiInputTraceLogger.Event("WINFORMS F12 blocked; DevTools disabled by Framework policy");
-                            return true;
+                            // The Framework only owns the keyboard in Captured mode.
+                            // MouseCaptured and Passive must not suppress the game's F12.
+                            if (host.InputMode == HtmlUiInputMode.Captured)
+                            {
+                                HtmlUiInputTraceLogger.Event("WINFORMS F12 blocked; DevTools disabled by Framework policy");
+                                return true;
+                            }
+                            return false;
                         }
                         if (key != VkEscape) return false;
                         return TryCloseFromEscape(host, "winforms");
