@@ -17,6 +17,7 @@ namespace BannerlordHtmlUI
         private static HtmlUiInputMode _lastMode = HtmlUiInputMode.Hidden;
         private static string _lastPage = null;
         private static long _lastTickStart;
+        private static long _lastTickAfterBase;
         private static long _lastTickAfterInput;
         private static long _lastTickAfterService;
         private static long _lastTickAfterF10;
@@ -36,6 +37,7 @@ namespace BannerlordHtmlUI
                 BuildTracedKeySet();
                 _tickCount = 0;
                 _lastTickStart = 0;
+                _lastTickAfterBase = 0;
                 _lastTickAfterInput = 0;
                 _lastTickAfterService = 0;
                 _lastTickAfterF10 = 0;
@@ -76,6 +78,12 @@ namespace BannerlordHtmlUI
             _lastTickStart = StopwatchTicks();
         }
 
+        public static void TickAfterBase()
+        {
+            if (!_initialized) return;
+            _lastTickAfterBase = StopwatchTicks();
+        }
+
         public static void TickAfterInput()
         {
             if (!_initialized) return;
@@ -102,6 +110,7 @@ namespace BannerlordHtmlUI
 
         public static long TickCount => Interlocked.Read(ref _tickCount);
         public static long LastTickStartTimestamp => Interlocked.Read(ref _lastTickStart);
+        public static long LastTickAfterBaseTimestamp => Interlocked.Read(ref _lastTickAfterBase);
         public static long LastTickAfterInputTimestamp => Interlocked.Read(ref _lastTickAfterInput);
         public static long LastTickAfterServiceTimestamp => Interlocked.Read(ref _lastTickAfterService);
         public static long LastTickAfterF10Timestamp => Interlocked.Read(ref _lastTickAfterF10);
