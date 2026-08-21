@@ -28,9 +28,12 @@ namespace BannerlordHtmlUI
             {
                 if (_installed) return;
 
-                var target = AccessTools.Method(typeof(HtmlUiHost), "FollowBannerlordWindow");
-                if (target == null)
+                var followTarget = AccessTools.Method(typeof(HtmlUiHost), "FollowBannerlordWindow");
+                var hiddenTarget = AccessTools.Method(typeof(HtmlUiHost), "ApplyHiddenInputState");
+                if (followTarget == null)
                     throw new MissingMethodException("HtmlUiHost.FollowBannerlordWindow was not found.");
+                if (hiddenTarget == null)
+                    throw new MissingMethodException("HtmlUiHost.ApplyHiddenInputState was not found.");
 
                 _formField = typeof(HtmlUiHost).GetField("_form", BindingFlags.Instance | BindingFlags.NonPublic);
                 _inputModeField = typeof(HtmlUiHost).GetField("_inputMode", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -41,10 +44,16 @@ namespace BannerlordHtmlUI
 
                 _harmony = new Harmony("BannerlordHtmlUI.FocusPolicy");
                 _harmony.Patch(
-                    target,
+                    followTarget,
                     prefix: new HarmonyMethod(
                         typeof(HtmlUiFocusPolicyPatch),
                         nameof(BeforeFollowBannerlordWindow)));
+
+                _harmony.Patch(
+                    hiddenTarget,
+                    prefix: new HarmonyMethod(
+                        typeof(HtmlUiFocusPolicyPatch),
+                        nameof(BeforeApplyHiddenInputState)));
 
                 _installed = true;
                 HtmlUiLogger.Info("Non-stealing overlay focus policy installed.");
@@ -97,9 +106,9 @@ namespace BannerlordHtmlUI
 
                 if (mode == HtmlUiInputMode.Hidden || !requestedVisible)
                 {
-                    try { Win32.ReleaseMouseCapture(); } catch { }
-                    try { form.SetPassThrough(true); } catch { }
-                    try { form.Hide(); } catch { }
+                    // Hidden input restoration is handled by the dedicated prefix below.
+                    // Do not let the original FollowBannerlordWindow implementation run.
+                    ApplyHiddenInputStateSafe(__instance, gameHwnd);
                     return false;
                 }
 
@@ -143,6 +152,57 @@ namespace BannerlordHtmlUI
             {
                 HtmlUiLogger.Debug("Focus policy failed: " + ex.GetBaseException().Message);
                 return false;
+            }
+        }
+
+        private static bool BeforeApplyHiddenInputState(HtmlUiHost __instance, IntPtr gameWindow)
+        {
+            try
+            {
+                ApplyHiddenInputStateSafe(__instance, gameWindow);
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Error("Hidden input focus restoration failed.", ex);
+            }
+
+            // Always suppress the original implementation. The original order is
+            // Hide() -> SetForegroundWindow(game), which can leave Bannerlord without
+            // keyboard focus because the overlay was the foreground window at the time.
+            return false;
+        }
+
+        private static void ApplyHiddenInputStateSafe(HtmlUiHost host, IntPtr gameWindow)
+        {
+            var form = _formField?.GetValue(host) as HtmlUiOverlayForm;
+
+            try { Win32.ReleaseMouseCapture(); } catch { }
+            try
+            {
+                var webField = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
+                var web = webField?.GetValue(host) as System.Windows.Forms.Control;
+                if (web != null) web.Enabled = false;
+            }
+            catch { }
+
+            if (form != null && !form.IsDisposed && form.IsHandleCreated)
+            {
+                try { form.SetPassThrough(true); } catch { }
+
+                // IMPORTANT: restore Bannerlord foreground while the overlay is still
+                // the active window, then hide the overlay. This preserves the foreground
+                // activation chain and allows the game's Input.IsKeyPressed() to see M/ESC
+                // immediately after the HTML UI closes.
+                if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
+                {
+                    try { Win32.SetForegroundWindow(gameWindow); } catch { }
+                }
+
+                try { form.Hide(); } catch { }
+            }
+            else if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
+            {
+                try { Win32.SetForegroundWindow(gameWindow); } catch { }
             }
         }
     }
