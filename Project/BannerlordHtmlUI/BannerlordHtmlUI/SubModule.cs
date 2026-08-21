@@ -16,6 +16,8 @@ namespace BannerlordHtmlUI
             base.OnSubModuleLoad();
             _moduleDirectory = Path.GetDirectoryName(typeof(SubModule).Assembly.Location);
             var webRoot = Path.Combine(_moduleDirectory, "web");
+            HtmlUiInputTraceLogger.Initialize(_moduleDirectory);
+            HtmlUiInputTraceLogger.Event("SUBMODULE_LOAD");
             Environment.SetEnvironmentVariable("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000");
             try { HtmlUiTransparencyPatch.Install(); }
             catch (Exception ex) { HtmlUiLogger.Error("Failed to install transparent overlay patch.", ex); }
@@ -28,6 +30,7 @@ namespace BannerlordHtmlUI
         {
             try
             {
+                HtmlUiInputTraceLogger.Event("FRAMEWORK_READY_REGISTER");
                 HtmlUiService.NotifyGameContext("application", true);
                 HtmlUiMouseCapture.Install();
                 HtmlUiHotReloadPatch.Install(HtmlUiService.Host);
@@ -52,7 +55,7 @@ namespace BannerlordHtmlUI
                 if (!HtmlUiCommands.CommandExists("framework.openDiagnostics"))
                     HtmlUiService.RegisterCommand("framework.openDiagnostics", _ => HtmlUiService.Pages.Open("diagnostics"));
             }
-            catch (Exception ex) { HtmlUiLogger.Error("Failed to register framework page.", ex); }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to register framework page.", ex); HtmlUiInputTraceLogger.Event("FRAMEWORK_READY_REGISTER_FAILED " + ex.GetBaseException().Message); }
         }
 
         protected override void OnApplicationTick(float dt)
@@ -60,19 +63,23 @@ namespace BannerlordHtmlUI
             base.OnApplicationTick(dt);
             try
             {
+                HtmlUiInputTraceLogger.BannerlordInput(HtmlUiService.IsInitialized ? HtmlUiService.Host : null);
                 HtmlUiService.Tick();
                 if (Input.IsKeyPressed(InputKey.F10))
                 {
+                    HtmlUiInputTraceLogger.Event("F10_DIAGNOSTICS_HOTKEY");
                     HtmlUiLogger.Warn("===== F10 DIAGNOSTICS OPEN =====");
                     var opened = HtmlUiService.Pages.Open("diagnostics");
                     HtmlUiLogger.Warn("F10 Open result=" + opened + ", initialized=" + HtmlUiService.IsInitialized + ", ready=" + HtmlUiService.IsReady + ", lifecycle=" + HtmlUiService.LifecycleState + ", currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>") + ", hostVisible=" + HtmlUiService.Host.IsVisible + ", webViewReady=" + HtmlUiService.Host.IsWebViewReady + ", inputMode=" + HtmlUiService.Host.InputMode);
+                    HtmlUiInputTraceLogger.Event("F10_RESULT opened=" + opened + " current=" + (HtmlUiService.Pages.CurrentId ?? "<null>"));
                 }
             }
-            catch (Exception ex) { HtmlUiLogger.Error("Application tick failed.", ex); }
+            catch (Exception ex) { HtmlUiLogger.Error("Application tick failed.", ex); HtmlUiInputTraceLogger.Event("APPLICATION_TICK_ERROR " + ex.GetBaseException().Message); }
         }
 
         protected override void OnSubModuleUnloaded()
         {
+            HtmlUiInputTraceLogger.Event("SUBMODULE_UNLOAD_BEGIN");
             try { HtmlUiService.NotifyGameContext("application", false); } catch { }
             try { HtmlUiHotReloadPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("HotReload patch uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiKeyboardAndDiagnosticsPatch.Uninstall(HtmlUiService.Host); } catch (Exception ex) { HtmlUiLogger.Debug("Keyboard diagnostics uninstall failed: " + ex.GetBaseException().Message); }
@@ -82,6 +89,8 @@ namespace BannerlordHtmlUI
             try { HtmlUiProcessRecovery.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("WebView2 process recovery uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiContextMenuPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Context menu patch uninstall failed: " + ex.GetBaseException().Message); }
             HtmlUiService.Dispose();
+            HtmlUiInputTraceLogger.Event("SUBMODULE_UNLOAD_END");
+            HtmlUiInputTraceLogger.Shutdown();
             base.OnSubModuleUnloaded();
         }
     }
