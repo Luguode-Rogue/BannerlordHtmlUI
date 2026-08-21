@@ -171,6 +171,10 @@ namespace BannerlordHtmlUI
                     HtmlUiInputTraceLogger.Event("WEBVIEW_ACCELERATOR F12 blocked; DevTools disabled by Framework policy");
                     e.Handled = true;
                 }
+                else
+                {
+                    HtmlUiInputTraceLogger.Event("WEBVIEW_ACCELERATOR F12 pass-through mode=" + host.InputMode);
+                }
                 return;
             }
 
@@ -214,6 +218,7 @@ namespace BannerlordHtmlUI
                                 HtmlUiInputTraceLogger.Event("WINFORMS F12 blocked; DevTools disabled by Framework policy");
                                 return true;
                             }
+                            HtmlUiInputTraceLogger.Event("WINFORMS F12 pass-through mode=" + host.InputMode);
                             return false;
                         }
                         if (key != VkEscape) return false;
