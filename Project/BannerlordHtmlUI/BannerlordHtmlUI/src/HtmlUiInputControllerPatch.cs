@@ -137,20 +137,28 @@ namespace BannerlordHtmlUI
                     return;
                 }
 
-                // Passive means display-only: keep the WebView painted, but disable the WebView
-                // control itself so Chromium cannot consume mouse/keyboard/context-menu input.
+                // Passive is strictly display-only. Disable Chromium before showing or raising
+                // the overlay, keep the native overlay non-activating, and repair focus if a
+                // previous Captured page left the overlay as the foreground window.
                 try { if (web != null) web.Enabled = mode != HtmlUiInputMode.Passive; } catch { }
                 try { form.SetOwner(gameHwnd); } catch { }
-                try { form.Show(); } catch { }
 
                 if (mode == HtmlUiInputMode.Passive)
                 {
-                    form.SetPassThrough(true);
+                    try { form.SetPassThrough(true); } catch { }
                     Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
+
+                    try
+                    {
+                        if (Win32.GetForegroundWindow() == form.Handle && Win32.IsWindow(gameHwnd))
+                            Win32.SetForegroundWindow(gameHwnd);
+                    }
+                    catch { }
                 }
                 else
                 {
+                    try { form.Show(); } catch { }
                     form.SetPassThrough(false);
                     Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
