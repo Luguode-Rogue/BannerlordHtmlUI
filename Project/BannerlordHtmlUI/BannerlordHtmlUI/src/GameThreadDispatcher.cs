@@ -1,11 +1,23 @@
 using System;
 using System.Collections.Concurrent;
+using System.Threading;
 
 namespace BannerlordHtmlUI
 {
     public sealed class GameThreadDispatcher
     {
         private readonly ConcurrentQueue<Action> _queue = new ConcurrentQueue<Action>();
+        private long _lastDrainTimestamp;
+        private int _drainActive;
+
+        public GameThreadDispatcher()
+        {
+            _lastDrainTimestamp = StopwatchTicks();
+        }
+
+        public int QueueCount => _queue.Count;
+        public bool IsDrainActive => Volatile.Read(ref _drainActive) != 0;
+        public long LastDrainTimestamp => Interlocked.Read(ref _lastDrainTimestamp);
 
         public void Post(Action action)
         {
@@ -16,13 +28,22 @@ namespace BannerlordHtmlUI
         public int Drain(int maxItems = 256)
         {
             var processed = 0;
-            while (processed < maxItems && _queue.TryDequeue(out var action))
+            Interlocked.Exchange(ref _drainActive, 1);
+            try
             {
-                try { action(); }
-                catch (Exception ex) { HtmlUiLogger.Error("Game-thread action failed.", ex); }
-                processed++;
+                while (processed < maxItems && _queue.TryDequeue(out var action))
+                {
+                    try { action(); }
+                    catch (Exception ex) { HtmlUiLogger.Error("Game-thread action failed.", ex); }
+                    processed++;
+                }
+                return processed;
             }
-            return processed;
+            finally
+            {
+                Interlocked.Exchange(ref _drainActive, 0);
+                Interlocked.Exchange(ref _lastDrainTimestamp, StopwatchTicks());
+            }
         }
 
         public int Clear()
@@ -30,6 +51,11 @@ namespace BannerlordHtmlUI
             var cleared = 0;
             while (_queue.TryDequeue(out _)) cleared++;
             return cleared;
+        }
+
+        private static long StopwatchTicks()
+        {
+            return System.Diagnostics.Stopwatch.GetTimestamp();
         }
     }
 }
