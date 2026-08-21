@@ -6,17 +6,14 @@ using HarmonyLib;
 
 namespace BannerlordHtmlUI
 {
-    /// <summary>
-    /// Single native input/window owner for the HTML overlay.
-    /// PageManager decides which page is open; this controller alone decides how the
-    /// overlay participates in Win32 focus, visibility, hit testing and WebView input.
-    /// </summary>
     internal static class HtmlUiInputControllerPatch
     {
         private sealed class HostState
         {
             public HtmlUiInputMode LastAppliedMode = HtmlUiInputMode.Hidden;
             public bool Applying;
+            public HtmlUiWindowState LastWindowState;
+            public bool HasWindowState;
         }
 
         private static readonly object Sync = new object();
@@ -36,7 +33,6 @@ namespace BannerlordHtmlUI
             lock (Sync)
             {
                 if (_installed) return;
-
                 var setMode = AccessTools.Method(typeof(HtmlUiHost), nameof(HtmlUiHost.SetInputMode));
                 var follow = AccessTools.Method(typeof(HtmlUiHost), "FollowBannerlordWindow");
                 if (setMode == null || follow == null)
@@ -53,13 +49,8 @@ namespace BannerlordHtmlUI
                     throw new MissingMemberException("HtmlUiHost input controller fields are unavailable.");
 
                 _harmony = new Harmony("BannerlordHtmlUI.InputController");
-                _harmony.Patch(
-                    setMode,
-                    prefix: new HarmonyMethod(typeof(HtmlUiInputControllerPatch), nameof(SetInputModePrefix)));
-                _harmony.Patch(
-                    follow,
-                    prefix: new HarmonyMethod(typeof(HtmlUiInputControllerPatch), nameof(FollowBannerlordWindowPrefix)));
-
+                _harmony.Patch(setMode, prefix: new HarmonyMethod(typeof(HtmlUiInputControllerPatch), nameof(SetInputModePrefix)));
+                _harmony.Patch(follow, prefix: new HarmonyMethod(typeof(HtmlUiInputControllerPatch), nameof(FollowBannerlordWindowPrefix)));
                 _installed = true;
                 HtmlUiLogger.Info("Unified HTML UI input controller installed.");
             }
@@ -89,17 +80,13 @@ namespace BannerlordHtmlUI
         private static bool SetInputModePrefix(HtmlUiHost __instance, HtmlUiInputMode mode)
         {
             if (__instance == null || IsDisposed(__instance)) return false;
-
             try
             {
                 _inputModeField.SetValue(__instance, mode);
                 _requestedVisibleField.SetValue(__instance, mode != HtmlUiInputMode.Hidden);
                 try { __instance.State?.Set("framework.inputMode", mode.ToString()); } catch { }
-
                 var form = GetForm(__instance);
-                if (form == null || form.IsDisposed || !form.IsHandleCreated)
-                    return false;
-
+                if (form == null || form.IsDisposed || !form.IsHandleCreated) return false;
                 PostToUi(form, () => ApplyRequestedMode(__instance, mode));
                 return false;
             }
@@ -116,14 +103,10 @@ namespace BannerlordHtmlUI
             {
                 var form = GetForm(__instance);
                 if (form == null || form.IsDisposed || !form.IsHandleCreated) return false;
-
-                if (!Win32.TryGetGameWindowHandle(form.Handle, out var gameHwnd) ||
-                    !Win32.GetWindowRect(gameHwnd, out var rect))
+                if (!Win32.TryGetGameWindowHandle(form.Handle, out var gameHwnd) || !Win32.GetWindowRect(gameHwnd, out var rect))
                 {
                     if (GetMode(__instance) == HtmlUiInputMode.Hidden || !IsRequestedVisible(__instance))
-                    {
                         try { form.Hide(); } catch { }
-                    }
                     return false;
                 }
 
@@ -131,9 +114,15 @@ namespace BannerlordHtmlUI
                 var requestedVisible = IsRequestedVisible(__instance);
                 PlaceOverlay(form, gameHwnd, rect);
 
+                // Hidden is deliberately passive in the periodic tracker. The one-time
+                // SetInputMode(Hidden) transition restores Bannerlord foreground. The timer
+                // must never reclaim foreground from an unrelated external application.
                 if (mode == HtmlUiInputMode.Hidden || !requestedVisible)
                 {
-                    RestoreGameInput(__instance, gameHwnd, form);
+                    try { Win32.ReleaseMouseCapture(); } catch { }
+                    try { if (GetWeb(__instance) != null) GetWeb(__instance).Enabled = false; } catch { }
+                    try { form.SetPassThrough(true); } catch { }
+                    try { form.Hide(); } catch { }
                     ApplyWindowState(__instance, false, gameHwnd, rect);
                     return false;
                 }
@@ -149,11 +138,8 @@ namespace BannerlordHtmlUI
                 var foreground = Win32.GetForegroundWindow();
                 var gameForeground = foreground == gameHwnd;
                 var overlayForeground = foreground == form.Handle;
-
                 if (!form.Visible)
-                {
                     try { form.Show(); } catch { }
-                }
 
                 switch (mode)
                 {
@@ -167,8 +153,7 @@ namespace BannerlordHtmlUI
                         try { form.SetPassThrough(false); } catch { }
                         Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                         Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
-                        if (gameForeground && !overlayForeground)
-                            ActivateCapturedForm(form);
+                        if (gameForeground && !overlayForeground) ActivateCapturedForm(form);
                         break;
 
                     case HtmlUiInputMode.MouseCaptured:
@@ -198,7 +183,6 @@ namespace BannerlordHtmlUI
                 var form = GetForm(host);
                 var web = GetWeb(host);
                 if (form == null || form.IsDisposed || !form.IsHandleCreated) return;
-
                 if (!Win32.TryGetGameWindowHandle(form.Handle, out var gameHwnd) || gameHwnd == IntPtr.Zero)
                 {
                     HtmlUiLogger.Warn("Input mode applied without a resolved Bannerlord window. mode=" + mode);
@@ -213,7 +197,6 @@ namespace BannerlordHtmlUI
                 }
 
                 PlaceOverlay(form, gameHwnd, GetWindowRect(gameHwnd));
-
                 if (mode == HtmlUiInputMode.Hidden)
                 {
                     RestoreGameInput(host, gameHwnd, form);
@@ -237,7 +220,6 @@ namespace BannerlordHtmlUI
                     form.SetPassThrough(false);
                     Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
-
                     var foreground = Win32.GetForegroundWindow();
                     if (mode == HtmlUiInputMode.Captured && (foreground == gameHwnd || foreground == form.Handle))
                         ActivateCapturedForm(form);
@@ -258,14 +240,8 @@ namespace BannerlordHtmlUI
             try { Win32.ReleaseMouseCapture(); } catch { }
             try { if (web != null) web.Enabled = false; } catch { }
             try { form.SetPassThrough(true); } catch { }
-
-            // Restore Bannerlord while the overlay is still alive, then hide it.
-            // This is the critical close invariant for repeated M/ESC cycles.
             if (gameHwnd != IntPtr.Zero && Win32.IsWindow(gameHwnd))
-            {
                 try { Win32.SetForegroundWindow(gameHwnd); } catch { }
-            }
-
             try { form.Hide(); } catch { }
         }
 
@@ -275,8 +251,7 @@ namespace BannerlordHtmlUI
             {
                 Win32.SetForegroundWindow(form.Handle);
                 form.Activate();
-                if (form.Controls.Count > 0)
-                    form.Controls[0]?.Focus();
+                if (form.Controls.Count > 0) form.Controls[0]?.Focus();
             }
             catch
             {
@@ -286,10 +261,8 @@ namespace BannerlordHtmlUI
 
         private static void PlaceOverlay(HtmlUiOverlayForm form, IntPtr gameHwnd, Win32.RECT rect)
         {
-            var width = Math.Max(1, rect.Right - rect.Left);
-            var height = Math.Max(1, rect.Bottom - rect.Top);
             form.SetOwner(gameHwnd);
-            form.Bounds = new Rectangle(rect.Left, rect.Top, width, height);
+            form.Bounds = new Rectangle(rect.Left, rect.Top, Math.Max(1, rect.Right - rect.Left), Math.Max(1, rect.Bottom - rect.Top));
         }
 
         private static Win32.RECT GetWindowRect(IntPtr hwnd)
@@ -303,7 +276,7 @@ namespace BannerlordHtmlUI
             {
                 var foreground = Win32.GetForegroundWindow();
                 var overlay = GetForm(host);
-                var state = new HtmlUiWindowState(
+                var current = new HtmlUiWindowState(
                     foreground == gameHwnd || (overlay != null && foreground == overlay.Handle),
                     visible,
                     Win32.IsIconic(gameHwnd),
@@ -311,12 +284,21 @@ namespace BannerlordHtmlUI
                     rect.Top,
                     Math.Max(0, rect.Right - rect.Left),
                     Math.Max(0, rect.Bottom - rect.Top));
+                var state = States.GetOrCreateValue(host);
+                if (state.HasWindowState && StateEquals(state.LastWindowState, current)) return;
+                state.LastWindowState = current;
+                state.HasWindowState = true;
 
                 if (_windowStateChangedField == null) return;
                 var handler = _windowStateChangedField.GetValue(host) as Action<HtmlUiWindowState>;
-                try { handler?.Invoke(state); } catch (Exception ex) { HtmlUiLogger.Debug("Window state callback failed: " + ex.GetBaseException().Message); }
+                try { handler?.Invoke(current); } catch (Exception ex) { HtmlUiLogger.Debug("Window state callback failed: " + ex.GetBaseException().Message); }
             }
             catch { }
+        }
+
+        private static bool StateEquals(HtmlUiWindowState a, HtmlUiWindowState b)
+        {
+            return a.IsForeground == b.IsForeground && a.IsVisible == b.IsVisible && a.IsMinimized == b.IsMinimized && a.Left == b.Left && a.Top == b.Top && a.Width == b.Width && a.Height == b.Height;
         }
 
         private static HtmlUiOverlayForm GetForm(HtmlUiHost host) => _formField?.GetValue(host) as HtmlUiOverlayForm;
@@ -329,8 +311,7 @@ namespace BannerlordHtmlUI
         {
             try
             {
-                if (form.InvokeRequired) form.BeginInvoke(action);
-                else action();
+                if (form.InvokeRequired) form.BeginInvoke(action); else action();
             }
             catch (ObjectDisposedException) { }
             catch (InvalidOperationException) { }
