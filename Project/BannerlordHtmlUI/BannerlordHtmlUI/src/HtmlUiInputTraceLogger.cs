@@ -10,6 +10,7 @@ namespace BannerlordHtmlUI
     {
         private static readonly object Sync = new object();
         private static readonly Dictionary<InputKey, bool> LastDown = new Dictionary<InputKey, bool>();
+        private static readonly List<InputKey> TracedKeys = new List<InputKey>();
         private static string _path;
         private static bool _initialized;
         private static long _lastMouseMoveTick;
@@ -26,11 +27,26 @@ namespace BannerlordHtmlUI
                 _path = Path.Combine(moduleDirectory, "BannerlordHtmlUI_InputTrace.log");
                 lock (Sync) File.WriteAllText(_path, string.Empty);
                 LastDown.Clear();
+                TracedKeys.Clear();
+                foreach (var raw in Enum.GetValues(typeof(InputKey)))
+                {
+                    var key = (InputKey)raw;
+                    try
+                    {
+                        var type = Key.GetInputType(key);
+                        if (type == Key.InputType.Keyboard || type == Key.InputType.MouseButton || type == Key.InputType.MouseWheel)
+                        {
+                            TracedKeys.Add(key);
+                            LastDown[key] = false;
+                        }
+                    }
+                    catch { }
+                }
                 _lastForeground = IntPtr.Zero;
                 _lastMode = HtmlUiInputMode.Hidden;
                 _lastPage = null;
                 _initialized = true;
-                Write("=== INPUT TRACE STARTED ===");
+                Write("=== INPUT TRACE STARTED === tracedKeys=" + TracedKeys.Count);
             }
             catch
             {
@@ -45,10 +61,7 @@ namespace BannerlordHtmlUI
             _initialized = false;
         }
 
-        public static void Event(string message)
-        {
-            Write("EVENT " + message);
-        }
+        public static void Event(string message) => Write("EVENT " + message);
 
         public static void FrameworkState(HtmlUiHost host, string reason)
         {
@@ -90,25 +103,17 @@ namespace BannerlordHtmlUI
 
             try
             {
-                foreach (var raw in Enum.GetValues(typeof(InputKey)))
+                for (var i = 0; i < TracedKeys.Count; i++)
                 {
-                    var key = (InputKey)raw;
+                    var key = TracedKeys[i];
                     bool down;
                     try { down = Input.IsKeyDown(key); }
                     catch { continue; }
 
-                    bool previous;
-                    if (!LastDown.TryGetValue(key, out previous))
-                    {
-                        LastDown[key] = down;
-                        if (!down) continue;
-                        previous = false;
-                    }
-
+                    var previous = LastDown[key];
                     if (down == previous) continue;
                     LastDown[key] = down;
-                    var kind = down ? "DOWN" : "UP";
-                    Write("GAME_INPUT " + kind + " key=" + key + " type=" + GetInputTypeSafe(key));
+                    Write("GAME_INPUT " + (down ? "DOWN" : "UP") + " key=" + key + " type=" + GetInputTypeSafe(key));
                 }
 
                 try
