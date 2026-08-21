@@ -46,7 +46,8 @@ namespace BannerlordHtmlUI
         public void SetPassThrough(bool enabled)
         {
             _passThrough = enabled;
-            Win32.SetNoActivate(Handle, enabled);
+            var applied = Win32.SetPassThroughStyle(Handle, enabled);
+            HtmlUiLogger.Info("Overlay SetPassThrough enabled=" + enabled + " applied=" + applied + " hwnd=" + Handle);
         }
 
         protected override bool ShowWithoutActivation => _passThrough;
