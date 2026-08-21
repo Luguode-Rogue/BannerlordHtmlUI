@@ -20,6 +20,10 @@ namespace BannerlordHtmlUI
             {
                 if (_installed) return;
 
+                // Framework default: WebView2 DevTools and browser context menus are disabled.
+                // An embedding consumer may explicitly opt into DevTools after Framework startup if needed.
+                host.DevToolsEnabled = false;
+
                 var method = AccessTools.Method(typeof(HtmlUiHost), "ConfigureAfterWebViewReady");
                 if (method == null)
                     throw new MissingMethodException("HtmlUiHost.ConfigureAfterWebViewReady was not found.");
@@ -36,7 +40,10 @@ namespace BannerlordHtmlUI
                         nameof(AfterConfigureWebView)));
 
                 _installed = true;
-                HtmlUiLogger.Info("WebView2 native context menu suppression patch installed.");
+                // Apply immediately to the current WebView2 instance because this patch is installed
+                // after the initial ConfigureAfterWebViewReady call.
+                ApplySettings(host);
+                HtmlUiLogger.Info("WebView2 native context menu and DevTools suppression patch installed. Browser UI disabled by default.");
             }
         }
 
@@ -58,17 +65,24 @@ namespace BannerlordHtmlUI
 
         private static void AfterConfigureWebView(HtmlUiHost __instance)
         {
+            ApplySettings(__instance);
+        }
+
+        private static void ApplySettings(HtmlUiHost host)
+        {
             try
             {
-                var web = _webField?.GetValue(__instance) as Microsoft.Web.WebView2.WinForms.WebView2;
+                var web = _webField?.GetValue(host) as Microsoft.Web.WebView2.WinForms.WebView2;
                 var core = web?.CoreWebView2;
                 if (core == null) return;
 
                 core.Settings.AreDefaultContextMenusEnabled = false;
+                core.Settings.AreDevToolsEnabled = host.DevToolsEnabled;
+                core.Settings.IsStatusBarEnabled = false;
             }
             catch (Exception ex)
             {
-                HtmlUiLogger.Debug("Failed to suppress WebView2 native context menu: " + ex.GetBaseException().Message);
+                HtmlUiLogger.Debug("Failed to apply WebView2 browser UI policy: " + ex.GetBaseException().Message);
             }
         }
     }
