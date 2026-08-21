@@ -55,11 +55,13 @@ namespace BannerlordHtmlUI
                     HtmlUiLocalization.InitializeState();
                     State.Set("framework.lifecycle", _lifecycleState.ToString());
                     State.Set("framework.i18n.locale", HtmlUiLocalization.CurrentLanguage);
+                    HtmlUiHangWatchdog.Start(Dispatcher, host);
                     Ready?.Invoke();
                 }
                 catch (Exception ex)
                 {
                     _lifecycleState = HtmlUiLifecycleState.Faulted;
+                    HtmlUiHangWatchdog.Stop();
                     try { host.Pages.CloseCurrent(); } catch { }
                     try { host.Dispose(); } catch (Exception disposeEx) { HtmlUiLogger.Error("Failed to dispose HTML UI host after initialization failure.", disposeEx); }
                     if (ReferenceEquals(_host, host)) _host = null;
@@ -183,6 +185,7 @@ namespace BannerlordHtmlUI
             {
                 if (!_initialized && _host == null)
                 {
+                    HtmlUiHangWatchdog.Stop();
                     Dispatcher.Clear();
                     return;
                 }
@@ -190,6 +193,7 @@ namespace BannerlordHtmlUI
                 var host = _host;
                 try
                 {
+                    HtmlUiHangWatchdog.Stop();
                     HtmlUiBridgeShutdownPatch.CancelAll(HtmlUiBridge.Current);
                     if (host != null)
                     {
