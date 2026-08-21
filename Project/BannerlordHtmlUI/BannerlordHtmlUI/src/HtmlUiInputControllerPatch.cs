@@ -1,6 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using HarmonyLib;
 
@@ -37,8 +37,7 @@ namespace BannerlordHtmlUI
             {
                 if (_installed) return;
                 var setMode = AccessTools.Method(typeof(HtmlUiHost), nameof(HtmlUiHost.SetInputMode));
-                if (setMode == null)
-                    throw new MissingMethodException("HtmlUiHost.SetInputMode was not found.");
+                if (setMode == null) throw new MissingMethodException("HtmlUiHost.SetInputMode was not found.");
 
                 _formField = typeof(HtmlUiHost).GetField("_form", BindingFlags.Instance | BindingFlags.NonPublic);
                 _webField = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -196,9 +195,9 @@ namespace BannerlordHtmlUI
             }
         }
 
-        private static HtmlUiOverlayForm GetForm(HtmlUiHost host) => _formField?.GetValue(host) as HtmlUiOverlayForm;
-        private static System.Windows.Forms.Control GetWeb(HtmlUiHost host) => _webField?.GetValue(host) as System.Windows.Forms.Control;
-        private static bool IsDisposed(HtmlUiHost host) => _disposedField != null && (bool)_disposedField.GetValue(host);
+        private static HtmlUiOverlayForm GetForm(HtmlUiHost host) { return _formField?.GetValue(host) as HtmlUiOverlayForm; }
+        private static System.Windows.Forms.Control GetWeb(HtmlUiHost host) { return _webField?.GetValue(host) as System.Windows.Forms.Control; }
+        private static bool IsDisposed(HtmlUiHost host) { return _disposedField != null && (bool)_disposedField.GetValue(host); }
 
         private static void PostToUi(HtmlUiOverlayForm form, Action action)
         {
