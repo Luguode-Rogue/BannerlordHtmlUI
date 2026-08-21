@@ -128,7 +128,7 @@ namespace BannerlordHtmlUI
             try
             {
                 IntPtr gameHwnd;
-                return Win32.TryGetGameWindowHandle(IntPtr.Zero, out gameHwnd) && hwnd == gameHwnd;
+                return Win32.TryGetGameWindowHandle(_form == null ? IntPtr.Zero : _form.Handle, out gameHwnd) && hwnd == gameHwnd;
             }
             catch { return false; }
         }
@@ -155,9 +155,8 @@ namespace BannerlordHtmlUI
             if (form == null || form.IsDisposed || !form.IsHandleCreated) return;
 
             IntPtr gameHwnd;
-            if (!Win32.TryGetGameWindowHandle(IntPtr.Zero, out gameHwnd) || gameHwnd == IntPtr.Zero)
+            if (!Win32.TryGetGameWindowHandle(form.Handle, out gameHwnd) || gameHwnd == IntPtr.Zero)
             {
-                if (form.Visible) form.Hide();
                 PublishState(new HtmlUiWindowState(false, false, false, 0, 0, 0, 0));
                 HtmlUiInputTraceLogger.Event("WINDOW_TRACKER_STATE game=0 visible=false reason=hwnd-unresolved");
                 return;
@@ -192,7 +191,7 @@ namespace BannerlordHtmlUI
                     try { form.Show(); } catch { }
                 }
             }
-            else if (form.Visible)
+            else if (form.Visible && requestedVisible && gameVisible)
             {
                 try { form.Hide(); } catch { }
             }
