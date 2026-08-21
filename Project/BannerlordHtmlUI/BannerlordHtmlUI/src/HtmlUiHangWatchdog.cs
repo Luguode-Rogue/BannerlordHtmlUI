@@ -82,7 +82,13 @@ namespace BannerlordHtmlUI
 
         private static void CheckGameThread(GameThreadDispatcher dispatcher, HtmlUiHost host)
         {
+            // The dispatcher can exist for a short period before Bannerlord starts
+            // calling HtmlUiService.Tick(). Do not classify that startup interval as
+            // a GameThread stall.
+            if (!dispatcher.HasDrained) return;
+
             var last = dispatcher.LastDrainTimestamp;
+            if (last <= 0) return;
             var elapsedMs = TicksToMilliseconds(System.Diagnostics.Stopwatch.GetTimestamp() - last);
             if (elapsedMs < GameStallThresholdMs) return;
 
