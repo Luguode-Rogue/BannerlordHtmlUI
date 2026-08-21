@@ -152,8 +152,6 @@ namespace BannerlordHtmlUI
                     return;
                 }
 
-                // Passive means display-only: keep the WebView painted, but disable the WebView
-                // control itself so Chromium cannot consume mouse/keyboard/context-menu input.
                 if (mode == HtmlUiInputMode.Passive)
                 {
                     bool captureReleased = true;
@@ -171,7 +169,18 @@ namespace BannerlordHtmlUI
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
                     HtmlUiInputTraceLogger.Event(
                         "INPUT_MODE_PASSIVE_APPLIED htmlMouse=false htmlKeyboard=false nativeCaptureReleased=" + captureReleased +
-                        " webEnabled=false passThrough=true");
+                        " webEnabled=false passThrough=true mouseOnly=false");
+                }
+                else if (mode == HtmlUiInputMode.MouseCaptured)
+                {
+                    try { if (web != null) web.Enabled = true; } catch { }
+                    try { form.SetOwner(gameHwnd); } catch { }
+                    try { form.Show(); } catch { }
+                    form.SetMouseOnly(true);
+                    Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
+                    Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
+                    HtmlUiInputTraceLogger.Event(
+                        "INPUT_MODE_MOUSE_CAPTURED_APPLIED htmlMouse=true htmlKeyboard=false mouseOnly=true noActivate=true");
                 }
                 else
                 {
@@ -195,7 +204,8 @@ namespace BannerlordHtmlUI
                     "INPUT_MODE_APPLIED mode=" + mode +
                     " htmlMouse=" + (mode == HtmlUiInputMode.Captured || mode == HtmlUiInputMode.MouseCaptured) +
                     " htmlKeyboard=" + (mode == HtmlUiInputMode.Captured) +
-                    " passThrough=" + (mode == HtmlUiInputMode.Passive));
+                    " passThrough=" + (mode == HtmlUiInputMode.Passive) +
+                    " mouseOnly=" + (mode == HtmlUiInputMode.MouseCaptured));
                 HtmlUiWindowTracker.RequestSync(host);
             }
             finally
@@ -211,8 +221,6 @@ namespace BannerlordHtmlUI
             try { if (web != null) web.Enabled = false; } catch { }
             try { form.SetPassThrough(true); } catch { }
 
-            // Restore Bannerlord only when this overlay is actually the foreground owner.
-            // Closing an HTML page must not pull the game back in front of another application.
             try
             {
                 var foreground = Win32.GetForegroundWindow();
