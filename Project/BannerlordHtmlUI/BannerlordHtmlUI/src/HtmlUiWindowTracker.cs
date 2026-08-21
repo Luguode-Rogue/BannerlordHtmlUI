@@ -47,11 +47,13 @@ namespace BannerlordHtmlUI
             if (host == null) throw new ArgumentNullException(nameof(host));
             lock (Sync)
             {
-                if (Instances.TryGetValue(host, out var existing))
+                HtmlUiWindowTracker existing;
+                if (Instances.TryGetValue(host, out existing))
                 {
                     existing.SyncNow();
                     return;
                 }
+
                 var tracker = new HtmlUiWindowTracker(host);
                 Instances.Add(host, tracker);
                 try { tracker.StartCore(); }
@@ -67,7 +69,8 @@ namespace BannerlordHtmlUI
         public static void Sync(HtmlUiHost host)
         {
             if (host == null) return;
-            if (Instances.TryGetValue(host, out var tracker)) tracker.PostToUi(tracker.SyncNow);
+            HtmlUiWindowTracker tracker;
+            if (Instances.TryGetValue(host, out tracker)) tracker.PostToUi(tracker.SyncNow);
         }
 
         public static void Uninstall(HtmlUiHost host)
@@ -75,7 +78,8 @@ namespace BannerlordHtmlUI
             if (host == null) return;
             lock (Sync)
             {
-                if (!Instances.TryGetValue(host, out var tracker)) return;
+                HtmlUiWindowTracker tracker;
+                if (!Instances.TryGetValue(host, out tracker)) return;
                 Instances.Remove(host);
                 tracker.Dispose();
             }
@@ -101,7 +105,7 @@ namespace BannerlordHtmlUI
             try
             {
                 _timerField = typeof(HtmlUiHost).GetField("_followTimer", BindingFlags.Instance | BindingFlags.NonPublic);
-                var timer = _timerField?.GetValue(_host) as Timer;
+                var timer = _timerField == null ? null : _timerField.GetValue(_host) as Timer;
                 if (timer == null) return;
                 timer.Stop();
                 timer.Dispose();
@@ -120,7 +124,11 @@ namespace BannerlordHtmlUI
 
         private bool IsRelevantGameWindow(IntPtr hwnd)
         {
-            try { return Win32.TryGetGameWindowHandle(_form?.Handle ?? IntPtr.Zero, out var gameHwnd) && hwnd == gameHwnd; }
+            try
+            {
+                IntPtr gameHwnd;
+                return Win32.TryGetGameWindowHandle(_form == null ? IntPtr.Zero : _form.Handle, out gameHwnd) && hwnd == gameHwnd;
+            }
             catch { return false; }
         }
 
@@ -143,14 +151,16 @@ namespace BannerlordHtmlUI
             var form = _form ?? GetForm();
             if (form == null || form.IsDisposed || !form.IsHandleCreated) return;
 
-            if (!Win32.TryGetGameWindowHandle(form.Handle, out var gameHwnd) || gameHwnd == IntPtr.Zero)
+            IntPtr gameHwnd;
+            if (!Win32.TryGetGameWindowHandle(form.Handle, out gameHwnd) || gameHwnd == IntPtr.Zero)
             {
                 if (form.Visible) form.Hide();
                 PublishState(new HtmlUiWindowState(false, false, false, 0, 0, 0, 0));
                 return;
             }
 
-            var rect = Win32.GetWindowRect(gameHwnd, out var value) ? value : default(Win32.RECT);
+            Win32.RECT rect;
+            Win32.GetWindowRect(gameHwnd, out rect);
             var minimized = Win32.IsIconic(gameHwnd);
             var gameVisible = Win32.IsWindowVisible(gameHwnd) && !minimized;
             var foreground = Win32.GetForegroundWindow() == gameHwnd;
@@ -182,9 +192,10 @@ namespace BannerlordHtmlUI
             _lastState = state;
             try
             {
-                _windowStateChangedField ??= typeof(HtmlUiHost).GetField("WindowStateChanged", BindingFlags.Instance | BindingFlags.NonPublic);
-                var handler = _windowStateChangedField?.GetValue(_host) as Action<HtmlUiWindowState>;
-                handler?.Invoke(state);
+                if (_windowStateChangedField == null)
+                    _windowStateChangedField = typeof(HtmlUiHost).GetField("WindowStateChanged", BindingFlags.Instance | BindingFlags.NonPublic);
+                var handler = _windowStateChangedField == null ? null : _windowStateChangedField.GetValue(_host) as Action<HtmlUiWindowState>;
+                if (handler != null) handler(state);
             }
             catch (Exception ex) { HtmlUiLogger.Debug("Window state publication failed: " + ex.GetBaseException().Message); }
         }
@@ -197,7 +208,7 @@ namespace BannerlordHtmlUI
         private HtmlUiOverlayForm GetForm()
         {
             var field = typeof(HtmlUiHost).GetField("_form", BindingFlags.Instance | BindingFlags.NonPublic);
-            return field?.GetValue(_host) as HtmlUiOverlayForm;
+            return field == null ? null : field.GetValue(_host) as HtmlUiOverlayForm;
         }
 
         public void Dispose()
