@@ -8,11 +8,12 @@ namespace BannerlordHtmlUI
 {
     public static class HtmlUiService
     {
+        private static readonly SemaphoreSlim InitializeGate = new SemaphoreSlim(1, 1);
+        private static readonly GameThreadDispatcher Dispatcher = new GameThreadDispatcher();
         private static bool _initialized;
         private static HtmlUiHost _host;
         private static string _moduleDir;
         private static string _webRoot;
-        private static readonly GameThreadDispatcher Dispatcher = new GameThreadDispatcher();
         private static int _testCounter;
         private static HtmlUiLifecycleState _lifecycleState = HtmlUiLifecycleState.Created;
         public static event Action Ready;
@@ -28,42 +29,49 @@ namespace BannerlordHtmlUI
         public static void OnReady(Action callback)
         {
             if (callback == null) throw new ArgumentNullException(nameof(callback));
-            if (IsReady) callback();
-            else Ready += callback;
+            if (IsReady) callback(); else Ready += callback;
         }
 
         public static async Task InitializeAsync(string moduleDirectory, string webRoot)
         {
-            if (_initialized) return;
-            Dispatcher.Clear();
-            _lifecycleState = HtmlUiLifecycleState.Initializing;
-            _moduleDir = Path.GetFullPath(moduleDirectory ?? throw new ArgumentNullException(nameof(moduleDirectory)));
-            _webRoot = Path.GetFullPath(webRoot ?? throw new ArgumentNullException(nameof(webRoot)));
-            HtmlUiLogger.Initialize(_moduleDir);
-
-            var host = new HtmlUiHost(_webRoot, Dispatcher) { HotReloadEnabled = true };
-            _host = host;
+            await InitializeGate.WaitAsync().ConfigureAwait(false);
             try
             {
-                await host.InitializeAsync().ConfigureAwait(false);
-                RegisterBuiltinHandlers();
-                _initialized = true;
-                _lifecycleState = HtmlUiLifecycleState.Ready;
-                HtmlUiLocalization.InitializeState();
-                State.Set("framework.lifecycle", _lifecycleState.ToString());
-                State.Set("framework.i18n.locale", HtmlUiLocalization.CurrentLanguage);
-                Ready?.Invoke();
-            }
-            catch (Exception ex)
-            {
-                _lifecycleState = HtmlUiLifecycleState.Faulted;
-                try { host.Pages.CloseCurrent(); } catch { }
-                try { host.Dispose(); } catch (Exception disposeEx) { HtmlUiLogger.Error("Failed to dispose HTML UI host after initialization failure.", disposeEx); }
-                if (ReferenceEquals(_host, host)) _host = null;
-                _initialized = false;
+                if (_initialized) return;
                 Dispatcher.Clear();
-                HtmlUiLogger.Error("HtmlUiService initialization failed and partial host state was cleaned up.", ex);
-                throw;
+                _lifecycleState = HtmlUiLifecycleState.Initializing;
+                _moduleDir = Path.GetFullPath(moduleDirectory ?? throw new ArgumentNullException(nameof(moduleDirectory)));
+                _webRoot = Path.GetFullPath(webRoot ?? throw new ArgumentNullException(nameof(webRoot)));
+                HtmlUiLogger.Initialize(_moduleDir);
+
+                var host = new HtmlUiHost(_webRoot, Dispatcher) { HotReloadEnabled = true };
+                _host = host;
+                try
+                {
+                    await host.InitializeAsync().ConfigureAwait(false);
+                    RegisterBuiltinHandlers();
+                    _initialized = true;
+                    _lifecycleState = HtmlUiLifecycleState.Ready;
+                    HtmlUiLocalization.InitializeState();
+                    State.Set("framework.lifecycle", _lifecycleState.ToString());
+                    State.Set("framework.i18n.locale", HtmlUiLocalization.CurrentLanguage);
+                    Ready?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    _lifecycleState = HtmlUiLifecycleState.Faulted;
+                    try { host.Pages.CloseCurrent(); } catch { }
+                    try { host.Dispose(); } catch (Exception disposeEx) { HtmlUiLogger.Error("Failed to dispose HTML UI host after initialization failure.", disposeEx); }
+                    if (ReferenceEquals(_host, host)) _host = null;
+                    _initialized = false;
+                    Dispatcher.Clear();
+                    HtmlUiLogger.Error("HtmlUiService initialization failed and partial host state was cleaned up.", ex);
+                    throw;
+                }
+            }
+            finally
+            {
+                InitializeGate.Release();
             }
         }
 
@@ -81,15 +89,13 @@ namespace BannerlordHtmlUI
                 if (!string.IsNullOrWhiteSpace(value) && Enum.TryParse<HtmlUiInputMode>(value, true, out var parsed)) Host.SetInputMode(parsed);
             });
             Host.RegisterCommand("framework.ping", payload => SendEvent("framework:ping", new { received = true, utc = DateTime.UtcNow, payload = payload.ToString() }));
-
             Host.RegisterRequest("framework.i18n.getLocale", _ => Task.FromResult<object>(new { language = HtmlUiLocalization.CurrentLanguage }));
             Host.RegisterRequest("framework.i18n.getLanguages", _ => Task.FromResult<object>(new { language = HtmlUiLocalization.CurrentLanguage, languages = HtmlUiLocalization.GetLanguages() }));
-            Host.RegisterRequest("framework.i18n.translate", payload => Task.FromResult<object>(HtmlUiLocalization.Translate(payload?["key"]?.Value<string>(), payload?["variables"] as Newtonsoft.Json.Linq.JObject, payload?["fallbackLanguage"]?.Value<string>())));
-            Host.RegisterRequest("framework.i18n.translateMany", payload => Task.FromResult<object>(HtmlUiLocalization.TranslateMany(payload as Newtonsoft.Json.Linq.JObject)));
+            Host.RegisterRequest("framework.i18n.translate", payload => Task.FromResult<object>(HtmlUiLocalization.Translate(payload?["key"]?.Value<string>(), payload?["variables"] as JObject, payload?["fallbackLanguage"]?.Value<string>())));
+            Host.RegisterRequest("framework.i18n.translateMany", payload => Task.FromResult<object>(HtmlUiLocalization.TranslateMany(payload as JObject)));
             Host.RegisterRequest("framework.i18n.formatDate", payload => Task.FromResult<object>(new { text = HtmlUiLocalization.FormatDate(DateTime.Parse(payload?["value"]?.Value<string>() ?? DateTime.UtcNow.ToString("o"), null, System.Globalization.DateTimeStyles.RoundtripKind)) }));
             Host.RegisterRequest("framework.i18n.formatTime", payload => Task.FromResult<object>(new { text = HtmlUiLocalization.FormatTime(DateTime.Parse(payload?["value"]?.Value<string>() ?? DateTime.UtcNow.ToString("o"), null, System.Globalization.DateTimeStyles.RoundtripKind)) }));
-            Host.RegisterCommand("framework.incrementTestState", _ => State.Set("framework.testCounter", System.Threading.Interlocked.Increment(ref _testCounter)));
-
+            Host.RegisterCommand("framework.incrementTestState", _ => State.Set("framework.testCounter", Interlocked.Increment(ref _testCounter)));
             Host.RegisterCommand("framework.openPage", payload =>
             {
                 var ownerId = payload?["ownerId"]?.Value<string>();
@@ -102,7 +108,6 @@ namespace BannerlordHtmlUI
                 var current = Pages.Current;
                 if (!string.IsNullOrWhiteSpace(ownerId) && current != null && string.Equals(current.OwnerId, ownerId, StringComparison.OrdinalIgnoreCase)) Pages.CloseCurrent();
             });
-
             State.Set("framework.status", "ready");
             State.Set("framework.snapshot", new { version = HtmlUiDiagnostics.FrameworkVersion, protocol = 1 });
             State.Set("framework.lifecycle", _lifecycleState.ToString());
@@ -139,6 +144,7 @@ namespace BannerlordHtmlUI
             }
         }
 
+        internal static void PostToGameThread(Action action) => Dispatcher.Post(action);
         public static void Show() => Host.Show();
         public static void Hide() => Host.Hide();
         public static void CaptureInput() => Host.CaptureInput();
@@ -148,7 +154,6 @@ namespace BannerlordHtmlUI
         public static string CurrentPagePath => Host.CurrentPagePath;
         public static void RegisterContentRoot(string id, string directory) => Host.RegisterContentRoot(id, directory);
         internal static void RegisterContentRoot(string id, string directory, string ownerId) => Host.RegisterContentRoot(id, directory);
-
         public static HtmlUiConsumerScope CreateScope(string ownerId) => new HtmlUiConsumerScope(ownerId);
         public static string MakeScopedName(string ownerId, string name)
         {
@@ -173,32 +178,39 @@ namespace BannerlordHtmlUI
 
         public static void Dispose()
         {
-            if (!_initialized && _host == null)
-            {
-                Dispatcher.Clear();
-                return;
-            }
-
-            _lifecycleState = HtmlUiLifecycleState.Unloading;
-            var host = _host;
+            InitializeGate.Wait();
             try
             {
-                HtmlUiBridgeShutdownPatch.CancelAll(HtmlUiBridge.Current);
-                if (host != null)
+                if (!_initialized && _host == null)
                 {
-                    try { host.Pages.CloseCurrent(); } catch (Exception ex) { HtmlUiLogger.Debug("Active page close during framework shutdown failed: " + ex.GetBaseException().Message); }
-                    try { host.WindowStateChanged -= OnWindowStateChanged; } catch { }
-                    try { host.Dispose(); } catch (Exception ex) { HtmlUiLogger.Error("HTML UI host disposal failed.", ex); }
+                    Dispatcher.Clear();
+                    return;
+                }
+                _lifecycleState = HtmlUiLifecycleState.Unloading;
+                var host = _host;
+                try
+                {
+                    HtmlUiBridgeShutdownPatch.CancelAll(HtmlUiBridge.Current);
+                    if (host != null)
+                    {
+                        try { host.Pages.CloseCurrent(); } catch (Exception ex) { HtmlUiLogger.Debug("Active page close during framework shutdown failed: " + ex.GetBaseException().Message); }
+                        try { host.WindowStateChanged -= OnWindowStateChanged; } catch { }
+                        try { host.Dispose(); } catch (Exception ex) { HtmlUiLogger.Error("HTML UI host disposal failed.", ex); }
+                    }
+                }
+                finally
+                {
+                    Dispatcher.Clear();
+                    _host = null;
+                    _initialized = false;
+                    Ready = null;
+                    LanguageChanged = null;
+                    _lifecycleState = HtmlUiLifecycleState.Unloaded;
                 }
             }
             finally
             {
-                Dispatcher.Clear();
-                _host = null;
-                _initialized = false;
-                Ready = null;
-                LanguageChanged = null;
-                _lifecycleState = HtmlUiLifecycleState.Unloaded;
+                InitializeGate.Release();
             }
         }
     }
