@@ -60,10 +60,12 @@ namespace BannerlordHtmlUI
 
         protected override void OnApplicationTick(float dt)
         {
-            base.OnApplicationTick(dt);
             HtmlUiInputTraceLogger.TickStart(dt);
             try
             {
+                base.OnApplicationTick(dt);
+                HtmlUiInputTraceLogger.TickAfterBase();
+
                 HtmlUiInputTraceLogger.BannerlordInput(HtmlUiService.IsInitialized ? HtmlUiService.Host : null);
                 HtmlUiInputTraceLogger.TickAfterInput();
 
