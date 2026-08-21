@@ -1,5 +1,7 @@
 using System;
+using System.Reflection;
 using System.Threading;
+using System.Windows.Forms;
 
 namespace BannerlordHtmlUI
 {
@@ -10,6 +12,7 @@ namespace BannerlordHtmlUI
         private static CancellationTokenSource _cts;
         private static GameThreadDispatcher _dispatcher;
         private static HtmlUiHost _host;
+        private static FieldInfo _formField;
         private static long _lastGameHangLog;
         private static long _lastUiHangLog;
         private static int _running;
@@ -27,6 +30,7 @@ namespace BannerlordHtmlUI
                 if (_running != 0) return;
                 _dispatcher = dispatcher;
                 _host = host;
+                _formField = typeof(HtmlUiHost).GetField("_form", BindingFlags.Instance | BindingFlags.NonPublic);
                 _cts = new CancellationTokenSource();
                 _thread = new Thread(WatchLoop)
                 {
@@ -48,13 +52,13 @@ namespace BannerlordHtmlUI
                 _cts = null;
                 _dispatcher = null;
                 _host = null;
+                _formField = null;
             }
         }
 
         private static void WatchLoop(object state)
         {
             var token = (CancellationToken)state;
-            long pendingUiProbeAt = 0;
             try
             {
                 while (!token.IsCancellationRequested)
@@ -66,14 +70,8 @@ namespace BannerlordHtmlUI
                     var host = _host;
                     if (dispatcher == null || host == null || !HtmlUiService.IsInitialized) continue;
 
-                    CheckGameThread(dispatcher);
-
-                    var now = Environment.TickCount64;
-                    if (pendingUiProbeAt == 0 || now - pendingUiProbeAt >= IntervalMs)
-                    {
-                        pendingUiProbeAt = now;
-                        TryProbeUiThread(host);
-                    }
+                    CheckGameThread(dispatcher, host);
+                    ProbeUiThread(host);
                 }
             }
             catch (Exception ex)
@@ -82,7 +80,7 @@ namespace BannerlordHtmlUI
             }
         }
 
-        private static void CheckGameThread(GameThreadDispatcher dispatcher)
+        private static void CheckGameThread(GameThreadDispatcher dispatcher, HtmlUiHost host)
         {
             var last = dispatcher.LastDrainTimestamp;
             var elapsedMs = TicksToMilliseconds(System.Diagnostics.Stopwatch.GetTimestamp() - last);
@@ -97,18 +95,20 @@ namespace BannerlordHtmlUI
                 "elapsedMs=" + elapsedMs +
                 ", queueCount=" + dispatcher.QueueCount +
                 ", drainActive=" + dispatcher.IsDrainActive +
-                ", page=" + (HtmlUiService.Host.Pages.CurrentId ?? "<null>") +
-                ", inputMode=" + HtmlUiService.Host.InputMode +
-                ", visible=" + HtmlUiService.Host.IsVisible);
+                ", page=" + (host.Pages.CurrentId ?? "<null>") +
+                ", inputMode=" + host.InputMode +
+                ", visible=" + host.IsVisible);
         }
 
-        private static void TryProbeUiThread(HtmlUiHost host)
+        private static void ProbeUiThread(HtmlUiHost host)
         {
             try
             {
-                if (!host.IsHostCreated) return;
+                var form = _formField?.GetValue(host) as Control;
+                if (form == null || form.IsDisposed || !form.IsHandleCreated) return;
+
                 var started = System.Diagnostics.Stopwatch.GetTimestamp();
-                host.ProbeUiThread(() =>
+                form.BeginInvoke(new Action(() =>
                 {
                     var elapsedMs = TicksToMilliseconds(System.Diagnostics.Stopwatch.GetTimestamp() - started);
                     if (elapsedMs < UiStallThresholdMs) return;
@@ -122,8 +122,10 @@ namespace BannerlordHtmlUI
                         ", page=" + (host.Pages.CurrentId ?? "<null>") +
                         ", inputMode=" + host.InputMode +
                         ", visible=" + host.IsVisible);
-                });
+                }));
             }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
             catch { }
         }
 
