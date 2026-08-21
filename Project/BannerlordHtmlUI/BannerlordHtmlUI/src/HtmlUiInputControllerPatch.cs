@@ -126,7 +126,7 @@ namespace BannerlordHtmlUI
                     return;
                 }
 
-                HtmlUiWindowTracker.Sync(host);
+                HtmlUiWindowTracker.RequestSync(host);
                 if (generation != Volatile.Read(ref state.Generation)) return;
 
                 if (mode == HtmlUiInputMode.Hidden)
@@ -162,7 +162,7 @@ namespace BannerlordHtmlUI
                 if (generation != Volatile.Read(ref state.Generation)) return;
                 state.LastAppliedMode = mode;
                 HtmlUiLogger.Info("Input mode applied: " + mode + ", overlayHwnd=" + form.Handle + ", gameHwnd=" + gameHwnd);
-                HtmlUiWindowTracker.Sync(host);
+                HtmlUiWindowTracker.RequestSync(host);
             }
             finally
             {
