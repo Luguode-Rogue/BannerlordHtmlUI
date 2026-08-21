@@ -139,7 +139,10 @@ namespace BannerlordHtmlUI
             if (form == null) return;
             try
             {
-                form.BeginInvoke(action);
+                if (form.InvokeRequired)
+                    form.BeginInvoke(action);
+                else
+                    action();
             }
             catch (ObjectDisposedException) { }
             catch (InvalidOperationException) { }
