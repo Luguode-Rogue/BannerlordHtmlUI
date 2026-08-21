@@ -10,6 +10,7 @@ namespace BannerlordHtmlUI
     {
         private Task _initTask;
         private string _moduleDirectory;
+        private static HtmlUiWindowTracker _windowTracker;
 
         protected override void OnSubModuleLoad()
         {
@@ -36,6 +37,8 @@ namespace BannerlordHtmlUI
                 HtmlUiHotReloadPatch.Install(HtmlUiService.Host);
                 HtmlUiStateRemovalPatch.Install(HtmlUiService.Host);
                 HtmlUiProcessRecovery.Install(HtmlUiService.Host);
+                _windowTracker = null;
+                _windowTracker = CreateWindowTracker(HtmlUiService.Host);
                 HtmlUiInputControllerPatch.Install(HtmlUiService.Host);
                 HtmlUiContextMenuPatch.Install(HtmlUiService.Host);
 
@@ -56,6 +59,12 @@ namespace BannerlordHtmlUI
                     HtmlUiService.RegisterCommand("framework.openDiagnostics", _ => HtmlUiService.Pages.Open("diagnostics"));
             }
             catch (Exception ex) { HtmlUiLogger.Error("Failed to register framework page.", ex); HtmlUiInputTraceLogger.Event("FRAMEWORK_READY_REGISTER_FAILED " + ex.GetBaseException().Message); }
+        }
+
+        private static HtmlUiWindowTracker CreateWindowTracker(HtmlUiHost host)
+        {
+            HtmlUiWindowTracker.Install(host);
+            return null;
         }
 
         protected override void OnApplicationTick(float dt)
@@ -100,10 +109,12 @@ namespace BannerlordHtmlUI
             try { HtmlUiHotReloadPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("HotReload patch uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiKeyboardAndDiagnosticsPatch.Uninstall(HtmlUiService.Host); } catch (Exception ex) { HtmlUiLogger.Debug("Keyboard diagnostics uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiInputControllerPatch.Uninstall(HtmlUiService.Host); } catch (Exception ex) { HtmlUiLogger.Debug("Input controller uninstall failed: " + ex.GetBaseException().Message); }
+            try { HtmlUiWindowTracker.Uninstall(HtmlUiService.Host); } catch (Exception ex) { HtmlUiLogger.Debug("Window tracker uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiNavigationRacePatch.Uninstall(HtmlUiService.Host); } catch (Exception ex) { HtmlUiLogger.Debug("Navigation race patch uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiMouseCapture.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Mouse capture policy uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiProcessRecovery.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("WebView2 process recovery uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiContextMenuPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Context menu patch uninstall failed: " + ex.GetBaseException().Message); }
+            _windowTracker = null;
             HtmlUiService.Dispose();
             HtmlUiInputTraceLogger.Event("SUBMODULE_UNLOAD_END");
             HtmlUiInputTraceLogger.Shutdown();
