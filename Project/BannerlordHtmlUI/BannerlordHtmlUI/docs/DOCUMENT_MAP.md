@@ -6,11 +6,12 @@
 
 | 问题 | 第一入口 | 第二入口 | 原始证据 |
 |---|---|---|---|
+| 不知道某段 Framework 代码应该放哪里 | `FRAMEWORK_MODULE_MAP.md` | `CODE_PLACEMENT_RULES.md` | 当前源码 |
 | 页面注册/打开失败 | `API.md` | `BUG_KNOWLEDGE_BASE.md` | `Handoff/` 对应 Postmortem / Handoff |
-| 页面显示但按钮点不到 | `BUG_KNOWLEDGE_BASE.md` | `ARCHITECTURE_MASTER.md` | Input / Overlay 历史复盘 |
+| 页面显示但按钮点不到 | `CODE_PLACEMENT_RULES.md` | `BUG_KNOWLEDGE_BASE.md` | Input / Overlay 历史复盘 |
 | 页面自动消失 | `BUG_KNOWLEDGE_BASE.md` | `ARCHITECTURE_MASTER.md` | HWND / lifecycle / navigation 复盘 |
 | ESC 无法关闭 | `BUG_KNOWLEDGE_BASE.md` | `TESTING_AND_REGRESSION.md` | ESC 相关历史记录 |
-| F12 行为异常 | `BUG_KNOWLEDGE_BASE.md` | `TESTING_AND_REGRESSION.md` | 历史交接记录 |
+| F12 行为异常 | `BUG_KNOWLEDGE_BASE.md` | `CODE_PLACEMENT_RULES.md` | 历史交接记录 |
 | Overlay 变白/不可见但还能点 | `BUG_KNOWLEDGE_BASE.md` | `ARCHITECTURE_MASTER.md` | `BUG_POSTMORTEM_OVERLAY_RENDERING_20260814.md` |
 | WebView2 跨线程异常 | `ARCHITECTURE_MASTER.md` | `BUG_KNOWLEDGE_BASE.md` | `BUGFIX_RUNTIME_PATCH_THREADING_20260816.md` |
 | Navigation / Reload 竞态 | `API.md` | `BUG_KNOWLEDGE_BASE.md` | `NAVIGATION_RACE_20260815.md` |
@@ -37,6 +38,8 @@ BannerlordHtmlUI.csproj
 PROJECT_STATUS.md
         ↓
 ARCHITECTURE_MASTER.md
+        ↓
+FRAMEWORK_MODULE_MAP.md
         ↓
 最近一次真实实机验证
         ↓
@@ -78,6 +81,12 @@ PROJECT_HANDOFF_*.md / FULL_CODE_AUDIT_*.md
 - `docs/LIFECYCLE.md` → 生命周期细节
 - `docs/THREADING.md` → 线程边界细节
 
+### Framework 代码结构
+
+- `docs/FRAMEWORK_MODULE_MAP.md` → 当前 C# 模块职责地图
+- `docs/CODE_PLACEMENT_RULES.md` → 强制代码归属规则
+- `docs/ARCHITECTURE_MASTER.md` → 模块之间的状态/线程/生命周期契约
+
 ### 前端 Runtime
 
 - `docs/FRONTEND_API.md`
@@ -117,7 +126,9 @@ PROJECT_HANDOFF_*.md / FULL_CODE_AUDIT_*.md
 
 1. 先写完整原始复盘。
 2. 将可复用经验补到 `BUG_KNOWLEDGE_BASE.md`。
-3. 如果改变了架构/公共语义，再同步 `ARCHITECTURE_MASTER.md` 或 `API.md`。
-4. 如果改变了验收条件，再同步 `TESTING_AND_REGRESSION.md` / `PROJECT_STATUS.md`。
+3. 如果改变了架构/公共语义，再同步 `ARCHITECTURE_MASTER.md` 与 `FRAMEWORK_MODULE_MAP.md`。
+4. 如果改变了公共 API，再同步 `API.md`。
+5. 如果改变了验收条件，再同步 `TESTING_AND_REGRESSION.md` / `PROJECT_STATUS.md`。
+6. 如果改变了代码归属原则，再同步 `CODE_PLACEMENT_RULES.md`。
 
 这样“历史证据”和“当前规范”始终保持双向关联，而不是继续产生孤立 Markdown。
