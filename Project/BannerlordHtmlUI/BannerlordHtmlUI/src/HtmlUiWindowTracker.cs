@@ -23,7 +23,7 @@ namespace BannerlordHtmlUI
         [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
         private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
 
-        private static readonly object Sync = new object();
+        private static readonly object SyncLock = new object();
         private static readonly ConditionalWeakTable<HtmlUiHost, HtmlUiWindowTracker> Instances = new ConditionalWeakTable<HtmlUiHost, HtmlUiWindowTracker>();
 
         private readonly HtmlUiHost _host;
@@ -45,7 +45,7 @@ namespace BannerlordHtmlUI
         public static void Install(HtmlUiHost host)
         {
             if (host == null) throw new ArgumentNullException(nameof(host));
-            lock (Sync)
+            lock (SyncLock)
             {
                 HtmlUiWindowTracker existing;
                 if (Instances.TryGetValue(host, out existing))
@@ -66,17 +66,24 @@ namespace BannerlordHtmlUI
             }
         }
 
-        public static void Sync(HtmlUiHost host)
+        public static void RequestSync(HtmlUiHost host)
         {
             if (host == null) return;
             HtmlUiWindowTracker tracker;
             if (Instances.TryGetValue(host, out tracker)) tracker.PostToUi(tracker.SyncNow);
         }
 
+        public static HtmlUiWindowState GetState(HtmlUiHost host)
+        {
+            if (host == null) return default(HtmlUiWindowState);
+            HtmlUiWindowTracker tracker;
+            return Instances.TryGetValue(host, out tracker) ? tracker._lastState : default(HtmlUiWindowState);
+        }
+
         public static void Uninstall(HtmlUiHost host)
         {
             if (host == null) return;
-            lock (Sync)
+            lock (SyncLock)
             {
                 HtmlUiWindowTracker tracker;
                 if (!Instances.TryGetValue(host, out tracker)) return;
