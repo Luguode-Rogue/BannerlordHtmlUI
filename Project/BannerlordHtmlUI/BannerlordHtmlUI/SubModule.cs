@@ -16,24 +16,12 @@ namespace BannerlordHtmlUI
             base.OnSubModuleLoad();
             _moduleDirectory = Path.GetDirectoryName(typeof(SubModule).Assembly.Location);
             var webRoot = Path.Combine(_moduleDirectory, "web");
-
             Environment.SetEnvironmentVariable("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000");
-            try
-            {
-                HtmlUiTransparencyPatch.Install();
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("Failed to install transparent overlay patch.", ex);
-            }
-
+            try { HtmlUiTransparencyPatch.Install(); }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install transparent overlay patch.", ex); }
             HtmlUiService.OnReady(RegisterFrameworkPages);
             _initTask = HtmlUiService.InitializeAsync(_moduleDirectory, webRoot);
-            _initTask.ContinueWith(t =>
-            {
-                if (t.IsFaulted)
-                    HtmlUiLogger.Error("HtmlUiService initialization failed.", t.Exception?.GetBaseException());
-            }, TaskScheduler.Default);
+            _initTask.ContinueWith(t => { if (t.IsFaulted) HtmlUiLogger.Error("HtmlUiService initialization failed.", t.Exception?.GetBaseException()); }, TaskScheduler.Default);
         }
 
         private static void RegisterFrameworkPages()
@@ -44,8 +32,6 @@ namespace BannerlordHtmlUI
                 HtmlUiMouseCapture.Install();
                 HtmlUiHotReloadPatch.Install(HtmlUiService.Host);
                 HtmlUiStateRemovalPatch.Install(HtmlUiService.Host);
-                // Input mode patch is the sole owner of FollowBannerlordWindow/input arbitration.
-                HtmlUiInputModePatch.Install(HtmlUiService.Host);
                 HtmlUiProcessRecovery.Install(HtmlUiService.Host);
                 HtmlUiContextMenuPatch.Install(HtmlUiService.Host);
 
@@ -53,14 +39,8 @@ namespace BannerlordHtmlUI
                 {
                     HtmlUiService.RegisterCommand("runtime.error", payload =>
                     {
-                        try
-                        {
-                            HtmlUiLogger.Error("Browser runtime error: " + (payload == null ? "<null>" : payload.ToString(Newtonsoft.Json.Formatting.None)));
-                        }
-                        catch (Exception ex)
-                        {
-                            HtmlUiLogger.Error("Failed to log browser runtime error payload.", ex);
-                        }
+                        try { HtmlUiLogger.Error("Browser runtime error: " + (payload == null ? "<null>" : payload.ToString(Newtonsoft.Json.Formatting.None))); }
+                        catch (Exception ex) { HtmlUiLogger.Error("Failed to log browser runtime error payload.", ex); }
                     });
                 }
 
@@ -71,10 +51,7 @@ namespace BannerlordHtmlUI
                 if (!HtmlUiCommands.CommandExists("framework.openDiagnostics"))
                     HtmlUiService.RegisterCommand("framework.openDiagnostics", _ => HtmlUiService.Pages.Open("diagnostics"));
             }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("Failed to register framework page.", ex);
-            }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to register framework page.", ex); }
         }
 
         protected override void OnApplicationTick(float dt)
@@ -83,32 +60,21 @@ namespace BannerlordHtmlUI
             try
             {
                 HtmlUiService.Tick();
-
                 if (Input.IsKeyPressed(InputKey.F10))
                 {
                     HtmlUiLogger.Warn("===== F10 DIAGNOSTICS OPEN =====");
                     var opened = HtmlUiService.Pages.Open("diagnostics");
-                    HtmlUiLogger.Warn("F10 Open result=" + opened
-                        + ", initialized=" + HtmlUiService.IsInitialized
-                        + ", ready=" + HtmlUiService.IsReady
-                        + ", lifecycle=" + HtmlUiService.LifecycleState
-                        + ", currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>")
-                        + ", hostVisible=" + HtmlUiService.Host.IsVisible
-                        + ", webViewReady=" + HtmlUiService.Host.IsWebViewReady
-                        + ", inputMode=" + HtmlUiService.Host.InputMode);
+                    HtmlUiLogger.Warn("F10 Open result=" + opened + ", initialized=" + HtmlUiService.IsInitialized + ", ready=" + HtmlUiService.IsReady + ", lifecycle=" + HtmlUiService.LifecycleState + ", currentPage=" + (HtmlUiService.Pages.CurrentId ?? "<null>") + ", hostVisible=" + HtmlUiService.Host.IsVisible + ", webViewReady=" + HtmlUiService.Host.IsWebViewReady + ", inputMode=" + HtmlUiService.Host.InputMode);
                 }
             }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("Application tick failed.", ex);
-            }
+            catch (Exception ex) { HtmlUiLogger.Error("Application tick failed.", ex); }
         }
 
         protected override void OnSubModuleUnloaded()
         {
             try { HtmlUiService.NotifyGameContext("application", false); } catch { }
             try { HtmlUiHotReloadPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("HotReload patch uninstall failed: " + ex.GetBaseException().Message); }
-            try { HtmlUiInputModePatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Input mode patch uninstall failed: " + ex.GetBaseException().Message); }
+            try { HtmlUiKeyboardAndDiagnosticsPatch.Uninstall(HtmlUiService.Host); } catch (Exception ex) { HtmlUiLogger.Debug("Keyboard diagnostics uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiMouseCapture.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Mouse capture policy uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiProcessRecovery.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("WebView2 process recovery uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiContextMenuPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Context menu patch uninstall failed: " + ex.GetBaseException().Message); }
