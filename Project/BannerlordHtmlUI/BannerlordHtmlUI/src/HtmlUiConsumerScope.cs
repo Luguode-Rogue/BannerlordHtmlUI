@@ -6,11 +6,6 @@ using System.Threading.Tasks;
 
 namespace BannerlordHtmlUI
 {
-    /// <summary>
-    /// Owns all registrations made by one consumer Mod.
-    /// Dispose() unregisters pages, commands, requests, and owned state keys.
-    /// Page close callbacks run before the scope becomes finally disposed.
-    /// </summary>
     public sealed class HtmlUiConsumerScope : IDisposable
     {
         private readonly object _sync = new object();
@@ -68,6 +63,7 @@ namespace BannerlordHtmlUI
                     OwnerId = OwnerId,
                     HotReload = page.HotReload,
                     DefaultInputMode = page.DefaultInputMode,
+                    CloseOnEscape = page.CloseOnEscape,
                     Opened = page.Opened,
                     Closed = page.Closed
                 };
@@ -201,9 +197,6 @@ namespace BannerlordHtmlUI
                     HtmlUiLogger.Error("Consumer scope active-page cleanup failed: " + OwnerId, ex);
                 }
 
-                // Stop owner-owned handlers before unregistering them. This closes the
-                // lifecycle gap where a cancellable request could otherwise continue
-                // running after the consumer scope has been disposed.
                 try
                 {
                     HtmlUiBridge.Current?.CancelRequestsByOwner(OwnerId);
