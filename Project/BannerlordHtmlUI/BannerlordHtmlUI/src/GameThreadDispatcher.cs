@@ -24,5 +24,12 @@ namespace BannerlordHtmlUI
             }
             return processed;
         }
+
+        public int Clear()
+        {
+            var cleared = 0;
+            while (_queue.TryDequeue(out _)) cleared++;
+            return cleared;
+        }
     }
 }
