@@ -181,13 +181,16 @@ namespace BannerlordHtmlUI
             var overlayForeground = form.IsHandleCreated && Win32.GetForegroundWindow() == form.Handle;
             var requestedVisible = _host.IsVisible;
             var showOverlay = requestedVisible && gameVisible && (foreground || overlayForeground);
+            var windowWidth = Math.Max(0, rect.Right - rect.Left);
+            var windowHeight = Math.Max(0, rect.Bottom - rect.Top);
 
             if (gameVisible && showOverlay)
             {
                 try
                 {
                     form.SetOwner(gameHwnd);
-                    form.Bounds = new System.Drawing.Rectangle(rect.Left, rect.Top, Math.Max(1, rect.Right - rect.Left), Math.Max(1, rect.Bottom - rect.Top));
+                    var bounds = HtmlUiOverlayLayoutRegistry.GetBounds(_host, rect.Left, rect.Top, windowWidth, windowHeight);
+                    form.Bounds = bounds;
                 }
                 catch (Exception ex) { HtmlUiLogger.Debug("Overlay placement update failed: " + ex.GetBaseException().Message); }
             }
@@ -204,7 +207,15 @@ namespace BannerlordHtmlUI
                 try { form.Hide(); } catch { }
             }
 
-            PublishState(new HtmlUiWindowState(foreground || overlayForeground, showOverlay && form.Visible, minimized, rect.Left, rect.Top, Math.Max(0, rect.Right - rect.Left), Math.Max(0, rect.Bottom - rect.Top)));
+            var actualBounds = form.Bounds;
+            PublishState(new HtmlUiWindowState(
+                foreground || overlayForeground,
+                showOverlay && form.Visible,
+                minimized,
+                actualBounds.Left,
+                actualBounds.Top,
+                Math.Max(0, actualBounds.Width),
+                Math.Max(0, actualBounds.Height)));
         }
 
         private void PublishState(HtmlUiWindowState state)
