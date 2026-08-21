@@ -35,6 +35,7 @@ namespace BannerlordHtmlUI
                     {
                         try
                         {
+                            if (!host.IsInputCaptured) return false;
                             HtmlUiLogger.Info("ESC callback received by overlay form. Closing current page.");
                             host.Pages.CloseCurrent();
                             return true;
@@ -67,8 +68,9 @@ namespace BannerlordHtmlUI
                     HtmlUiLogger.Info("UI navigation/accelerator diagnostics hooks installed for current WebView2 instance.");
                 }
 
+                // Do not install the legacy WindowTrackingPatch here. HtmlUiInputModePatch is
+                // now the sole owner of overlay visibility, z-order and input arbitration.
                 InstallRuntimeStateRemovalPatch(host);
-                HtmlUiWindowTrackingPatch.Install(host);
             }
             catch (Exception ex) { HtmlUiLogger.Error("Failed to install ESC/i18n diagnostics hook.", ex); }
         }
@@ -154,7 +156,7 @@ namespace BannerlordHtmlUI
             if (e == null || e.VirtualKey != VkEscape) return;
             if (e.KeyEventKind != CoreWebView2KeyEventKind.KeyDown && e.KeyEventKind != CoreWebView2KeyEventKind.SystemKeyDown) return;
             var host = _host;
-            if (host == null || !host.IsVisible) return;
+            if (host == null || !host.IsInputCaptured) return;
             try
             {
                 e.Handled = true;
@@ -235,7 +237,7 @@ namespace BannerlordHtmlUI
             {
                 if (m.Msg != WmKeyDown && m.Msg != WmSysKeyDown) return false;
                 var host = _host;
-                if (host == null || !host.IsVisible) return false;
+                if (host == null || !host.IsInputCaptured) return false;
                 var key = unchecked((int)m.WParam.ToInt64());
                 if (key != VkEscape) return false;
                 try
