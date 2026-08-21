@@ -45,6 +45,7 @@ namespace BannerlordHtmlUI
                 if (core != null && !ReferenceEquals(_core, core))
                 {
                     DetachWebViewAccelerator();
+                    DetachCoreNavigationHandler();
                     _core = core;
                     AttachWebViewAccelerator(web);
                     core.NavigationCompleted += OnNavigationCompleted;
@@ -61,11 +62,8 @@ namespace BannerlordHtmlUI
                 _filter = null;
             }
             DetachWebViewAccelerator();
-            if (_core != null)
-            {
-                try { _core.NavigationCompleted -= OnNavigationCompleted; } catch { }
-                _core = null;
-            }
+            DetachCoreNavigationHandler();
+            _core = null;
             if (host != null)
             {
                 try
@@ -132,6 +130,12 @@ namespace BannerlordHtmlUI
             _controller = null;
             _acceleratorEvent = null;
             _acceleratorHandler = null;
+        }
+
+        private static void DetachCoreNavigationHandler()
+        {
+            if (_core == null) return;
+            try { _core.NavigationCompleted -= OnNavigationCompleted; } catch { }
         }
 
         private static void OnWebViewAcceleratorKeyPressed(object sender, CoreWebView2AcceleratorKeyPressedEventArgs e)
