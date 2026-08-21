@@ -44,11 +44,9 @@ namespace BannerlordHtmlUI
                     _harmony.Patch(
                         starting,
                         postfix: new HarmonyMethod(typeof(HtmlUiNavigationRacePatch), nameof(OnNavigationStartingPostfix)));
-
                     _harmony.Patch(
                         completed,
                         prefix: new HarmonyMethod(typeof(HtmlUiNavigationRacePatch), nameof(OnNavigationCompletedPrefix)));
-
                     _harmony.Patch(
                         _navigateOnUiThread,
                         prefix: new HarmonyMethod(typeof(HtmlUiNavigationRacePatch), nameof(OnNavigateOnUiThreadPrefix)));
@@ -57,11 +55,11 @@ namespace BannerlordHtmlUI
                     HtmlUiLogger.Info("Navigation race guard installed.");
                 }
 
-                // The barrier belongs to the host instance, not to the static Harmony patch.
-                // This matters if the WebView2 host is destroyed and recreated in the same
-                // process: a new host must get its own document-created runtime barrier.
-                if (!RuntimeRegistrationBarriers.TryGetValue(host, out _))
-                    RuntimeRegistrationBarriers.Add(host, CreateRuntimeRegistrationBarrier(host));
+                // A WebView2 process recovery creates a new CoreWebView2 on the same Host.
+                // Always replace the document-created runtime barrier so the replacement
+                // WebView gets a fresh registration barrier instead of reusing an old task.
+                RuntimeRegistrationBarriers.Remove(host);
+                RuntimeRegistrationBarriers.Add(host, CreateRuntimeRegistrationBarrier(host));
             }
         }
 
@@ -70,7 +68,10 @@ namespace BannerlordHtmlUI
             lock (Sync)
             {
                 if (host != null)
+                {
                     RuntimeRegistrationBarriers.Remove(host);
+                    NavigationStates.Remove(host);
+                }
 
                 if (!_installed || _harmony == null) return;
 
@@ -129,6 +130,17 @@ namespace BannerlordHtmlUI
         private static bool OnNavigateOnUiThreadPrefix(HtmlUiHost __instance, HtmlUiPage page)
         {
             if (__instance == null || page == null) return true;
+
+            // A queued UI-thread navigation can outlive CloseCurrent(). Never allow a
+            // stale page to reappear after the PageManager has moved on or closed it.
+            var current = __instance.Pages?.Current;
+            if (current == null || !string.Equals(current.Id, page.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                HtmlUiLogger.Debug("Suppressed stale queued page navigation: " + page.Id
+                    + ", current=" + (current == null ? "<null>" : current.Id));
+                return false;
+            }
+
             if (!RuntimeRegistrationBarriers.TryGetValue(__instance, out var barrier) || barrier == null || barrier.IsCompleted)
                 return true;
 
