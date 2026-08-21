@@ -19,6 +19,8 @@ namespace BannerlordHtmlUI
         private static long _lastTickStart;
         private static long _lastTickAfterInput;
         private static long _lastTickAfterService;
+        private static long _lastTickAfterF10;
+        private static long _lastTickCompleted;
         private static long _tickCount;
 
         public static void Initialize(string moduleDirectory)
@@ -36,6 +38,8 @@ namespace BannerlordHtmlUI
                 _lastTickStart = 0;
                 _lastTickAfterInput = 0;
                 _lastTickAfterService = 0;
+                _lastTickAfterF10 = 0;
+                _lastTickCompleted = 0;
                 _initialized = true;
                 Write("=== INPUT TRACE STARTED === tracedKeys=" + TracedKeys.Count);
             }
@@ -84,10 +88,24 @@ namespace BannerlordHtmlUI
             _lastTickAfterService = StopwatchTicks();
         }
 
+        public static void TickAfterF10()
+        {
+            if (!_initialized) return;
+            _lastTickAfterF10 = StopwatchTicks();
+        }
+
+        public static void TickCompleted()
+        {
+            if (!_initialized) return;
+            _lastTickCompleted = StopwatchTicks();
+        }
+
         public static long TickCount => Interlocked.Read(ref _tickCount);
         public static long LastTickStartTimestamp => Interlocked.Read(ref _lastTickStart);
         public static long LastTickAfterInputTimestamp => Interlocked.Read(ref _lastTickAfterInput);
         public static long LastTickAfterServiceTimestamp => Interlocked.Read(ref _lastTickAfterService);
+        public static long LastTickAfterF10Timestamp => Interlocked.Read(ref _lastTickAfterF10);
+        public static long LastTickCompletedTimestamp => Interlocked.Read(ref _lastTickCompleted);
 
         public static void KeyMessage(int msg, long wParam, long lParam, string source)
         {
