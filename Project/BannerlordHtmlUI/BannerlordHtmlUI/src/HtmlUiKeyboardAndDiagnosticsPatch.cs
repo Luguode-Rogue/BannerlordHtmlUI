@@ -89,9 +89,6 @@ namespace BannerlordHtmlUI
 
         private static bool TryCloseFromEscape(HtmlUiHost host, string source)
         {
-            // ESC is a page lifecycle control, not a permission check on input mode.
-            // If a page explicitly opts into CloseOnEscape, allow the Framework fallback to close it
-            // even while the active mode is Passive (e.g. a consumer temporarily hands input back).
             if (host == null) return false;
             var page = host.Pages.Current;
             if (page == null || !page.CloseOnEscape) return false;
@@ -162,9 +159,21 @@ namespace BannerlordHtmlUI
             var host = _host;
             if (host == null) return;
 
-            if (e.VirtualKey == VkF12 && !host.DevToolsEnabled)
+            if (e.VirtualKey == VkF12)
             {
-                HtmlUiInputTraceLogger.Event("WEBVIEW_ACCELERATOR F12 blocked; DevTools disabled by Framework policy");
+                if (!host.DevToolsEnabled)
+                {
+                    HtmlUiInputTraceLogger.Event("WEBVIEW_ACCELERATOR F12 blocked; DevTools disabled by Framework policy");
+                    e.Handled = true;
+                }
+                return;
+            }
+
+            // Passive/Hidden are display/lifecycle states, never WebView input states.
+            // A stale Chromium focus must not consume Escape or any browser accelerator.
+            if (host.InputMode == HtmlUiInputMode.Passive || host.InputMode == HtmlUiInputMode.Hidden)
+            {
+                HtmlUiInputTraceLogger.Event("WEBVIEW_ACCELERATOR blocked in " + host.InputMode + " vk=0x" + e.VirtualKey.ToString("X2"));
                 e.Handled = true;
                 return;
             }
@@ -204,6 +213,11 @@ namespace BannerlordHtmlUI
                         {
                             HtmlUiInputTraceLogger.Event("WINFORMS F12 blocked; DevTools disabled by Framework policy");
                             return true;
+                        }
+                        if (host.InputMode == HtmlUiInputMode.Passive || host.InputMode == HtmlUiInputMode.Hidden)
+                        {
+                            // The Framework UI message loop must never consume ESC while the WebView is passive.
+                            return false;
                         }
                         if (key != VkEscape) return false;
                         return TryCloseFromEscape(host, "winforms");
