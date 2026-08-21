@@ -61,10 +61,15 @@ namespace BannerlordHtmlUI
         protected override void OnApplicationTick(float dt)
         {
             base.OnApplicationTick(dt);
+            HtmlUiInputTraceLogger.TickStart(dt);
             try
             {
                 HtmlUiInputTraceLogger.BannerlordInput(HtmlUiService.IsInitialized ? HtmlUiService.Host : null);
+                HtmlUiInputTraceLogger.TickAfterInput();
+
                 HtmlUiService.Tick();
+                HtmlUiInputTraceLogger.TickAfterService();
+
                 if (Input.IsKeyPressed(InputKey.F10))
                 {
                     HtmlUiInputTraceLogger.Event("F10_DIAGNOSTICS_HOTKEY");
