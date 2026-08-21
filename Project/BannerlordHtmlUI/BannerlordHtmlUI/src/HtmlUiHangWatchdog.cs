@@ -82,23 +82,34 @@ namespace BannerlordHtmlUI
 
         private static void CheckGameThread(GameThreadDispatcher dispatcher, HtmlUiHost host)
         {
-            // The dispatcher can exist for a short period before Bannerlord starts
-            // calling HtmlUiService.Tick(). Do not classify that startup interval as
-            // a GameThread stall.
-            if (!dispatcher.HasDrained) return;
+            var tickStart = HtmlUiInputTraceLogger.LastTickStartTimestamp;
+            if (tickStart <= 0) return;
 
-            var last = dispatcher.LastDrainTimestamp;
-            if (last <= 0) return;
-            var elapsedMs = TicksToMilliseconds(System.Diagnostics.Stopwatch.GetTimestamp() - last);
-            if (elapsedMs < GameStallThresholdMs) return;
+            var elapsedSinceTickStart = TicksToMilliseconds(System.Diagnostics.Stopwatch.GetTimestamp() - tickStart);
+            if (elapsedSinceTickStart < GameStallThresholdMs) return;
 
+            var afterInput = HtmlUiInputTraceLogger.LastTickAfterInputTimestamp;
+            var afterService = HtmlUiInputTraceLogger.LastTickAfterServiceTimestamp;
+            var lastDrain = dispatcher.LastDrainTimestamp;
             var now = Environment.TickCount64;
             if (now - Interlocked.Read(ref _lastGameHangLog) < LogCooldownMs) return;
             Interlocked.Exchange(ref _lastGameHangLog, now);
 
+            string phase;
+            if (afterInput < tickStart)
+                phase = "BannerlordInputTrace";
+            else if (afterService < afterInput)
+                phase = "HtmlUiService.Tick";
+            else if (lastDrain < afterService)
+                phase = "Dispatcher.Drain/after-Tick bookkeeping";
+            else
+                phase = "OnApplicationTick after HtmlUiService.Tick";
+
             HtmlUiLogger.Warn(
-                "HANG WATCHDOG: GameThread stall detected. " +
-                "elapsedMs=" + elapsedMs +
+                "HANG WATCHDOG: SubModule OnApplicationTick stall detected. " +
+                "elapsedMs=" + elapsedSinceTickStart +
+                ", phase=" + phase +
+                ", tickCount=" + HtmlUiInputTraceLogger.TickCount +
                 ", queueCount=" + dispatcher.QueueCount +
                 ", drainActive=" + dispatcher.IsDrainActive +
                 ", page=" + (host.Pages.CurrentId ?? "<null>") +
