@@ -50,7 +50,7 @@ namespace BannerlordHtmlUI
                 HtmlUiWindowTracker existing;
                 if (Instances.TryGetValue(host, out existing))
                 {
-                    existing.PostToUi(existing.SyncNow);
+                    existing.SyncNow();
                     return;
                 }
 
@@ -96,15 +96,14 @@ namespace BannerlordHtmlUI
         {
             if (_disposed) throw new ObjectDisposedException(nameof(HtmlUiWindowTracker));
             _form = GetForm();
-            if (_form == null) throw new InvalidOperationException("HtmlUi overlay form was not created.");
+            if (_form == null || _form.IsDisposed || !_form.IsHandleCreated)
+                throw new InvalidOperationException("HtmlUi overlay form is not ready.");
 
             StopLegacyFollowTimer();
             _hook = SetWinEventHook(EventSystemForeground, EventObjectHide, IntPtr.Zero, _callback, 0, 0, WineventOutOfContext);
             if (_hook == IntPtr.Zero) throw new InvalidOperationException("Failed to install WinEvent window tracking hook.");
 
-            // StartCore can execute on the Bannerlord/game thread. Never touch WinForms
-            // Handle/control state here; all UI inspection and placement is marshaled below.
-            PostToUi(SyncNow);
+            SyncNow();
             HtmlUiLogger.Info("Event-driven Bannerlord window tracker started; legacy 100ms follow timer disabled.");
         }
 
@@ -142,7 +141,7 @@ namespace BannerlordHtmlUI
             try
             {
                 IntPtr gameHwnd;
-                return Win32.TryGetGameWindowHandle(IntPtr.Zero, out gameHwnd) && hwnd == gameHwnd;
+                return Win32.TryGetGameWindowHandle(_form == null ? IntPtr.Zero : _form.Handle, out gameHwnd) && hwnd == gameHwnd;
             }
             catch { return false; }
         }
@@ -150,16 +149,14 @@ namespace BannerlordHtmlUI
         private void PostToUi(Action action)
         {
             var form = _form;
-            if (form == null) return;
+            if (form == null || form.IsDisposed || !form.IsHandleCreated) return;
             try
             {
-                // BeginInvoke is the marshal boundary. Do not read WinForms Handle,
-                // IsHandleCreated or InvokeRequired from non-UI threads.
-                form.BeginInvoke(action);
+                if (form.InvokeRequired) form.BeginInvoke(action);
+                else action();
             }
             catch (ObjectDisposedException) { }
             catch (InvalidOperationException) { }
-            catch (System.ComponentModel.Win32Exception) { }
         }
 
         public void SyncNow()
@@ -181,7 +178,7 @@ namespace BannerlordHtmlUI
             var minimized = Win32.IsIconic(gameHwnd);
             var gameVisible = Win32.IsWindowVisible(gameHwnd) && !minimized;
             var foreground = Win32.GetForegroundWindow() == gameHwnd;
-            var overlayForeground = _host.InputMode != HtmlUiInputMode.Passive && form.IsHandleCreated && Win32.GetForegroundWindow() == form.Handle;
+            var overlayForeground = form.IsHandleCreated && Win32.GetForegroundWindow() == form.Handle;
             var requestedVisible = _host.IsVisible;
             var showOverlay = requestedVisible && gameVisible && (foreground || overlayForeground);
             var windowWidth = Math.Max(0, rect.Right - rect.Left);
