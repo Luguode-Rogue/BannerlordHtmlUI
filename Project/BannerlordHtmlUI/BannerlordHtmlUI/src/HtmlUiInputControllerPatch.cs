@@ -191,10 +191,7 @@ namespace BannerlordHtmlUI
                     Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
                     if (mode == HtmlUiInputMode.Captured)
-                    {
-                        var foreground = Win32.GetForegroundWindow();
-                        if (foreground == gameHwnd || foreground == form.Handle) ActivateCapturedForm(form);
-                    }
+                        ActivateCapturedForm(form, web, gameHwnd);
                 }
 
                 if (generation != Volatile.Read(ref state.Generation)) return;
@@ -232,18 +229,30 @@ namespace BannerlordHtmlUI
             try { form.Hide(); } catch { }
         }
 
-        private static void ActivateCapturedForm(HtmlUiOverlayForm form)
+        private static void ActivateCapturedForm(HtmlUiOverlayForm form, System.Windows.Forms.Control web, IntPtr gameHwnd)
         {
+            var before = Win32.GetForegroundWindow();
+            HtmlUiInputTraceLogger.Event(
+                "CAPTURED_ACTIVATE_ATTEMPT foreground=" + before +
+                " gameHwnd=" + gameHwnd +
+                " overlayHwnd=" + form.Handle);
             try
             {
                 Win32.SetForegroundWindow(form.Handle);
                 form.Activate();
-                if (form.Controls.Count > 0) form.Controls[0]?.Focus();
+                if (web != null) web.Focus();
+                else if (form.Controls.Count > 0) form.Controls[0]?.Focus();
             }
-            catch
+            catch (Exception ex)
             {
+                HtmlUiInputTraceLogger.Event("CAPTURED_ACTIVATE_ERROR error=" + ex.GetBaseException().Message);
                 try { form.Activate(); } catch { }
             }
+            var after = Win32.GetForegroundWindow();
+            HtmlUiInputTraceLogger.Event(
+                "CAPTURED_ACTIVATE_RESULT foreground=" + after +
+                " overlayHwnd=" + form.Handle +
+                " webFocused=" + (web != null && web.Focused));
         }
 
         private static HtmlUiOverlayForm GetForm(HtmlUiHost host) { return _formField?.GetValue(host) as HtmlUiOverlayForm; }
