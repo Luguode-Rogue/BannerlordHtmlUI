@@ -43,6 +43,6 @@ PROJECT_STATUS 对应回归项
 - WindowTracker 只负责窗口事实和 Bounds。
 - PageManager 只负责 Page lifecycle。
 - Browser policy 只由 Browser policy owner 负责。
-- 禁止新增第二套 100ms window polling / FollowTimer。
+- 禁止新增第二套独立的窗口同步/轮询机制覆盖既有状态 Owner。
 - 禁止 Consumer 在 Framework 层增加专用 Patch。
 - 未实机测试的功能不得标成已修复。
