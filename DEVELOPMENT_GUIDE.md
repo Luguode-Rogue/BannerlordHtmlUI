@@ -65,8 +65,6 @@ InputMode 唯一 owner：`HtmlUiInputControllerPatch`。
 
 WindowTracker 只提供 HWND、Foreground、Visible、Minimized、Bounds 等事实；不能修改 InputMode。
 
-禁止恢复 100ms polling / FollowTimer。
-
 ## Threading
 
 只允许现有 GameThread ↔ WebView2 UI thread 边界；禁止另起第二套 queue / Task.Run / Invoke 架构。
