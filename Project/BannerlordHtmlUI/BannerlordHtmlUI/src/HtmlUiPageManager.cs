@@ -12,7 +12,6 @@ namespace BannerlordHtmlUI
         private string _openId;
 
         internal void Attach(HtmlUiHost host) => _host = host;
-
         public int Count { get { lock (_sync) return _pages.Count; } }
 
         public void Register(HtmlUiPage page)
@@ -49,6 +48,7 @@ namespace BannerlordHtmlUI
 
                 if (wasOpen)
                 {
+                    _host.ClearPendingNavigation();
                     InvokeClosed(page, id);
                     PublishClosed(id, page);
                     _host.SetInputMode(HtmlUiInputMode.Hidden);
@@ -96,6 +96,7 @@ namespace BannerlordHtmlUI
 
                 HtmlUiLogger.Info("Page open requested: " + id + ", hostReady=" + _host.IsWebViewReady + ", currentBefore=" + (CurrentId ?? "<null>"));
                 CloseCurrentInternal();
+                _host.ClearPendingNavigation();
 
                 lock (_sync) _openId = page.Id;
                 try
@@ -112,6 +113,7 @@ namespace BannerlordHtmlUI
                     {
                         if (string.Equals(_openId, page.Id, StringComparison.OrdinalIgnoreCase)) _openId = null;
                     }
+                    _host.ClearPendingNavigation();
                     PublishClosed(page.Id, page);
                     try { _host.SetInputMode(HtmlUiInputMode.Hidden); } catch { }
                     try { _host.Hide(); } catch { }
@@ -149,6 +151,7 @@ namespace BannerlordHtmlUI
                 {
                     HtmlUiLogger.Info("Page CloseCurrent ignored: no open page.");
                     try { _host.SetInputMode(HtmlUiInputMode.Hidden); } catch { }
+                    _host.ClearPendingNavigation();
                     return;
                 }
                 _pages.TryGetValue(openId, out page);
@@ -156,17 +159,11 @@ namespace BannerlordHtmlUI
             }
 
             HtmlUiLogger.Info("Page CloseCurrent executing: page=" + openId + ", resolvedPage=" + (page == null ? "<null>" : page.Id));
-
-            // Invalidate the public page state before invoking consumer callbacks. A callback
-            // that synchronously tries to open another page must see the old page as closed.
+            _host.ClearPendingNavigation();
             InvokeClosed(page, openId);
             PublishClosed(openId, page);
-
-            // Restore the framework's neutral input mode as part of the same atomic page
-            // transition. Consumers no longer need to race this with a second call.
             try { _host.SetInputMode(HtmlUiInputMode.Hidden); }
             catch (Exception ex) { HtmlUiLogger.Error("Failed to restore Hidden input mode while closing page: " + openId, ex); }
-
             try { _host.Hide(); }
             catch (Exception ex) { HtmlUiLogger.Error("Failed to hide HTML UI host while closing page: " + openId, ex); }
 
@@ -184,13 +181,7 @@ namespace BannerlordHtmlUI
         {
             try
             {
-                var payload = new
-                {
-                    state = "opening",
-                    pageId = page.Id,
-                    ownerId = page.OwnerId,
-                    path = page.RelativePath
-                };
+                var payload = new { state = "opening", pageId = page.Id, ownerId = page.OwnerId, path = page.RelativePath };
                 _host.State.Set("framework.page.lifecycle", payload);
                 _host.SendEvent("framework.page.lifecycle", payload);
             }
@@ -201,12 +192,7 @@ namespace BannerlordHtmlUI
         {
             try
             {
-                var payload = new
-                {
-                    state = "closed",
-                    pageId = pageId,
-                    ownerId = page == null ? "" : (page.OwnerId ?? "")
-                };
+                var payload = new { state = "closed", pageId = pageId, ownerId = page == null ? "" : (page.OwnerId ?? "") };
                 _host.State.Set("framework.page.lifecycle", payload);
                 _host.SendEvent("framework.page.lifecycle", payload);
             }
@@ -227,13 +213,7 @@ namespace BannerlordHtmlUI
                         return false;
                     }
                 }
-
-                if (!_host.IsVisible || !_host.IsWebViewReady)
-                {
-                    HtmlUiLogger.Info("Page Reload ignored: host is not in an active ready state.");
-                    return false;
-                }
-
+                if (!_host.IsVisible || !_host.IsWebViewReady) return false;
                 try
                 {
                     var payload = new { state = "reloading", pageId = current.Id, ownerId = current.OwnerId, path = current.RelativePath };
@@ -241,23 +221,12 @@ namespace BannerlordHtmlUI
                     _host.SendEvent("framework.page.lifecycle", payload);
                 }
                 catch (Exception ex) { HtmlUiLogger.Error("Failed to publish page reloading lifecycle: " + current.Id, ex); }
-
-                try
-                {
-                    _host.Reload();
-                    HtmlUiLogger.Info("Page reload requested: " + current.Id);
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    HtmlUiLogger.Error("Page reload failed: " + current.Id, ex);
-                    return false;
-                }
+                try { _host.Reload(); HtmlUiLogger.Info("Page reload requested: " + current.Id); return true; }
+                catch (Exception ex) { HtmlUiLogger.Error("Page reload failed: " + current.Id, ex); return false; }
             }
         }
 
         public string CurrentId { get { lock (_sync) return _openId; } }
-
         public HtmlUiPage Current
         {
             get
@@ -270,10 +239,6 @@ namespace BannerlordHtmlUI
                 }
             }
         }
-
-        public IEnumerable<HtmlUiPage> All
-        {
-            get { lock (_sync) return new List<HtmlUiPage>(_pages.Values); }
-        }
+        public IEnumerable<HtmlUiPage> All { get { lock (_sync) return new List<HtmlUiPage>(_pages.Values); } }
     }
 }
