@@ -7,6 +7,7 @@ namespace BannerlordHtmlUI
     internal sealed class HtmlUiOverlayForm : Form
     {
         private bool _passThrough;
+        private bool _mouseOnly;
 
         public Func<bool> EscapePressed { get; set; }
 
@@ -46,17 +47,24 @@ namespace BannerlordHtmlUI
         public void SetPassThrough(bool enabled)
         {
             _passThrough = enabled;
+            _mouseOnly = false;
             var applied = Win32.SetPassThroughStyle(Handle, enabled);
             HtmlUiLogger.Info("Overlay SetPassThrough enabled=" + enabled + " applied=" + applied + " hwnd=" + Handle);
         }
 
-        protected override bool ShowWithoutActivation => _passThrough;
+        public void SetMouseOnly(bool enabled)
+        {
+            _mouseOnly = enabled;
+            _passThrough = false;
+            var applied = Win32.SetNoActivate(Handle, enabled);
+            HtmlUiLogger.Info("Overlay SetMouseOnly enabled=" + enabled + " noActivateApplied=" + applied + " hwnd=" + Handle);
+        }
+
+        protected override bool ShowWithoutActivation => _passThrough || _mouseOnly;
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            // Hidden and Passive modes never own keyboard input. This is a native-side
-            // fail-safe even if focus state briefly survives a mode transition.
-            if (!Visible || _passThrough)
+            if (!Visible || _passThrough || _mouseOnly)
                 return base.ProcessCmdKey(ref msg, keyData);
 
             if ((keyData & Keys.KeyCode) == Keys.Escape)
@@ -82,6 +90,7 @@ namespace BannerlordHtmlUI
             const int WM_MOUSEACTIVATE = 0x0021;
             const int HTTRANSPARENT = -1;
             const int MA_ACTIVATE = 1;
+            const int MA_NOACTIVATE = 3;
 
             if (_passThrough && m.Msg == WM_NCHITTEST)
             {
@@ -89,7 +98,13 @@ namespace BannerlordHtmlUI
                 return;
             }
 
-            if (!_passThrough && m.Msg == WM_MOUSEACTIVATE)
+            if (_mouseOnly && m.Msg == WM_MOUSEACTIVATE)
+            {
+                m.Result = (IntPtr)MA_NOACTIVATE;
+                return;
+            }
+
+            if (!_passThrough && !_mouseOnly && m.Msg == WM_MOUSEACTIVATE)
             {
                 m.Result = (IntPtr)MA_ACTIVATE;
                 return;
