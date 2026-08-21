@@ -42,7 +42,6 @@ namespace BannerlordHtmlUI
         private HtmlUiBridge _bridge;
         private FileSystemWatcher _watcher;
         private string _currentRelativePath;
-        private volatile HtmlUiPage _pendingPage;
         private bool _navigationInProgress;
         private bool _disposed;
         private volatile bool _webViewReady;
@@ -102,8 +101,17 @@ namespace BannerlordHtmlUI
                 _web = new WebView2 { Dock = DockStyle.Fill };
                 _form.Controls.Add(_web);
                 _followTimer = new System.Windows.Forms.Timer { Interval = 100 };
-                _followTimer.Tick += (s, e) => FollowBannerlordWindow();
-                _followTimer.Start();
+                _followTimer.Tick += (s, e) =>
+                {
+                    // The timer exists only to keep a visible overlay aligned with Bannerlord.
+                    // Hidden state is deliberately excluded; it must not perform foreground/focus work.
+                    if (_inputMode == HtmlUiInputMode.Hidden || !_requestedVisible)
+                    {
+                        StopFollowTimer();
+                        return;
+                    }
+                    FollowBannerlordWindow();
+                };
                 _form.Load += OnFormLoad;
                 HtmlUiLogger.Info("WebView2 UI form created. Starting WinForms message loop.");
                 Application.Run(_form);
@@ -114,6 +122,18 @@ namespace BannerlordHtmlUI
                 HtmlUiLogger.Error("WebView2 UI thread failed.", ex);
                 _ready?.TrySetException(ex);
             }
+        }
+
+        private void StartFollowTimer()
+        {
+            if (_followTimer == null || _followTimer.Enabled) return;
+            _followTimer.Start();
+        }
+
+        private void StopFollowTimer()
+        {
+            if (_followTimer == null || !_followTimer.Enabled) return;
+            _followTimer.Stop();
         }
 
         private void OnFormLoad(object sender, EventArgs e)
@@ -216,7 +236,9 @@ namespace BannerlordHtmlUI
 
                 if (_inputMode == HtmlUiInputMode.Hidden || !_requestedVisible)
                 {
-                    ApplyHiddenInputState(hwnd);
+                    // Hidden mode is fully handled by the explicit SetInputMode transition.
+                    // Do not Hide(), focus, activate, or SetForegroundWindow() from the follow loop.
+                    StopFollowTimer();
                     ApplyWindowState(new HtmlUiWindowState(foreground, false, minimized, rect.Left, rect.Top, width, height));
                     return;
                 }
@@ -242,9 +264,6 @@ namespace BannerlordHtmlUI
                     _form.SetPassThrough(false);
                     Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
-                    // IMPORTANT: FollowBannerlordWindow is a placement/visibility loop.
-                    // It must never reacquire foreground focus. Captured input acquires
-                    // focus once when SetInputMode(Captured) is explicitly called.
                 }
                 ApplyWindowState(new HtmlUiWindowState(foreground || overlayForeground, _form.Visible, minimized, rect.Left, rect.Top, width, height));
             }
@@ -491,6 +510,7 @@ namespace BannerlordHtmlUI
             if (mode == HtmlUiInputMode.Hidden)
             {
                 _requestedVisible = false;
+                StopFollowTimer();
                 ReleaseNativeCaptureOnly();
                 try { if (_web != null) _web.Enabled = false; } catch { }
                 try { _form.SetPassThrough(true); } catch { }
@@ -500,6 +520,7 @@ namespace BannerlordHtmlUI
                 return;
             }
             _requestedVisible = true;
+            StartFollowTimer();
             if (gameWindow != IntPtr.Zero)
             {
                 try { _form.SetOwner(gameWindow); } catch { }
@@ -588,28 +609,17 @@ namespace BannerlordHtmlUI
             if (_disposed) return;
             _disposed = true;
             try { HtmlUiKeyboardAndDiagnosticsPatch.Uninstall(this); } catch { }
-            try { _bridge?.Dispose(); } catch { }
-            _bridge = null;
-            _webViewReady = false;
-            _requestedVisible = false;
-            _inputMode = HtmlUiInputMode.Hidden;
-            _pendingPage = null;
-            try { Win32.ReleaseMouseCapture(); } catch { }
-            try { if (_web != null) _web.Enabled = false; } catch { }
-            try { if (_form != null && _form.IsHandleCreated) _form.SetPassThrough(true); } catch { }
+            try { StopFollowTimer(); } catch { }
+            try { if (_followTimer != null) { _followTimer.Tick -= (s, e) => FollowBannerlordWindow(); _followTimer.Dispose(); _followTimer = null; } } catch { }
             try { _watcher?.Dispose(); } catch { }
             _watcher = null;
-            try { _followTimer?.Stop(); _followTimer?.Dispose(); } catch { }
-            _followTimer = null;
-            try
+            try { _bridge?.Dispose(); } catch { }
+            _bridge = null;
+            if (_form != null && !_form.IsDisposed)
             {
-                if (_form != null && !_form.IsDisposed && _form.IsHandleCreated)
-                {
-                    if (_form.InvokeRequired) _form.BeginInvoke(new Action(() => _form.Close()));
-                    else _form.Close();
-                }
+                try { if (_form.InvokeRequired) _form.BeginInvoke(new Action(() => { try { _form.Close(); } catch { } })); else _form.Close(); } catch { }
             }
-            catch { }
+            _webViewReady = false;
         }
     }
 }
