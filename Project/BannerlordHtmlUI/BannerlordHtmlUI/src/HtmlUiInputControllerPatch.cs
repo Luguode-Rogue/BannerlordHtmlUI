@@ -80,12 +80,23 @@ namespace BannerlordHtmlUI
             if (__instance == null || IsDisposed(__instance)) return false;
             try
             {
+                var previousMode = (HtmlUiInputMode)_inputModeField.GetValue(__instance);
                 _inputModeField.SetValue(__instance, mode);
                 _requestedVisibleField.SetValue(__instance, mode != HtmlUiInputMode.Hidden);
                 try { __instance.State?.Set("framework.inputMode", mode.ToString()); } catch { }
 
+                HtmlUiInputTraceLogger.Event(
+                    "INPUT_MODE_REQUEST previous=" + previousMode +
+                    " requested=" + mode);
+
                 var form = GetForm(__instance);
-                if (form == null || form.IsDisposed || !form.IsHandleCreated) return false;
+                if (form == null || form.IsDisposed || !form.IsHandleCreated)
+                {
+                    HtmlUiInputTraceLogger.Event(
+                        "INPUT_MODE_REQUEST_UNAPPLIED requested=" + mode +
+                        " reason=form-not-ready");
+                    return false;
+                }
 
                 var state = States.GetOrCreateValue(__instance);
                 var generation = Interlocked.Increment(ref state.Generation);
@@ -95,6 +106,7 @@ namespace BannerlordHtmlUI
             catch (Exception ex)
             {
                 HtmlUiLogger.Error("Unified input mode transition failed.", ex);
+                HtmlUiInputTraceLogger.Event("INPUT_MODE_REQUEST_ERROR requested=" + mode + " error=" + ex.GetBaseException().Message);
                 return false;
             }
         }
@@ -116,6 +128,7 @@ namespace BannerlordHtmlUI
                 if (!Win32.TryGetGameWindowHandle(form.Handle, out var gameHwnd) || gameHwnd == IntPtr.Zero)
                 {
                     HtmlUiLogger.Warn("Input mode applied without a resolved Bannerlord window. mode=" + mode);
+                    HtmlUiInputTraceLogger.Event("INPUT_MODE_APPLY_UNRESOLVED_HWND mode=" + mode);
                     if (mode == HtmlUiInputMode.Hidden || mode == HtmlUiInputMode.Passive)
                     {
                         try { Win32.ReleaseMouseCapture(); } catch { }
@@ -134,6 +147,8 @@ namespace BannerlordHtmlUI
                     RestoreGameInput(host, gameHwnd, form);
                     state.LastAppliedMode = HtmlUiInputMode.Hidden;
                     HtmlUiLogger.Info("Input mode applied: Hidden; game input restored.");
+                    HtmlUiInputTraceLogger.Event(
+                        "INPUT_MODE_APPLIED mode=Hidden htmlMouse=false htmlKeyboard=false nativeCapture=released webEnabled=false passThrough=true");
                     return;
                 }
 
@@ -141,16 +156,22 @@ namespace BannerlordHtmlUI
                 // control itself so Chromium cannot consume mouse/keyboard/context-menu input.
                 if (mode == HtmlUiInputMode.Passive)
                 {
-                    // Passive must release any native mouse capture left by a previous
-                    // MouseCaptured transition. Otherwise the transparent overlay can continue
-                    // receiving mouse messages even after input ownership has been relinquished.
-                    try { Win32.ReleaseMouseCapture(); } catch { }
+                    bool captureReleased = true;
+                    try { Win32.ReleaseMouseCapture(); }
+                    catch (Exception ex)
+                    {
+                        captureReleased = false;
+                        HtmlUiInputTraceLogger.Event("INPUT_MODE_PASSIVE_CAPTURE_RELEASE_ERROR error=" + ex.GetBaseException().Message);
+                    }
                     try { if (web != null) web.Enabled = false; } catch { }
                     try { form.SetOwner(gameHwnd); } catch { }
                     try { form.Show(); } catch { }
                     form.SetPassThrough(true);
                     Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
+                    HtmlUiInputTraceLogger.Event(
+                        "INPUT_MODE_PASSIVE_APPLIED htmlMouse=false htmlKeyboard=false nativeCaptureReleased=" + captureReleased +
+                        " webEnabled=false passThrough=true");
                 }
                 else
                 {
@@ -170,6 +191,11 @@ namespace BannerlordHtmlUI
                 if (generation != Volatile.Read(ref state.Generation)) return;
                 state.LastAppliedMode = mode;
                 HtmlUiLogger.Info("Input mode applied: " + mode + ", overlayHwnd=" + form.Handle + ", gameHwnd=" + gameHwnd);
+                HtmlUiInputTraceLogger.Event(
+                    "INPUT_MODE_APPLIED mode=" + mode +
+                    " htmlMouse=" + (mode == HtmlUiInputMode.Captured || mode == HtmlUiInputMode.MouseCaptured) +
+                    " htmlKeyboard=" + (mode == HtmlUiInputMode.Captured) +
+                    " passThrough=" + (mode == HtmlUiInputMode.Passive));
                 HtmlUiWindowTracker.RequestSync(host);
             }
             finally
