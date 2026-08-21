@@ -171,9 +171,11 @@ namespace BannerlordHtmlUI
             var minimized = Win32.IsIconic(gameHwnd);
             var gameVisible = Win32.IsWindowVisible(gameHwnd) && !minimized;
             var foreground = Win32.GetForegroundWindow() == gameHwnd;
+            var overlayForeground = form.IsHandleCreated && Win32.GetForegroundWindow() == form.Handle;
             var requestedVisible = _host.IsVisible;
+            var showOverlay = requestedVisible && gameVisible && (foreground || overlayForeground);
 
-            if (gameVisible)
+            if (gameVisible && showOverlay)
             {
                 try
                 {
@@ -182,14 +184,20 @@ namespace BannerlordHtmlUI
                 }
                 catch (Exception ex) { HtmlUiLogger.Debug("Overlay placement update failed: " + ex.GetBaseException().Message); }
             }
+
+            if (showOverlay)
+            {
+                if (!form.Visible)
+                {
+                    try { form.Show(); } catch { }
+                }
+            }
             else if (form.Visible)
             {
                 try { form.Hide(); } catch { }
             }
 
-            var visible = requestedVisible && gameVisible && form.Visible;
-            var overlayForeground = form.IsHandleCreated && Win32.GetForegroundWindow() == form.Handle;
-            PublishState(new HtmlUiWindowState(foreground || overlayForeground, visible, minimized, rect.Left, rect.Top, Math.Max(0, rect.Right - rect.Left), Math.Max(0, rect.Bottom - rect.Top)));
+            PublishState(new HtmlUiWindowState(foreground || overlayForeground, showOverlay && form.Visible, minimized, rect.Left, rect.Top, Math.Max(0, rect.Right - rect.Left), Math.Max(0, rect.Bottom - rect.Top)));
         }
 
         private void PublishState(HtmlUiWindowState state)
