@@ -63,6 +63,7 @@ namespace BannerlordHtmlUI
 
             var form = FormField.GetValue(__instance) as HtmlUiOverlayForm;
             var web = WebField.GetValue(__instance) as WebView2;
+            HtmlUiLogger.Info("Input mode request: " + previous + " -> " + mode + ", form=" + DescribeForm(form) + ", webEnabled=" + (web == null ? "<null>" : web.Enabled.ToString()));
             RunOnUiThread(form, () => ApplyMode(__instance, form, web, mode, previous));
             return false;
         }
@@ -85,7 +86,11 @@ namespace BannerlordHtmlUI
 
         private static void RunOnUiThread(HtmlUiOverlayForm form, Action action)
         {
-            if (form == null || form.IsDisposed || !form.IsHandleCreated) return;
+            if (form == null || form.IsDisposed || !form.IsHandleCreated)
+            {
+                HtmlUiLogger.Warn("Input mode application skipped: overlay form unavailable.");
+                return;
+            }
             try
             {
                 if (form.InvokeRequired) form.BeginInvoke((Action)(() => SafeInvoke(action)));
@@ -103,7 +108,11 @@ namespace BannerlordHtmlUI
 
         private static void ApplyMode(HtmlUiHost host, HtmlUiOverlayForm form, WebView2 web, HtmlUiInputMode mode, HtmlUiInputMode previous)
         {
-            if (form == null || form.IsDisposed || !form.IsHandleCreated) return;
+            if (form == null || form.IsDisposed || !form.IsHandleCreated)
+            {
+                HtmlUiLogger.Warn("Input mode application failed: overlay form unavailable.");
+                return;
+            }
 
             if (mode == HtmlUiInputMode.Hidden)
             {
@@ -118,7 +127,7 @@ namespace BannerlordHtmlUI
                         Win32.SetForegroundWindow(hiddenGameWindow);
                 }
                 catch { }
-                HtmlUiLogger.Info("Input mode -> Hidden: native mouse capture released, WebView disabled, overlay hidden.");
+                HtmlUiLogger.Info("Input mode applied: Hidden; hwnd=" + form.Handle + ", visible=" + form.Visible + ", webEnabled=" + (web != null && web.Enabled));
                 return;
             }
 
@@ -126,6 +135,7 @@ namespace BannerlordHtmlUI
             if (!TryResolveGameWindow(form, out var resolvedGameWindow, out var rect))
             {
                 try { form.Hide(); } catch { }
+                HtmlUiLogger.Warn("Input mode application deferred: Bannerlord window could not be resolved. mode=" + mode);
                 return;
             }
 
@@ -150,6 +160,7 @@ namespace BannerlordHtmlUI
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
                     if (previous != HtmlUiInputMode.Captured)
                     {
+                        Win32.SetForegroundWindow(form.Handle);
                         form.Activate();
                         try { web?.Focus(); } catch { }
                     }
@@ -163,6 +174,14 @@ namespace BannerlordHtmlUI
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
                     break;
             }
+
+            HtmlUiLogger.Info("Input mode applied: mode=" + mode
+                + ", previous=" + previous
+                + ", overlayHwnd=" + form.Handle
+                + ", gameHwnd=" + resolvedGameWindow
+                + ", visible=" + form.Visible
+                + ", active=" + (Win32.GetForegroundWindow() == form.Handle)
+                + ", webEnabled=" + (web != null && web.Enabled));
         }
 
         private static void ApplyWindowTracking(HtmlUiHost host, HtmlUiOverlayForm form, WebView2 web, HtmlUiInputMode mode, bool requestedVisible)
@@ -226,6 +245,14 @@ namespace BannerlordHtmlUI
             var excluded = form != null && form.IsHandleCreated ? form.Handle : IntPtr.Zero;
             if (!Win32.TryGetGameWindowHandle(excluded, out hwnd)) return false;
             return Win32.GetWindowRect(hwnd, out rect);
+        }
+
+        private static string DescribeForm(HtmlUiOverlayForm form)
+        {
+            if (form == null) return "<null>";
+            return "hwnd=" + (form.IsHandleCreated ? form.Handle.ToString() : "<none>")
+                + ", visible=" + form.Visible
+                + ", enabled=" + form.Enabled;
         }
 
         private static class Native
