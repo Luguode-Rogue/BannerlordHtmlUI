@@ -12,12 +12,10 @@ namespace BannerlordHtmlUI
         private static readonly Dictionary<InputKey, bool> LastDown = new Dictionary<InputKey, bool>();
         private static string _path;
         private static bool _initialized;
-        private static int _lastMouseX;
-        private static int _lastMouseY;
         private static long _lastMouseMoveTick;
         private static IntPtr _lastForeground;
         private static HtmlUiInputMode _lastMode = HtmlUiInputMode.Hidden;
-        private static string _lastPage = null;
+        private static string _lastPage;
 
         public static void Initialize(string moduleDirectory)
         {
@@ -28,6 +26,9 @@ namespace BannerlordHtmlUI
                 _path = Path.Combine(moduleDirectory, "BannerlordHtmlUI_InputTrace.log");
                 lock (Sync) File.WriteAllText(_path, string.Empty);
                 LastDown.Clear();
+                _lastForeground = IntPtr.Zero;
+                _lastMode = HtmlUiInputMode.Hidden;
+                _lastPage = null;
                 _initialized = true;
                 Write("=== INPUT TRACE STARTED ===");
             }
@@ -47,6 +48,28 @@ namespace BannerlordHtmlUI
         public static void Event(string message)
         {
             Write("EVENT " + message);
+        }
+
+        public static void FrameworkState(HtmlUiHost host, string reason)
+        {
+            if (!_initialized) return;
+            try
+            {
+                var foreground = Win32.GetForegroundWindow();
+                var mode = host == null ? HtmlUiInputMode.Hidden : host.InputMode;
+                var page = host?.Pages?.CurrentId;
+                var visible = host != null && host.IsVisible;
+                Write("FRAMEWORK reason=" + reason +
+                      " foreground=" + foreground +
+                      " visible=" + visible +
+                      " inputMode=" + mode +
+                      " page=" + (page ?? "<null>") +
+                      " captured=" + (host != null && host.IsInputCaptured));
+            }
+            catch (Exception ex)
+            {
+                Write("TRACE_ERROR FrameworkState " + ex.GetBaseException().Message);
+            }
         }
 
         public static void KeyMessage(int msg, long wParam, long lParam, string source)
@@ -85,28 +108,24 @@ namespace BannerlordHtmlUI
                     if (down == previous) continue;
                     LastDown[key] = down;
                     var kind = down ? "DOWN" : "UP";
-                    var type = GetInputTypeSafe(key);
-                    Write("GAME_INPUT " + kind + " key=" + key + " type=" + type);
+                    Write("GAME_INPUT " + kind + " key=" + key + " type=" + GetInputTypeSafe(key));
                 }
 
-                int x = 0;
-                int y = 0;
                 try
                 {
-                    x = (int)Input.GetMouseMoveX();
-                    y = (int)Input.GetMouseMoveY();
-                }
-                catch { }
-
-                if (x != 0 || y != 0)
-                {
-                    var now = Environment.TickCount;
-                    if (now - _lastMouseMoveTick >= 50)
+                    var dx = (int)Input.GetMouseMoveX();
+                    var dy = (int)Input.GetMouseMoveY();
+                    if (dx != 0 || dy != 0)
                     {
-                        _lastMouseMoveTick = now;
-                        Write("GAME_MOUSE_MOVE dx=" + x + " dy=" + y);
+                        var now = Environment.TickCount;
+                        if (now - _lastMouseMoveTick >= 50)
+                        {
+                            _lastMouseMoveTick = now;
+                            Write("GAME_MOUSE_MOVE dx=" + dx + " dy=" + dy);
+                        }
                     }
                 }
+                catch { }
 
                 var foreground = Win32.GetForegroundWindow();
                 var mode = host == null ? HtmlUiInputMode.Hidden : host.InputMode;
@@ -120,7 +139,9 @@ namespace BannerlordHtmlUI
                     var overlay = IntPtr.Zero;
                     try
                     {
-                        overlay = host?.GetType().GetField("_form", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(host) is HtmlUiOverlayForm form && form.IsHandleCreated ? form.Handle : IntPtr.Zero;
+                        var field = host?.GetType().GetField("_form", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                        var form = field?.GetValue(host) as HtmlUiOverlayForm;
+                        overlay = form != null && form.IsHandleCreated ? form.Handle : IntPtr.Zero;
                         Win32.TryGetGameWindowHandle(overlay, out game);
                     }
                     catch { }
