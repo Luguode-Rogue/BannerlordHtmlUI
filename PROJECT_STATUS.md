@@ -61,7 +61,6 @@ FullInteractive
 
 ### P1
 
-- 删除 Host 遗留 `100ms FollowTimer` / `FollowBannerlordWindow()`。
 - WindowTracker 事件同步增加 coalescing。
 - 收口 InputController / WindowTracker / OverlayForm 对 Visible/Foreground 的职责。
 - 消除 `RunOnUiThreadSync` / `InitializeGate.Wait()` 等同步跨线程等待。
