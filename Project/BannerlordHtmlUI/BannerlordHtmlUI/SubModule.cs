@@ -10,7 +10,6 @@ namespace BannerlordHtmlUI
     {
         private Task _initTask;
         private string _moduleDirectory;
-        private static HtmlUiWindowTracker _windowTracker;
 
         protected override void OnSubModuleLoad()
         {
@@ -37,8 +36,7 @@ namespace BannerlordHtmlUI
                 HtmlUiHotReloadPatch.Install(HtmlUiService.Host);
                 HtmlUiStateRemovalPatch.Install(HtmlUiService.Host);
                 HtmlUiProcessRecovery.Install(HtmlUiService.Host);
-                _windowTracker = null;
-                _windowTracker = CreateWindowTracker(HtmlUiService.Host);
+                HtmlUiWindowTracker.Install(HtmlUiService.Host);
                 HtmlUiInputControllerPatch.Install(HtmlUiService.Host);
                 HtmlUiContextMenuPatch.Install(HtmlUiService.Host);
 
@@ -59,12 +57,6 @@ namespace BannerlordHtmlUI
                     HtmlUiService.RegisterCommand("framework.openDiagnostics", _ => HtmlUiService.Pages.Open("diagnostics"));
             }
             catch (Exception ex) { HtmlUiLogger.Error("Failed to register framework page.", ex); HtmlUiInputTraceLogger.Event("FRAMEWORK_READY_REGISTER_FAILED " + ex.GetBaseException().Message); }
-        }
-
-        private static HtmlUiWindowTracker CreateWindowTracker(HtmlUiHost host)
-        {
-            HtmlUiWindowTracker.Install(host);
-            return null;
         }
 
         protected override void OnApplicationTick(float dt)
@@ -114,7 +106,6 @@ namespace BannerlordHtmlUI
             try { HtmlUiMouseCapture.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Mouse capture policy uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiProcessRecovery.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("WebView2 process recovery uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiContextMenuPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Context menu patch uninstall failed: " + ex.GetBaseException().Message); }
-            _windowTracker = null;
             HtmlUiService.Dispose();
             HtmlUiInputTraceLogger.Event("SUBMODULE_UNLOAD_END");
             HtmlUiInputTraceLogger.Shutdown();
