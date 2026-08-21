@@ -91,7 +91,7 @@ namespace BannerlordHtmlUI
             var afterInput = HtmlUiInputTraceLogger.LastTickAfterInputTimestamp;
             var afterService = HtmlUiInputTraceLogger.LastTickAfterServiceTimestamp;
             var lastDrain = dispatcher.LastDrainTimestamp;
-            var now = Environment.TickCount64;
+            var now = MonotonicMilliseconds();
             if (now - Interlocked.Read(ref _lastGameHangLog) < LogCooldownMs) return;
             Interlocked.Exchange(ref _lastGameHangLog, now);
 
@@ -130,7 +130,7 @@ namespace BannerlordHtmlUI
                     var elapsedMs = TicksToMilliseconds(System.Diagnostics.Stopwatch.GetTimestamp() - started);
                     if (elapsedMs < UiStallThresholdMs) return;
 
-                    var now = Environment.TickCount64;
+                    var now = MonotonicMilliseconds();
                     if (now - Interlocked.Read(ref _lastUiHangLog) < LogCooldownMs) return;
                     Interlocked.Exchange(ref _lastUiHangLog, now);
                     HtmlUiLogger.Warn(
@@ -144,6 +144,11 @@ namespace BannerlordHtmlUI
             catch (ObjectDisposedException) { }
             catch (InvalidOperationException) { }
             catch { }
+        }
+
+        private static long MonotonicMilliseconds()
+        {
+            return TicksToMilliseconds(System.Diagnostics.Stopwatch.GetTimestamp());
         }
 
         private static long TicksToMilliseconds(long ticks)
