@@ -9,7 +9,16 @@ namespace BannerlordHtmlUI
     internal static class HtmlUiKeyboardAndDiagnosticsPatch
     {
         private const int WmKeyDown = 0x0100;
+        private const int WmKeyUp = 0x0101;
         private const int WmSysKeyDown = 0x0104;
+        private const int WmSysKeyUp = 0x0105;
+        private const int WmLButtonDown = 0x0201;
+        private const int WmLButtonUp = 0x0202;
+        private const int WmRButtonDown = 0x0204;
+        private const int WmRButtonUp = 0x0205;
+        private const int WmMButtonDown = 0x0207;
+        private const int WmMButtonUp = 0x0208;
+        private const int WmMouseWheel = 0x020A;
         private const int VkEscape = 0x1B;
         private static HtmlUiHost _host;
         private static IMessageFilter _filter;
@@ -84,13 +93,16 @@ namespace BannerlordHtmlUI
             if (page == null || !page.CloseOnEscape) return false;
             try
             {
+                HtmlUiInputTraceLogger.Event("ESC_CLOSE_ATTEMPT source=" + source + " page=" + page.Id + " inputMode=" + host.InputMode);
                 HtmlUiLogger.Info("ESC close requested from " + source + ": page=" + page.Id);
                 host.Pages.CloseCurrent();
+                HtmlUiInputTraceLogger.Event("ESC_CLOSE_RESULT source=" + source + " current=" + (host.Pages.CurrentId ?? "<null>") + " inputMode=" + host.InputMode);
                 return true;
             }
             catch (Exception ex)
             {
                 HtmlUiLogger.Error("ESC page close failed.", ex);
+                HtmlUiInputTraceLogger.Event("ESC_CLOSE_ERROR source=" + source + " " + ex.GetBaseException().Message);
                 return false;
             }
         }
@@ -142,11 +154,13 @@ namespace BannerlordHtmlUI
         {
             if (e == null || e.VirtualKey != VkEscape) return;
             if (e.KeyEventKind != CoreWebView2KeyEventKind.KeyDown && e.KeyEventKind != CoreWebView2KeyEventKind.SystemKeyDown) return;
+            HtmlUiInputTraceLogger.Event("WEBVIEW_ACCELERATOR vk=0x" + e.VirtualKey.ToString("X2") + " kind=" + e.KeyEventKind);
             var host = _host;
             if (host == null || !host.IsInputCaptured) return;
             var page = host.Pages.Current;
             if (page == null || !page.CloseOnEscape) return;
             e.Handled = TryCloseFromEscape(host, "webview2");
+            HtmlUiInputTraceLogger.Event("WEBVIEW_ACCELERATOR_RESULT handled=" + e.Handled);
         }
 
         private static async void OnNavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
@@ -161,11 +175,32 @@ namespace BannerlordHtmlUI
         {
             public bool PreFilterMessage(ref Message m)
             {
-                if (m.Msg != WmKeyDown && m.Msg != WmSysKeyDown) return false;
-                var host = _host;
-                if (host == null || !host.IsInputCaptured) return false;
-                if (unchecked((int)m.WParam.ToInt64()) != VkEscape) return false;
-                return TryCloseFromEscape(host, "winforms");
+                switch (m.Msg)
+                {
+                    case WmKeyDown:
+                    case WmSysKeyDown:
+                    case WmKeyUp:
+                    case WmSysKeyUp:
+                        HtmlUiInputTraceLogger.KeyMessage(m.Msg, m.WParam.ToInt64(), m.LParam.ToInt64(), "winforms-filter");
+                        if (m.Msg != WmKeyDown && m.Msg != WmSysKeyDown) return false;
+                        var host = _host;
+                        if (host == null || !host.IsInputCaptured) return false;
+                        if (unchecked((int)m.WParam.ToInt64()) != VkEscape) return false;
+                        return TryCloseFromEscape(host, "winforms");
+
+                    case WmLButtonDown:
+                    case WmLButtonUp:
+                    case WmRButtonDown:
+                    case WmRButtonUp:
+                    case WmMButtonDown:
+                    case WmMButtonUp:
+                    case WmMouseWheel:
+                        HtmlUiInputTraceLogger.MouseMessage(m.Msg, m.WParam.ToInt64(), m.LParam.ToInt64(), "winforms-filter");
+                        return false;
+
+                    default:
+                        return false;
+                }
             }
         }
     }
