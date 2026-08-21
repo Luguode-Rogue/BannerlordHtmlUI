@@ -1,6 +1,7 @@
 using System;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Windows.Forms;
 
 namespace BannerlordHtmlUI
 {
@@ -32,6 +33,7 @@ namespace BannerlordHtmlUI
         private bool _disposed;
         private bool _hasState;
         private HtmlUiWindowState _lastState;
+        private FieldInfo _timerField;
         private FieldInfo _windowStateChangedField;
 
         private HtmlUiWindowTracker(HtmlUiHost host)
@@ -48,20 +50,19 @@ namespace BannerlordHtmlUI
                 HtmlUiWindowTracker existing;
                 if (Instances.TryGetValue(host, out existing))
                 {
-                    existing.PostToUi(existing.SyncNow);
+                    existing.SyncNow();
                     return;
                 }
 
                 var tracker = new HtmlUiWindowTracker(host);
                 Instances.Add(host, tracker);
-                tracker._form = tracker.GetForm();
-                if (tracker._form == null)
+                try { tracker.StartCore(); }
+                catch
                 {
+                    tracker.Dispose();
                     Instances.Remove(host);
-                    throw new InvalidOperationException("HtmlUi overlay form was not created.");
+                    throw;
                 }
-
-                tracker.PostToUi(tracker.StartCore);
             }
         }
 
@@ -87,25 +88,37 @@ namespace BannerlordHtmlUI
                 HtmlUiWindowTracker tracker;
                 if (!Instances.TryGetValue(host, out tracker)) return;
                 Instances.Remove(host);
-                tracker.PostToUi(tracker.Dispose);
+                tracker.Dispose();
             }
         }
 
         private void StartCore()
         {
-            if (_disposed) return;
-            if (_form == null) throw new InvalidOperationException("HtmlUi overlay form was not created.");
+            if (_disposed) throw new ObjectDisposedException(nameof(HtmlUiWindowTracker));
+            _form = GetForm();
+            if (_form == null || _form.IsDisposed || !_form.IsHandleCreated)
+                throw new InvalidOperationException("HtmlUi overlay form is not ready.");
 
+            StopLegacyFollowTimer();
             _hook = SetWinEventHook(EventSystemForeground, EventObjectHide, IntPtr.Zero, _callback, 0, 0, WineventOutOfContext);
-            if (_hook == IntPtr.Zero)
-            {
-                HtmlUiLogger.Error("Failed to install WinEvent window tracking hook.");
-                return;
-            }
+            if (_hook == IntPtr.Zero) throw new InvalidOperationException("Failed to install WinEvent window tracking hook.");
 
             SyncNow();
-            HtmlUiInputTraceLogger.Event("WINDOW_TRACKER_STARTED uiThread=" + ThreadId());
-            HtmlUiLogger.Info("Event-driven Bannerlord window tracker started.");
+            HtmlUiLogger.Info("Event-driven Bannerlord window tracker started; legacy 100ms follow timer disabled.");
+        }
+
+        private void StopLegacyFollowTimer()
+        {
+            try
+            {
+                _timerField = typeof(HtmlUiHost).GetField("_followTimer", BindingFlags.Instance | BindingFlags.NonPublic);
+                var timer = _timerField == null ? null : _timerField.GetValue(_host) as Timer;
+                if (timer == null) return;
+                timer.Stop();
+                timer.Dispose();
+                _timerField.SetValue(_host, null);
+            }
+            catch (Exception ex) { HtmlUiLogger.Debug("Failed to disable legacy 100ms follow timer: " + ex.GetBaseException().Message); }
         }
 
         private void OnWinEvent(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint idEventThread, uint msEventTime)
@@ -136,20 +149,15 @@ namespace BannerlordHtmlUI
         private void PostToUi(Action action)
         {
             var form = _form;
-            if (form == null) return;
+            if (form == null || form.IsDisposed || !form.IsHandleCreated) return;
             try
             {
-                if (form.InvokeRequired)
-                    form.BeginInvoke(action);
-                else
-                    action();
+                if (form.InvokeRequired) form.BeginInvoke(action);
+                else action();
             }
             catch (ObjectDisposedException) { }
             catch (InvalidOperationException) { }
-            catch (System.ComponentModel.Win32Exception) { }
         }
-
-        private static int ThreadId() { return System.Threading.Thread.CurrentThread.ManagedThreadId; }
 
         public void SyncNow()
         {
@@ -160,13 +168,13 @@ namespace BannerlordHtmlUI
             IntPtr gameHwnd;
             if (!Win32.TryGetGameWindowHandle(form.Handle, out gameHwnd) || gameHwnd == IntPtr.Zero)
             {
+                if (form.Visible) form.Hide();
                 PublishState(new HtmlUiWindowState(false, false, false, 0, 0, 0, 0));
-                HtmlUiInputTraceLogger.Event("WINDOW_TRACKER_STATE game=0 visible=false reason=hwnd-unresolved");
                 return;
             }
 
             Win32.RECT rect;
-            if (!Win32.GetWindowRect(gameHwnd, out rect)) return;
+            Win32.GetWindowRect(gameHwnd, out rect);
             var minimized = Win32.IsIconic(gameHwnd);
             var gameVisible = Win32.IsWindowVisible(gameHwnd) && !minimized;
             var foreground = Win32.GetForegroundWindow() == gameHwnd;
@@ -194,7 +202,7 @@ namespace BannerlordHtmlUI
                     try { form.Show(); } catch { }
                 }
             }
-            else if (form.Visible && requestedVisible && gameVisible)
+            else if (form.Visible)
             {
                 try { form.Hide(); } catch { }
             }
@@ -215,11 +223,6 @@ namespace BannerlordHtmlUI
             if (_hasState && StateEquals(_lastState, state)) return;
             _hasState = true;
             _lastState = state;
-            HtmlUiInputTraceLogger.Event(
-                "WINDOW_TRACKER_STATE foreground=" + state.IsForeground +
-                " visible=" + state.IsVisible +
-                " minimized=" + state.IsMinimized +
-                " bounds=" + state.Left + "," + state.Top + "," + state.Width + "x" + state.Height);
             try
             {
                 if (_windowStateChangedField == null)
