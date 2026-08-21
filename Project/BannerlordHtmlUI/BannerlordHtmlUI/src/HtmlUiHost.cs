@@ -1,15 +1,15 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace BannerlordHtmlUI
 {
@@ -25,10 +25,16 @@ namespace BannerlordHtmlUI
 
         public HtmlUiWindowState(bool isForeground, bool isVisible, bool isMinimized, int left, int top, int width, int height)
         {
-            IsForeground = isForeground; IsVisible = isVisible; IsMinimized = isMinimized;
-            Left = left; Top = top; Width = width; Height = height;
+            IsForeground = isForeground;
+            IsVisible = isVisible;
+            IsMinimized = isMinimized;
+            Left = left;
+            Top = top;
+            Width = width;
+            Height = height;
         }
     }
+
     public sealed class HtmlUiHost : IDisposable
     {
         private readonly string _webRoot;
@@ -55,7 +61,7 @@ namespace BannerlordHtmlUI
         public HtmlUiPageManager Pages { get; }
         public bool DevToolsEnabled { get; set; } = true;
         public bool HotReloadEnabled { get; set; } = false;
-        public bool IsVisible => _requestedVisible;
+        public bool IsVisible => _requestedVisible && _form != null && !_form.IsDisposed && _form.Visible;
         public bool IsWebViewReady => _webViewReady;
         public bool IsInputCaptured => _inputMode == HtmlUiInputMode.Captured || _inputMode == HtmlUiInputMode.MouseCaptured;
         public HtmlUiInputMode InputMode => _inputMode;
@@ -97,24 +103,17 @@ namespace BannerlordHtmlUI
             try
             {
                 HtmlUiLogger.Info("WebView2 UI thread starting.");
-
                 _form = new HtmlUiOverlayForm
                 {
                     BackColor = Color.Black,
                     Opacity = 1.0
                 };
-
-                _web = new WebView2
-                {
-                    Dock = DockStyle.Fill
-                };
-
+                _web = new WebView2 { Dock = DockStyle.Fill };
                 _form.Controls.Add(_web);
 
                 _followTimer = new System.Windows.Forms.Timer { Interval = 100 };
                 _followTimer.Tick += (s, e) => FollowBannerlordWindow();
                 _followTimer.Start();
-
                 _form.Load += OnFormLoad;
 
                 HtmlUiLogger.Info("WebView2 UI form created. Starting WinForms message loop.");
@@ -124,14 +123,13 @@ namespace BannerlordHtmlUI
             catch (Exception ex)
             {
                 HtmlUiLogger.Error("WebView2 UI thread failed.", ex);
-                _ready.TrySetException(ex);
+                _ready?.TrySetException(ex);
             }
         }
 
         private void OnFormLoad(object sender, EventArgs e)
         {
             _form.Load -= OnFormLoad;
-            HtmlUiLogger.Info("WebView2 host form loaded. Scheduling asynchronous WebView2 initialization.");
             _form.BeginInvoke(new Action(async () => await InitializeWebView2Async()));
         }
 
@@ -139,17 +137,11 @@ namespace BannerlordHtmlUI
         {
             try
             {
-                HtmlUiLogger.Info("WebView2 asynchronous initialization started.");
                 var cache = Path.Combine(Path.GetTempPath(), "BannerlordHtmlUI", "WebView2");
                 Directory.CreateDirectory(cache);
                 HtmlUiLogger.Info("Creating WebView2 environment. Cache=" + cache);
-
                 _environment = await CoreWebView2Environment.CreateAsync(null, cache);
-                HtmlUiLogger.Info("WebView2 environment created.");
-
                 await _web.EnsureCoreWebView2Async(_environment);
-                HtmlUiLogger.Info("EnsureCoreWebView2Async completed.");
-
                 ConfigureAfterWebViewReady();
             }
             catch (Exception ex)
@@ -195,7 +187,6 @@ namespace BannerlordHtmlUI
             InstallRuntimePatchesOnUiThread();
 
             _webViewReady = true;
-
             _ready.TrySetResult(true);
             HtmlUiLogger.Info("WebView2 ready. Host is operational.");
             Ready?.Invoke();
@@ -206,6 +197,8 @@ namespace BannerlordHtmlUI
         {
             try { HtmlUiKeyboardAndDiagnosticsPatch.Install(this); }
             catch (Exception ex) { HtmlUiLogger.Error("Failed to install keyboard/diagnostics patch.", ex); }
+            try { HtmlUiBindingLifecyclePatch.Install(this); }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install binding lifecycle patch.", ex); }
             try { HtmlUiI18nBindingPatch.Install(this); }
             catch (Exception ex) { HtmlUiLogger.Error("Failed to install i18n binding lifecycle patch.", ex); }
             try { HtmlUiStateBootstrapPatch.Install(this); }
@@ -224,8 +217,11 @@ namespace BannerlordHtmlUI
         {
             try
             {
-                var hwnd = Process.GetCurrentProcess().MainWindowHandle;
-                if (hwnd == IntPtr.Zero || !Win32.IsWindow(hwnd) || !Win32.GetWindowRect(hwnd, out var rect))
+                var hwnd = Win32.TryGetGameWindowHandle(_form != null && _form.IsHandleCreated ? _form.Handle : IntPtr.Zero, out var resolved)
+                    ? resolved
+                    : IntPtr.Zero;
+
+                if (hwnd == IntPtr.Zero || !Win32.GetWindowRect(hwnd, out var rect))
                 {
                     if (!_hasWindowDiagnostic)
                     {
@@ -233,7 +229,8 @@ namespace BannerlordHtmlUI
                         _hasWindowDiagnostic = true;
                     }
                     ApplyWindowState(new HtmlUiWindowState(false, false, false, 0, 0, 0, 0));
-                    if (_form != null && _form.Visible) _form.Hide();
+                    if (_inputMode == HtmlUiInputMode.Hidden && _form != null && _form.Visible)
+                        _form.Hide();
                     return;
                 }
                 _hasWindowDiagnostic = false;
@@ -241,46 +238,55 @@ namespace BannerlordHtmlUI
                 var minimized = Win32.IsIconic(hwnd);
                 var windowVisible = Win32.IsWindowVisible(hwnd);
                 var foreground = Win32.GetForegroundWindow() == hwnd;
-                var overlayForeground = _form != null && !_form.IsDisposed && _form.IsHandleCreated
-                    && Win32.GetForegroundWindow() == _form.Handle;
+                var overlayForeground = _form != null && !_form.IsDisposed && _form.IsHandleCreated && Win32.GetForegroundWindow() == _form.Handle;
                 var width = Math.Max(0, rect.Right - rect.Left);
                 var height = Math.Max(0, rect.Bottom - rect.Top);
 
-                var inputCaptured = _inputMode == HtmlUiInputMode.Captured;
-                var inputMouseCaptured = _inputMode == HtmlUiInputMode.MouseCaptured;
-                var interactive = inputCaptured || inputMouseCaptured;
-
-                // A captured HTML UI must remain a real top-level input surface. Do not
-                // hide it merely because Bannerlord is no longer the foreground HWND:
-                // clicking the overlay itself necessarily makes the overlay foreground.
-                // Passive mode is the only mode allowed to fall behind the game window.
-                var active = !minimized && windowVisible && _requestedVisible &&
-                             (foreground || (interactive && overlayForeground));
-
-                if (active)
+                if (_inputMode == HtmlUiInputMode.Hidden || !_requestedVisible)
                 {
-                    _form.Bounds = new Rectangle(rect.Left, rect.Top, width, height);
-                    if (!_form.Visible) _form.Show();
-
-                    if (interactive && _form.IsHandleCreated)
-                    {
-                        // Keep the owned overlay above Bannerlord so hit-testing reaches
-                        // WebView2 instead of the game window underneath it.
-                        Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
-                    }
-
-                    if (inputCaptured && !overlayForeground)
-                    {
-                        _form.Activate();
-                        _web?.Focus();
-                    }
-                }
-                else if (_form.Visible)
-                {
-                    _form.Hide();
+                    ApplyHiddenInputState(hwnd);
+                    ApplyWindowState(new HtmlUiWindowState(foreground, false, minimized, rect.Left, rect.Top, width, height));
+                    return;
                 }
 
-                ApplyWindowState(new HtmlUiWindowState(foreground, active, minimized, rect.Left, rect.Top, width, height));
+                if (minimized || !windowVisible)
+                {
+                    ReleaseNativeCaptureOnly();
+                    _form?.Hide();
+                    ApplyWindowState(new HtmlUiWindowState(foreground, false, minimized, rect.Left, rect.Top, width, height));
+                    return;
+                }
+
+                _form.SetOwner(hwnd);
+                _form.Bounds = new Rectangle(rect.Left, rect.Top, width, height);
+                if (!_form.Visible) _form.Show();
+
+                if (_inputMode == HtmlUiInputMode.Passive)
+                {
+                    _form.SetPassThrough(true);
+                    Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
+                    Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
+                }
+                else
+                {
+                    _form.SetPassThrough(false);
+                    Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
+                    Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
+                    // Do not re-activate every tick. SetInputMode performs the one-time
+                    // focus transfer when Captured is entered. This prevents focus ping-pong.
+                    if (_inputMode == HtmlUiInputMode.Captured && !foreground && !overlayForeground)
+                    {
+                        if (Win32.IsWindow(_form.Handle))
+                        {
+                            Win32.SetForegroundWindow(_form.Handle);
+                            _form.Activate();
+                            _web?.Focus();
+                        }
+                    }
+                }
+
+                var visible = _form.Visible;
+                ApplyWindowState(new HtmlUiWindowState(foreground || overlayForeground, visible, minimized, rect.Left, rect.Top, width, height));
             }
             catch (Exception ex)
             {
@@ -296,13 +302,30 @@ namespace BannerlordHtmlUI
                 _lastWindowState.Left == state.Left && _lastWindowState.Top == state.Top &&
                 _lastWindowState.Width == state.Width && _lastWindowState.Height == state.Height) return;
             _lastWindowState = state;
-            HtmlUiLogger.Info("Window state changed: foreground=" + state.IsForeground
-                + ", visible=" + state.IsVisible
-                + ", minimized=" + state.IsMinimized
-                + ", bounds=" + state.Left + "," + state.Top + " " + state.Width + "x" + state.Height
-                + ", requestedVisible=" + _requestedVisible
-                + ", inputMode=" + _inputMode);
             WindowStateChanged?.Invoke(state);
+        }
+
+        private void ApplyHiddenInputState(IntPtr gameWindow)
+        {
+            ReleaseNativeCaptureOnly();
+            if (_web != null)
+            {
+                try { _web.Enabled = false; } catch { }
+            }
+            if (_form != null && !_form.IsDisposed && _form.IsHandleCreated)
+            {
+                try { _form.SetPassThrough(true); } catch { }
+                try { _form.Hide(); } catch { }
+            }
+            if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
+            {
+                try { Win32.SetForegroundWindow(gameWindow); } catch { }
+            }
+        }
+
+        private void ReleaseNativeCaptureOnly()
+        {
+            try { Win32.ReleaseMouseCapture(); } catch { }
         }
 
         private void ConfigureLocalHost() => MapContentRoot("framework", _webRoot);
@@ -322,25 +345,18 @@ namespace BannerlordHtmlUI
             if (string.IsNullOrWhiteSpace(directory)) throw new ArgumentException("Content root directory is required.", nameof(directory));
             var full = Path.GetFullPath(directory);
             if (!Directory.Exists(full)) throw new DirectoryNotFoundException(full);
-
             if (_contentRoots.TryGetValue(id, out var existing))
             {
                 if (string.Equals(existing, full, StringComparison.OrdinalIgnoreCase)) return;
                 throw new InvalidOperationException("Content root id is already registered: " + id);
             }
-
             RunOnUiThreadSync(() => MapContentRoot(id, full));
         }
 
         private void RunOnUiThreadSync(Action action)
         {
             if (_form == null || _form.IsDisposed) throw new InvalidOperationException("HTML UI host is not ready.");
-            if (!_form.InvokeRequired)
-            {
-                action();
-                return;
-            }
-
+            if (!_form.InvokeRequired) { action(); return; }
             Exception error = null;
             using (var gate = new ManualResetEventSlim(false))
             {
@@ -374,53 +390,35 @@ namespace BannerlordHtmlUI
                     chars[i] = '-';
             }
             var result = new string(chars).Trim('-');
-            if (result.Length == 0) result = "mod";
-            return result;
+            return result.Length == 0 ? "mod" : result;
         }
 
         private string GetContentHost(HtmlUiPage page)
         {
-            if (!_contentHosts.TryGetValue(page.ContentRootId, out var host))
-                throw new InvalidOperationException("Content root is not registered: " + page.ContentRootId);
+            if (!_contentHosts.TryGetValue(page.ContentRootId, out var host)) throw new InvalidOperationException("Content root is not registered: " + page.ContentRootId);
             return host;
         }
 
         private string GetContentRoot(HtmlUiPage page)
         {
-            if (!_contentRoots.TryGetValue(page.ContentRootId, out var root))
-                throw new InvalidOperationException("Content root is not registered: " + page.ContentRootId);
+            if (!_contentRoots.TryGetValue(page.ContentRootId, out var root)) throw new InvalidOperationException("Content root is not registered: " + page.ContentRootId);
             return root;
         }
 
         private void InstallFrameworkRuntime()
         {
             var runtimePath = Path.Combine(_webRoot, "runtime.js");
-            if (!File.Exists(runtimePath))
-            {
-                HtmlUiLogger.Warn("runtime.js not found in framework web root.");
-                return;
-            }
-
-            var script = File.ReadAllText(runtimePath);
-            _web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
+            if (!File.Exists(runtimePath)) { HtmlUiLogger.Warn("runtime.js not found in framework web root."); return; }
+            _web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(runtimePath));
         }
 
         private void InstallRuntimeErrorForwarder()
         {
-            var js = @"
-                (() => {
-                    const send = (kind, error) => {
-                        try { chrome.webview.postMessage({version:1,type:'command',id:null,name:'runtime.error',payload:{kind, message:String(error)}}); } catch (_) {}
-                    };
-                    window.addEventListener('error', e => send('error', e.error || e.message));
-                    window.addEventListener('unhandledrejection', e => send('unhandledrejection', e.reason));
-                })();";
+            var js = @"(() => { const send=(kind,error)=>{ try { chrome.webview.postMessage({version:1,type:'command',id:null,name:'runtime.error',payload:{kind,message:String(error)}}); } catch(_){} }; window.addEventListener('error',e=>send('error',e.error||e.message)); window.addEventListener('unhandledrejection',e=>send('unhandledrejection',e.reason)); })();";
             _web.ExecuteScriptAsync(js);
         }
 
-        private void OnWebResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs e)
-        {
-        }
+        private void OnWebResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs e) { }
 
         private void OnNavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs e)
         {
@@ -435,13 +433,7 @@ namespace BannerlordHtmlUI
                 relative = e.Uri.Substring(prefix.Length);
                 break;
             }
-            if (!allowedPrefix)
-            {
-                e.Cancel = true;
-                HtmlUiLogger.Warn("Blocked navigation outside BannerlordHtmlUI content roots: " + e.Uri);
-                return;
-            }
-
+            if (!allowedPrefix) { e.Cancel = true; HtmlUiLogger.Warn("Blocked navigation outside BannerlordHtmlUI content roots: " + e.Uri); return; }
             if (relative.IndexOf("../", StringComparison.Ordinal) >= 0 || relative.StartsWith("../", StringComparison.Ordinal))
             {
                 e.Cancel = true;
@@ -454,32 +446,16 @@ namespace BannerlordHtmlUI
             _navigationInProgress = false;
             if (e.IsSuccess)
             {
-                HtmlUiLogger.Info("WebView2 navigation completed successfully.");
                 try
                 {
                     var page = Pages.Current;
                     if (page != null)
                     {
-                        State.Set("framework.page.lifecycle", new
-                        {
-                            state = "ready",
-                            pageId = page.Id,
-                            ownerId = page.OwnerId,
-                            path = page.RelativePath
-                        });
-                        SendEvent("framework.page.lifecycle", new
-                        {
-                            state = "ready",
-                            pageId = page.Id,
-                            ownerId = page.OwnerId,
-                            path = page.RelativePath
-                        });
+                        State.Set("framework.page.lifecycle", new { state = "ready", pageId = page.Id, ownerId = page.OwnerId, path = page.RelativePath });
+                        SendEvent("framework.page.lifecycle", new { state = "ready", pageId = page.Id, ownerId = page.OwnerId, path = page.RelativePath });
                     }
                 }
-                catch (Exception ex)
-                {
-                    HtmlUiLogger.Error("Failed to publish page ready lifecycle.", ex);
-                }
+                catch (Exception ex) { HtmlUiLogger.Error("Failed to publish page ready lifecycle.", ex); }
                 return;
             }
 
@@ -502,16 +478,15 @@ namespace BannerlordHtmlUI
         {
             if (page == null) throw new ArgumentNullException(nameof(page));
             if (_disposed) throw new ObjectDisposedException(nameof(HtmlUiHost));
-            HtmlUiLogger.Info("Navigate requested: page=" + page.Id + ", root=" + page.ContentRootId + ", path=" + page.RelativePath + ", webReady=" + IsWebViewReady);
-            if (!IsWebViewReady) { _pendingPage = page; HtmlUiLogger.Warn("Navigate deferred because WebView2 is not ready: " + page.Id); return; }
+            if (!IsWebViewReady) { _pendingPage = page; return; }
             NavigateOnUiThread(page);
         }
 
         private void FlushPendingPage()
         {
             if (_pendingPage == null || _disposed || !IsWebViewReady) return;
-            var page = _pendingPage; _pendingPage = null;
-            HtmlUiLogger.Info("Opening deferred page after WebView2 became ready: " + page.Id);
+            var page = _pendingPage;
+            _pendingPage = null;
             NavigateOnUiThread(page);
         }
 
@@ -521,11 +496,9 @@ namespace BannerlordHtmlUI
             {
                 try
                 {
-                    if (_web?.CoreWebView2 == null) { _pendingPage = page; HtmlUiLogger.Warn("Navigate deferred on UI thread because CoreWebView2 is null: " + page.Id); return; }
+                    if (_web?.CoreWebView2 == null) { _pendingPage = page; return; }
                     _currentRelativePath = page.ContentRootId + ":/" + page.RelativePath;
                     EnableWatcherIfNeeded(page);
-                    _requestedVisible = true;
-                    ApplyInputModeOnUiThread();
                     var host = GetContentHost(page);
                     var encodedPath = Uri.EscapeUriString(page.RelativePath);
                     var separator = encodedPath.IndexOf("?", StringComparison.OrdinalIgnoreCase) >= 0 ? "&" : "?";
@@ -533,7 +506,6 @@ namespace BannerlordHtmlUI
                     var pageId = Uri.EscapeDataString(page.Id ?? string.Empty);
                     var uri = new Uri("https://" + host + "/" + encodedPath + separator + "__bannerlord_htmlui_owner=" + owner + "&__bannerlord_htmlui_page=" + pageId);
                     _navigationInProgress = true;
-                    HtmlUiLogger.Info("Navigating WebView2 to " + uri + ", formVisible=" + _form.Visible + ", requestedVisible=" + _requestedVisible + ", inputMode=" + _inputMode);
                     _web.Source = uri;
                 }
                 catch (Exception ex)
@@ -556,7 +528,10 @@ namespace BannerlordHtmlUI
             _watcher = new FileSystemWatcher(dir) { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size, EnableRaisingEvents = true };
             FileSystemEventHandler onChange = (s, e) => Reload();
             RenamedEventHandler onRename = (s, e) => Reload();
-            _watcher.Changed += onChange; _watcher.Created += onChange; _watcher.Deleted += onChange; _watcher.Renamed += onRename;
+            _watcher.Changed += onChange;
+            _watcher.Created += onChange;
+            _watcher.Deleted += onChange;
+            _watcher.Renamed += onRename;
         }
 
         public void Reload() { if (!_disposed) EnsureUiThread(() => _web.Reload()); }
@@ -569,68 +544,60 @@ namespace BannerlordHtmlUI
 
         public void SetInputMode(HtmlUiInputMode mode)
         {
+            if (_disposed) return;
             _inputMode = mode;
             _requestedVisible = mode != HtmlUiInputMode.Hidden;
-            State?.Set("framework.inputMode", mode.ToString());
-            var gameWindow = Process.GetCurrentProcess().MainWindowHandle;
-            EnsureUiThread(() =>
-            {
-                if (_form == null || _form.IsDisposed) return;
-                _form.SetPassThrough(mode == HtmlUiInputMode.Passive);
-                if (mode == HtmlUiInputMode.Hidden)
-                {
-                    _form.Hide();
-                    if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow)) Win32.SetForegroundWindow(gameWindow);
-                    return;
-                }
-
-                if (!_form.Visible) _form.Show();
-                if (mode == HtmlUiInputMode.Captured)
-                {
-                    _form.Activate();
-                    _web?.Focus();
-                }
-                else if (mode == HtmlUiInputMode.MouseCaptured)
-                {
-                    Win32.SetNoActivate(_form.Handle, false);
-                    Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
-                    if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow)) Win32.SetForegroundWindow(gameWindow);
-                }
-                else
-                {
-                    Win32.SetNoActivate(_form.Handle, true);
-                    Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
-                }
-            });
+            try { State?.Set("framework.inputMode", mode.ToString()); } catch { }
+            EnsureUiThread(() => ApplyInputModeOnUiThread(mode));
         }
 
-        private void ApplyInputModeOnUiThread()
+        private void ApplyInputModeOnUiThread(HtmlUiInputMode mode)
         {
-            if (_form == null || _form.IsDisposed) return;
-            _form.SetPassThrough(_inputMode == HtmlUiInputMode.Passive);
-            if (_inputMode == HtmlUiInputMode.Hidden)
+            if (_form == null || _form.IsDisposed || !_form.IsHandleCreated) return;
+
+            var gameWindow = Win32.TryGetGameWindowHandle(_form.Handle, out var hwnd) ? hwnd : IntPtr.Zero;
+            if (mode == HtmlUiInputMode.Hidden)
             {
-                _form.Hide();
-                Win32.SetNoActivate(_form.Handle, false);
+                _requestedVisible = false;
+                ReleaseNativeCaptureOnly();
+                try { if (_web != null) _web.Enabled = false; } catch { }
+                try { _form.SetPassThrough(true); } catch { }
+                try { _form.Hide(); } catch { }
+                if (gameWindow != IntPtr.Zero) { try { Win32.SetForegroundWindow(gameWindow); } catch { } }
+                HtmlUiLogger.Info("Input mode applied: Hidden");
                 return;
             }
-            if (!_form.Visible) _form.Show();
-            if (_inputMode == HtmlUiInputMode.Captured)
+
+            _requestedVisible = true;
+            if (gameWindow != IntPtr.Zero)
             {
-                Win32.SetNoActivate(_form.Handle, false);
-                _form.Activate();
-                _web?.Focus();
+                try { _form.SetOwner(gameWindow); } catch { }
+                if (Win32.GetWindowRect(gameWindow, out var rect))
+                    _form.Bounds = new Rectangle(rect.Left, rect.Top, Math.Max(1, rect.Right - rect.Left), Math.Max(1, rect.Bottom - rect.Top));
             }
-            else if (_inputMode == HtmlUiInputMode.MouseCaptured)
+
+            try { if (_web != null) _web.Enabled = true; } catch { }
+            try { _form.Show(); } catch { }
+
+            if (mode == HtmlUiInputMode.Passive)
             {
-                Win32.SetNoActivate(_form.Handle, false);
+                _form.SetPassThrough(true);
                 Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
+                Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
             }
             else
             {
-                Win32.SetNoActivate(_form.Handle, true);
+                _form.SetPassThrough(false);
                 Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
+                Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
+                if (mode == HtmlUiInputMode.Captured)
+                {
+                    Win32.SetForegroundWindow(_form.Handle);
+                    _form.Activate();
+                    _web?.Focus();
+                }
             }
+            HtmlUiLogger.Info("Input mode applied: " + mode + ", overlayHwnd=" + _form.Handle + ", gameHwnd=" + gameWindow);
         }
 
         internal void DispatchToGameThread(Action action) => _gameThread.Post(action);
@@ -648,7 +615,7 @@ namespace BannerlordHtmlUI
         {
             EnsureUiThread(async () =>
             {
-                if (_web.CoreWebView2 == null) return;
+                if (_web?.CoreWebView2 == null) return;
                 var msg = JsonConvert.SerializeObject(new { version = 1, type = "event", name, payload });
                 await _web.CoreWebView2.ExecuteScriptAsync($"window.game&&window.game.__receive({JsonConvert.SerializeObject(msg)})");
             });
@@ -674,8 +641,7 @@ namespace BannerlordHtmlUI
 
         private void EnsureUiThread(Action action)
         {
-            if (action == null) return;
-            if (_form == null || _form.IsDisposed) return;
+            if (action == null || _form == null || _form.IsDisposed) return;
             void ExecuteSafe()
             {
                 try { action(); }
@@ -694,6 +660,13 @@ namespace BannerlordHtmlUI
         {
             if (_disposed) return;
             _disposed = true;
+            try { HtmlUiKeyboardAndDiagnosticsPatch.Uninstall(this); } catch { }
+            try { _bridge?.CancelAllRequests(); } catch { }
+            try { _bridge?.Detach(); } catch { }
+            _bridge = null;
+            _webViewReady = false;
+            _requestedVisible = false;
+            _inputMode = HtmlUiInputMode.Hidden;
             try { _watcher?.Dispose(); } catch { }
             _watcher = null;
             try { _followTimer?.Stop(); _followTimer?.Dispose(); } catch { }
