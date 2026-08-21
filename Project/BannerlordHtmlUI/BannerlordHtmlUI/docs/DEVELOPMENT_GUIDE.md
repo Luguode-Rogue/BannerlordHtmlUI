@@ -1,154 +1,85 @@
 # Framework 开发指南
 
-## 0. 开始开发前必须阅读
+## 开发前
 
-新改动先看：
+先看：
 
-1. `FRAMEWORK_MODULE_MAP.md`：每个 C# 模块到底负责什么。
-2. `CODE_PLACEMENT_RULES.md`：什么代码禁止写进什么模块。
-3. `ARCHITECTURE_MASTER.md`：线程、生命周期、输入、窗口的总体契约。
-4. `BUG_KNOWLEDGE_BASE.md`：以前已经踩过什么坑。
+1. `ARCHITECTURE_MASTER.md`：当前模块职责、线程、输入、窗口和代码归属硬规则。
+2. `BUG_KNOWLEDGE_BASE.md`：历史 Bug、失败方案和定位入口。
+3. `API.md`：公共 API 与 Consumer 契约。
 
-**以后禁止“哪里方便就往哪里补一段”。**先找到状态 owner，再修改。
+禁止“哪里方便就往哪里补一段”。先找状态 owner。
 
-## 1. Framework 与 Consumer 分工
+## Framework 与 Consumer
 
-Framework：
+Framework：WebView2 Host、Overlay、Page lifecycle、Bridge、State、InputMode、Window tracking、Browser policy、Diagnostics、Runtime/i18n/Binding、线程边界、Recovery。
 
-- WebView2 Host
-- Overlay
-- Page 生命周期
-- Bridge
-- State
-- InputMode
-- Window tracking
-- Browser policy
-- Diagnostics
-- Runtime / i18n / Binding
-- 线程边界与故障恢复
+Consumer：Bannerlord 业务、Controller/VM/Service、HTML/CSS/JS、游戏数据、Consumer hotkey、Consumer-specific UI mode、Command/Request 业务 handler。
 
-Consumer：
+只有公共语义、两个以上 Consumer 需要，或明确是 Framework 自身错误，才进入 Framework。
 
-- Bannerlord 业务逻辑
-- Controller / VM / Service
-- HTML/CSS/JS 资源
-- Page UI
-- 游戏数据转换
-- Consumer hotkey
-- Consumer-specific UI mode
-- Command / Request handler 的业务实现
-
-Consumer 不复制 Framework 内部 WebView2、Win32、WindowTracker、InputController 逻辑。
-
-## 2. 新功能的归属原则
-
-### Framework 公共能力
-
-只有同时满足：
-
-1. 两个以上 Consumer 都需要；或
-2. 问题由 Framework 自身状态/协议错误引起；或
-3. 行为必须在所有 Consumer 一致。
-
-才允许进入 Framework。
-
-### Consumer-specific 能力
+## Consumer-specific 规则
 
 例如：
 
 ```text
 TacticalMap 右上角布局
-CustomSkill 多级菜单
 TacticalMap N 键
-SkillUI M 键
-战斗地图状态
-技能配置
+CustomSkill M 键
+技能/战斗地图业务状态
 ```
 
-必须放 Consumer。
+必须留在 Consumer。
 
-Framework 只能提供通用 API，例如：
+Framework 只提供通用 API：
 
 ```text
 HtmlUiService.SetInputMode(...)
 HtmlUiOverlayLayout.UseTopRight(...)
-Pages.Open(...)
+HtmlUiService.Pages.Open(...)
 ```
 
-## 3. 标准接入流程
+## 输入问题
 
 ```text
-找到业务入口
-→ 找到 VM/Controller/Service
-→ 定义 UI State
-→ 创建 ConsumerScope
-→ 注册 ContentRoot
-→ 注册 Page
-→ 注册 Command/Request/Event
-→ 页面打开
-→ State/Binding
-→ 使用 Framework InputMode
-→ 实机验证
-```
-
-## 4. 输入问题不要跨模块补丁化
-
-统一定位顺序：
-
-```text
-页面没有输入？
-  ↓
 InputMode
-  ↓
-WebView Enabled
-  ↓
-Overlay PassThrough / activation
-  ↓
-Keyboard/Accelerator
-  ↓
-Consumer JS pointer/keyboard
+→ WebView Enabled
+→ Overlay PassThrough / activation
+→ Browser Accelerator
+→ Consumer JS input
 ```
 
-对应模块分别是：
+对应 owner：
 
 ```text
-InputMode              → HtmlUiInputControllerPatch
-WebView Enabled        → HtmlUiInputControllerPatch
-Window geometry        → HtmlUiWindowTracker
-ESC/F12/browser key    → HtmlUiKeyboardAndDiagnosticsPatch
-Context menu/DevTools  → HtmlUiContextMenuPatch
-Consumer JS input      → Consumer
+InputMode / WebView Enabled → InputController
+Window geometry             → WindowTracker / OverlayLayout
+ESC/F12                     → Keyboard safety
+Context Menu / DevTools     → Browser policy
+Consumer JS                 → Consumer
 ```
 
-不得为了解决一次输入问题，同时修改以上多个模块而没有明确状态归属。
+不要同时修改多个 owner 来解决一个没有先定位的输入问题。
 
-## 5. Window / Overlay
+## Window / Overlay
 
-窗口问题只进入 `HtmlUiWindowTracker` / `HtmlUiOverlayLayout`。
+Window 几何问题进 `HtmlUiWindowTracker` / `HtmlUiOverlayLayout`。
 
-InputController 不负责：
+InputController 不实现 WinEvent、Bounds、100ms polling。
+PageManager 不处理 Focus、PassThrough、Win32 style。
+Consumer 不碰 Overlay/WebView2 HWND。
 
-- 100ms timer
-- WinEventHook
-- Bounds calculation
-- Window size tracking
+## Page / Bridge / Runtime
 
-PageManager 不负责：
+Page Open/Close/Reload 统一进入 PageManager。
 
-- SetForegroundWindow
-- ShowWindow
-- PassThrough
-- Win32 style
+Request handler 进入 GameThread；`await` 后不保证仍在 GameThread，需要 Game API 时显式回 Dispatcher。
 
-Consumer 不负责：
+Runtime 问题进入对应 Runtime 模块，不要在 Host 中写一次性 JS workaround。
 
-- overlay HWND
-- WebView2 HWND
-- Chromium child style
+## Browser policy
 
-## 6. Browser policy
-
-Framework 默认安全策略：
+默认：
 
 ```text
 Context Menu = disabled
@@ -156,67 +87,15 @@ DevTools     = disabled
 Status Bar   = disabled
 ```
 
-Policy 必须有唯一 owner。不要让 Host、Keyboard Patch、Consumer 各维护自己的 DevTools 开关。
+必须保持单一 policy owner。F12 是安全拦截，不是 Page close protocol。
 
-F12 只是安全拦截，不是 Page close protocol。
+## 日志
 
-## 7. Page 生命周期
+正常模式低噪声。记录 Ready/Shutdown、Page lifecycle、Navigation failure、Runtime error、ProcessFailed、ESC/input-mode 关键转换；不要恢复逐帧 Window Tracking。
 
-Page open/close/reload 统一进入 `HtmlUiPageManager`。
+## 修改前检查
 
-Consumer 的 `Opened` / `Closed` 只做 Consumer 自己的资源绑定/释放，不允许在里面建立新的 Framework window/input state machine。
-
-## 8. Bridge / async
-
-Request handler 初始入口由 Framework 放到 GameThread。
-
-`await` 后不保证继续位于 GameThread。
-
-如果 continuation 需要 Bannerlord API：
-
-```text
-await external work
-→ GameThreadDispatcher
-→ Bannerlord API
-```
-
-禁止：
-
-```text
-Task.Run(() => Hero.MainHero ...)
-```
-
-## 9. Runtime / JS
-
-Runtime 问题先进入对应 runtime 模块：
-
-- State → runtime state module
-- Binding → binding runtime
-- i18n → i18n runtime
-- Request cancellation → request runtime
-- Component lifecycle → component runtime
-
-不要在 C# Host 里用一段临时 JS patch 修 Consumer 页面问题。
-
-## 10. 日志
-
-正常模式低噪声。
-
-记录：
-
-- Framework Ready / Shutdown
-- Page register/open/close
-- Navigation failure
-- Runtime error
-- ProcessFailed
-- ESC 关键链路
-- 输入模式转换
-
-不要恢复逐帧 Window Tracking 日志。
-
-## 11. 修改前静态检查
-
-至少搜索：
+搜索：
 
 ```text
 SetForegroundWindow
@@ -233,64 +112,25 @@ Harmony
 
 确认：
 
-1. 当前状态是不是已经有 owner。
-2. 当前文件是不是正确 owner。
+1. 状态 owner 是否唯一。
+2. 当前文件是否为正确 owner。
 3. 是否存在旧 workaround。
-4. 是否会形成第二套状态机。
-5. 是否需要更新 Bug Knowledge / Architecture。
+4. 是否形成第二套状态机。
+5. 是否需要同步 Bug Knowledge / Architecture / API。
 
-## 12. 修改后的最低验证
+## 最低验证
 
-Framework 修改：
-
-```text
-Build
-→ Framework-only startup
-→ Page Open
-→ ESC Close
-→ Reopen
-→ Alt+Tab
-→ Window move/resize/minimize
-→ Shutdown
-```
-
-Input/Overlay 修改：
+Framework：
 
 ```text
-Hidden
-Passive
-Captured
-MouseCaptured
-→ mouse
-→ keyboard
-→ ESC
-→ F12
-→ right click
-→ Alt+Tab
+Build → Framework-only startup → Open → ESC → Reopen → Alt+Tab → Window move/resize/minimize → Shutdown
 ```
 
-Consumer 修改：
+Input/Overlay：
 
 ```text
-Framework baseline
-→ Consumer-specific feature
+Hidden / Passive / Captured / MouseCaptured
+→ mouse / keyboard / ESC / F12 / right click / Alt+Tab
 ```
 
-如果 Consumer-specific 测试失败，不得为了让它通过而把 workaround 加进 Framework，除非确认 Framework 公共契约本身错误。
-
-## 13. 不允许重复踩的规则
-
-- 不把 `HWND=0` 当成窗口关闭。
-- 不把 F12 当作关闭协议。
-- 不直接从 Consumer 创建 WebView2。
-- 不在错误线程访问 CoreWebView2。
-- 不随机修改 Chromium child Win32 styles。
-- 不用第二个 Timer 复制 WindowTracker。
-- 不创建第二套 GameThread queue。
-- 不让 Keyboard Patch 承担 Consumer hotkey。
-- 不让 WindowTracker 修改 InputMode。
-- 不让 InputController修改 Window Geometry。
-- 不让 PageManager 修改焦点。
-- 不以 object spread 替换带 prototype 的 Component。
-- 不为了 C# 语法错误提高 LangVersion。
-- 不用旧 Handoff 的版本号覆盖当前代码事实。
+Consumer 修改先确认 Framework baseline，再做 Consumer-specific 回归。
