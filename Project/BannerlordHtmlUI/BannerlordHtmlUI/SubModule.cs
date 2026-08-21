@@ -77,6 +77,7 @@ namespace BannerlordHtmlUI
             try { HtmlUiHotReloadPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("HotReload patch uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiKeyboardAndDiagnosticsPatch.Uninstall(HtmlUiService.Host); } catch (Exception ex) { HtmlUiLogger.Debug("Keyboard diagnostics uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiFocusPolicyPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Focus policy uninstall failed: " + ex.GetBaseException().Message); }
+            try { HtmlUiNavigationRacePatch.Uninstall(HtmlUiService.Host); } catch (Exception ex) { HtmlUiLogger.Debug("Navigation race patch uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiMouseCapture.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Mouse capture policy uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiProcessRecovery.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("WebView2 process recovery uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiContextMenuPatch.Uninstall(); } catch (Exception ex) { HtmlUiLogger.Debug("Context menu patch uninstall failed: " + ex.GetBaseException().Message); }
