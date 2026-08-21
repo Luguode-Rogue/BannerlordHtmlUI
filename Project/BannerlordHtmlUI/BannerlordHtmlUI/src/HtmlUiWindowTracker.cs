@@ -116,9 +116,16 @@ namespace BannerlordHtmlUI
 
         private void OnWinEvent(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint idEventThread, uint msEventTime)
         {
-            if (_disposed || hwnd == IntPtr.Zero || idObject != 0 || idChild != 0) return;
+            if (_disposed || idObject != 0 || idChild != 0) return;
             if (eventType != EventSystemForeground && eventType != EventSystemMinimizeStart && eventType != EventSystemMinimizeEnd && eventType != EventObjectLocationChange && eventType != EventObjectShow && eventType != EventObjectHide) return;
-            if (!IsRelevantGameWindow(hwnd)) return;
+
+            if (eventType == EventSystemForeground)
+            {
+                PostToUi(SyncNow);
+                return;
+            }
+
+            if (hwnd == IntPtr.Zero || !IsRelevantGameWindow(hwnd)) return;
             PostToUi(SyncNow);
         }
 
