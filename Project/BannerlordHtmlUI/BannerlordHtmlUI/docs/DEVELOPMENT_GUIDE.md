@@ -1,5 +1,16 @@
 # Framework 开发指南
 
+## 0. 开始开发前必须阅读
+
+新改动先看：
+
+1. `FRAMEWORK_MODULE_MAP.md`：每个 C# 模块到底负责什么。
+2. `CODE_PLACEMENT_RULES.md`：什么代码禁止写进什么模块。
+3. `ARCHITECTURE_MASTER.md`：线程、生命周期、输入、窗口的总体契约。
+4. `BUG_KNOWLEDGE_BASE.md`：以前已经踩过什么坑。
+
+**以后禁止“哪里方便就往哪里补一段”。**先找到状态 owner，再修改。
+
 ## 1. Framework 与 Consumer 分工
 
 Framework：
@@ -9,7 +20,9 @@ Framework：
 - Page 生命周期
 - Bridge
 - State
-- Input
+- InputMode
+- Window tracking
+- Browser policy
 - Diagnostics
 - Runtime / i18n / Binding
 - 线程边界与故障恢复
@@ -21,11 +34,48 @@ Consumer：
 - HTML/CSS/JS 资源
 - Page UI
 - 游戏数据转换
-- Command / Request handler
+- Consumer hotkey
+- Consumer-specific UI mode
+- Command / Request handler 的业务实现
 
-Consumer 不复制 Framework 内部 WebView2 逻辑。
+Consumer 不复制 Framework 内部 WebView2、Win32、WindowTracker、InputController 逻辑。
 
-## 2. 新 UI 的标准接入流程
+## 2. 新功能的归属原则
+
+### Framework 公共能力
+
+只有同时满足：
+
+1. 两个以上 Consumer 都需要；或
+2. 问题由 Framework 自身状态/协议错误引起；或
+3. 行为必须在所有 Consumer 一致。
+
+才允许进入 Framework。
+
+### Consumer-specific 能力
+
+例如：
+
+```text
+TacticalMap 右上角布局
+CustomSkill 多级菜单
+TacticalMap N 键
+SkillUI M 键
+战斗地图状态
+技能配置
+```
+
+必须放 Consumer。
+
+Framework 只能提供通用 API，例如：
+
+```text
+HtmlUiService.SetInputMode(...)
+HtmlUiOverlayLayout.UseTopRight(...)
+Pages.Open(...)
+```
+
+## 3. 标准接入流程
 
 ```text
 找到业务入口
@@ -36,159 +86,211 @@ Consumer 不复制 Framework 内部 WebView2 逻辑。
 → 注册 Page
 → 注册 Command/Request/Event
 → 页面打开
-→ 实现 State/Binding
-→ 实现 Input / ESC / Close
+→ State/Binding
+→ 使用 Framework InputMode
 → 实机验证
 ```
 
-迁移旧 Gauntlet UI 时，应先复用业务层，再逐步替换 View；不要把旧 XML 的 Widget Tree 原样翻译成一套重复业务逻辑。
+## 4. 输入问题不要跨模块补丁化
 
-## 3. 资源放置与部署
-
-工程资源的统一放置规则以仓库根目录的：
-
-[`Project/BUTR_PROJECT_LAYOUT_RULES.md`](../../BUTR_PROJECT_LAYOUT_RULES.md)
-
-为唯一规范。
-
-该规则负责定义：
-
-- `_Module/` 与最终 `Modules/<ModId>/` 的映射
-- Mod-root 文件与程序集旁运行时资源的区别
-- Framework `web/` 的运行时位置
-- Consumer `UI/` 的运行时位置
-- `Assembly.Location` 与 `.csproj` Deployment Target 的关系
-- 新增文件时如何从最终部署路径反推工程源路径
-
-本文件不再重复维护另一套资源目录规则。修改或新增 UI/资源时，应先查上述文件，再检查具体 Consumer 的 `.csproj` 与 `Assembly.Location` 实现。
-
-## 4. ContentRoot
-
-ContentRoot 的具体运行时路径必须遵循上述统一资源规则，并以实际加载 DLL 的 `Assembly.Location` 为准。
-
-典型 Consumer：
-
-```csharp
-var assemblyDir = Path.GetDirectoryName(typeof(MyUi).Assembly.Location) ?? ".";
-var uiRoot = Path.Combine(assemblyDir, "UI");
-_scope.RegisterContentRoot("myui", uiRoot);
-```
-
-Page ID、ContentRoot ID、Windows 实际目录是三个不同概念，不能混用。
-
-Framework 自身的 `web/` 与 Consumer 的 `UI/` 如果属于程序集旁运行时资源，应按照项目 `.csproj` 的部署目标处理，不要仅因为存在 `_Module/` 就改变其运行时位置。
-
-## 5. API 选择
+统一定位顺序：
 
 ```text
-State   → 当前状态
-Command → 执行动作，无需结果
-Request → 执行动作并返回结果
-Event   → 广播运行时事件
-```
-
-大量 UI 数据优先结构化 State，不要为每个文本字段增加 Request。
-
-## 6. Owner Scope
-
-一个 Consumer 使用一个明确的 `HtmlUiConsumerScope`。页面关闭、Consumer shutdown、Framework shutdown 时，由 Owner 统一释放自己的资源。
-
-不要在 Dispose 时按名称删除“当前同名资源”；必须由 Owner/entry identity 保护。
-
-## 7. 异步规则
-
-Request handler 初始调用在 Bannerlord game thread，但 `await` 之后不保证仍在 game thread。
-
-因此：
-
-- Bannerlord Game API：显式回 GameThread
-- CoreWebView2：回 WebView2 UI thread
-- 纯数据计算：可留在异步线程
-- Response/PostMessage：由 Framework 负责 UI thread 调度
-
-## 8. 输入
-
-交互页面使用 Captured Input。出现页面能看但无法点击时，依次检查：
-
-```text
+页面没有输入？
+  ↓
 InputMode
-→ WebView Focus
-→ app.input.capture()
-→ pointer-events
-→ Overlay 层级
-→ Command 注册
+  ↓
+WebView Enabled
+  ↓
+Overlay PassThrough / activation
+  ↓
+Keyboard/Accelerator
+  ↓
+Consumer JS pointer/keyboard
 ```
 
-ESC 主页面关闭，子菜单优先返回上一级。
+对应模块分别是：
 
-## 9. 日志
+```text
+InputMode              → HtmlUiInputControllerPatch
+WebView Enabled        → HtmlUiInputControllerPatch
+Window geometry        → HtmlUiWindowTracker
+ESC/F12/browser key    → HtmlUiKeyboardAndDiagnosticsPatch
+Context menu/DevTools  → HtmlUiContextMenuPatch
+Consumer JS input      → Consumer
+```
 
-正常模式：低噪声。
+不得为了解决一次输入问题，同时修改以上多个模块而没有明确状态归属。
 
-应记录：
+## 5. Window / Overlay
 
-- Framework Ready/Shutdown
-- Page 注册/Open/Close 的关键转换
+窗口问题只进入 `HtmlUiWindowTracker` / `HtmlUiOverlayLayout`。
+
+InputController 不负责：
+
+- 100ms timer
+- WinEventHook
+- Bounds calculation
+- Window size tracking
+
+PageManager 不负责：
+
+- SetForegroundWindow
+- ShowWindow
+- PassThrough
+- Win32 style
+
+Consumer 不负责：
+
+- overlay HWND
+- WebView2 HWND
+- Chromium child style
+
+## 6. Browser policy
+
+Framework 默认安全策略：
+
+```text
+Context Menu = disabled
+DevTools     = disabled
+Status Bar   = disabled
+```
+
+Policy 必须有唯一 owner。不要让 Host、Keyboard Patch、Consumer 各维护自己的 DevTools 开关。
+
+F12 只是安全拦截，不是 Page close protocol。
+
+## 7. Page 生命周期
+
+Page open/close/reload 统一进入 `HtmlUiPageManager`。
+
+Consumer 的 `Opened` / `Closed` 只做 Consumer 自己的资源绑定/释放，不允许在里面建立新的 Framework window/input state machine。
+
+## 8. Bridge / async
+
+Request handler 初始入口由 Framework 放到 GameThread。
+
+`await` 后不保证继续位于 GameThread。
+
+如果 continuation 需要 Bannerlord API：
+
+```text
+await external work
+→ GameThreadDispatcher
+→ Bannerlord API
+```
+
+禁止：
+
+```text
+Task.Run(() => Hero.MainHero ...)
+```
+
+## 9. Runtime / JS
+
+Runtime 问题先进入对应 runtime 模块：
+
+- State → runtime state module
+- Binding → binding runtime
+- i18n → i18n runtime
+- Request cancellation → request runtime
+- Component lifecycle → component runtime
+
+不要在 C# Host 里用一段临时 JS patch 修 Consumer 页面问题。
+
+## 10. 日志
+
+正常模式低噪声。
+
+记录：
+
+- Framework Ready / Shutdown
+- Page register/open/close
 - Navigation failure
 - Runtime error
-- WebView2 ProcessFailed
-- ESC close 诊断
+- ProcessFailed
+- ESC 关键链路
+- 输入模式转换
 
-不要恢复逐帧 Window Tracking DEBUG。
+不要恢复逐帧 Window Tracking 日志。
 
-## 10. 修改后的最低验证
+## 11. 修改前静态检查
 
-修改 WebView2/Overlay/Input/Page lifecycle：
+至少搜索：
 
 ```text
-Framework rebuild
-→ Consumer rebuild
-→ F11 Open
-→ 页面完整显示
+SetForegroundWindow
+ShowWindow
+BeginInvoke
+Invoke
+Timer
+InputMode
+CloseCurrent
+NavigationCompleted
+CoreWebView2
+Harmony
+```
+
+确认：
+
+1. 当前状态是不是已经有 owner。
+2. 当前文件是不是正确 owner。
+3. 是否存在旧 workaround。
+4. 是否会形成第二套状态机。
+5. 是否需要更新 Bug Knowledge / Architecture。
+
+## 12. 修改后的最低验证
+
+Framework 修改：
+
+```text
+Build
+→ Framework-only startup
+→ Page Open
 → ESC Close
-→ 再次 F11 Open
+→ Reopen
+→ Alt+Tab
+→ Window move/resize/minimize
+→ Shutdown
 ```
 
-修改 Bridge/Request/State：
+Input/Overlay 修改：
 
 ```text
-Command
-Request
-Cancellation
-State set/remove
-Owner Dispose
+Hidden
+Passive
+Captured
+MouseCaptured
+→ mouse
+→ keyboard
+→ ESC
+→ F12
+→ right click
+→ Alt+Tab
 ```
 
-修改 Binding/i18n：
+Consumer 修改：
 
 ```text
-State hydration
-DOM bind
-locale change
-pagehide/dispose
-长期运行
+Framework baseline
+→ Consumer-specific feature
 ```
 
-修改资源或部署路径：
+如果 Consumer-specific 测试失败，不得为了让它通过而把 workaround 加进 Framework，除非确认 Framework 公共契约本身错误。
 
-```text
-读取 Project/BUTR_PROJECT_LAYOUT_RULES.md
-→ 确认最终 Modules/<ModId>/<relative path>
-→ 核对对应 .csproj Deployment Target
-→ 核对 Assembly.Location 读取路径
-→ Build / Deploy
-→ 检查最终 Mod 目录
-```
-
-## 11. 不允许重复踩的规则
+## 13. 不允许重复踩的规则
 
 - 不把 `HWND=0` 当成窗口关闭。
 - 不把 F12 当作关闭协议。
 - 不直接从 Consumer 创建 WebView2。
 - 不在错误线程访问 CoreWebView2。
-- 不以 JSON/JS 对象引用相等代替需要的内容比较。
-- 不用 object spread 替换带 prototype/非枚举成员的 Component。
-- 不用随机 Win32 style 实验解决 Overlay 渲染问题。
-- 不为解决 C# 10 语法问题提高 LangVersion。
-- 不让用户手工复制本应由 BUTR 构建/部署流程处理的 Mod-root 文件。
-- 不在其他文档中重新定义资源放置规则；统一引用 `Project/BUTR_PROJECT_LAYOUT_RULES.md`。
+- 不随机修改 Chromium child Win32 styles。
+- 不用第二个 Timer 复制 WindowTracker。
+- 不创建第二套 GameThread queue。
+- 不让 Keyboard Patch 承担 Consumer hotkey。
+- 不让 WindowTracker 修改 InputMode。
+- 不让 InputController修改 Window Geometry。
+- 不让 PageManager 修改焦点。
+- 不以 object spread 替换带 prototype 的 Component。
+- 不为了 C# 语法错误提高 LangVersion。
+- 不用旧 Handoff 的版本号覆盖当前代码事实。
