@@ -28,9 +28,28 @@ namespace BannerlordHtmlUI
         internal static readonly IntPtr HWND_TOP = IntPtr.Zero;
         internal const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOACTIVATE = 0x0010, SWP_SHOWWINDOW = 0x0040;
         internal const int GWL_EXSTYLE = -20, GWL_HWNDPARENT = -8, SW_SHOWNOACTIVATE = 4;
-        internal const long WS_EX_NOACTIVATE = 0x08000000L, WS_EX_TOOLWINDOW = 0x00000080L;
+        internal const long WS_EX_NOACTIVATE = 0x08000000L, WS_EX_TOOLWINDOW = 0x00000080L, WS_EX_TRANSPARENT = 0x00000020L;
         internal static void ReleaseMouseCapture() { try { ReleaseCaptureNative(); } catch { } }
         internal static void SetOwner(IntPtr hWnd, IntPtr ownerHwnd) { if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return; if (ownerHwnd != IntPtr.Zero && !IsWindow(ownerHwnd)) return; if (Environment.Is64BitProcess) SetWindowLongPtr64(hWnd, GWL_HWNDPARENT, ownerHwnd); else SetWindowLongPtr32(hWnd, GWL_HWNDPARENT, ownerHwnd); }
+        internal static bool SetPassThroughStyle(IntPtr hWnd, bool enabled)
+        {
+            if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return false;
+            var current = Environment.Is64BitProcess ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64() : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
+            var next = current | WS_EX_TOOLWINDOW;
+            if (enabled)
+                next |= WS_EX_NOACTIVATE | WS_EX_TRANSPARENT;
+            else
+                next &= ~(WS_EX_NOACTIVATE | WS_EX_TRANSPARENT);
+            var result = Environment.Is64BitProcess
+                ? SetWindowLongPtr64(hWnd, GWL_EXSTYLE, new IntPtr(next))
+                : SetWindowLongPtr32(hWnd, GWL_EXSTYLE, new IntPtr(next));
+            var applied = result != IntPtr.Zero || Marshal.GetLastWin32Error() == 0;
+            var actual = Environment.Is64BitProcess ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64() : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
+            var transparent = (actual & WS_EX_TRANSPARENT) != 0;
+            var noActivate = (actual & WS_EX_NOACTIVATE) != 0;
+            HtmlUiLogger.Info("Overlay pass-through style enabled=" + enabled + " applied=" + applied + " transparent=" + transparent + " noActivate=" + noActivate + " hwnd=" + hWnd);
+            return applied && transparent == enabled && noActivate == enabled;
+        }
         internal static void SetNoActivate(IntPtr hWnd, bool enabled)
         {
             if (hWnd == IntPtr.Zero) return;
