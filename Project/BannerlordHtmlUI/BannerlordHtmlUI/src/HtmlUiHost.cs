@@ -246,14 +246,34 @@ namespace BannerlordHtmlUI
                 var width = Math.Max(0, rect.Right - rect.Left);
                 var height = Math.Max(0, rect.Bottom - rect.Top);
 
-                var focusAccepted = foreground ||
-                                    (_inputMode == HtmlUiInputMode.Captured && overlayForeground);
-                var active = !minimized && windowVisible && focusAccepted && _requestedVisible;
+                var inputCaptured = _inputMode == HtmlUiInputMode.Captured;
+                var inputMouseCaptured = _inputMode == HtmlUiInputMode.MouseCaptured;
+                var interactive = inputCaptured || inputMouseCaptured;
+
+                // A captured HTML UI must remain a real top-level input surface. Do not
+                // hide it merely because Bannerlord is no longer the foreground HWND:
+                // clicking the overlay itself necessarily makes the overlay foreground.
+                // Passive mode is the only mode allowed to fall behind the game window.
+                var active = !minimized && windowVisible && _requestedVisible &&
+                             (foreground || (interactive && overlayForeground));
 
                 if (active)
                 {
                     _form.Bounds = new Rectangle(rect.Left, rect.Top, width, height);
                     if (!_form.Visible) _form.Show();
+
+                    if (interactive && _form.IsHandleCreated)
+                    {
+                        // Keep the owned overlay above Bannerlord so hit-testing reaches
+                        // WebView2 instead of the game window underneath it.
+                        Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
+                    }
+
+                    if (inputCaptured && !overlayForeground)
+                    {
+                        _form.Activate();
+                        _web?.Focus();
+                    }
                 }
                 else if (_form.Visible)
                 {
