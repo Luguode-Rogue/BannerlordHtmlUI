@@ -63,6 +63,7 @@ namespace BannerlordHtmlUI
                     _lifecycleState = HtmlUiLifecycleState.Faulted;
                     HtmlUiHangWatchdog.Stop();
                     try { host.Pages.CloseCurrent(); } catch { }
+                    try { HtmlUiWindowTracker.Uninstall(host); } catch { }
                     try { host.Dispose(); } catch (Exception disposeEx) { HtmlUiLogger.Error("Failed to dispose HTML UI host after initialization failure.", disposeEx); }
                     if (ReferenceEquals(_host, host)) _host = null;
                     _initialized = false;
@@ -199,6 +200,7 @@ namespace BannerlordHtmlUI
                     {
                         try { host.Pages.CloseCurrent(); } catch (Exception ex) { HtmlUiLogger.Debug("Active page close during framework shutdown failed: " + ex.GetBaseException().Message); }
                         try { host.WindowStateChanged -= OnWindowStateChanged; } catch { }
+                        try { HtmlUiWindowTracker.Uninstall(host); } catch (Exception ex) { HtmlUiLogger.Debug("Window tracker uninstall during framework shutdown failed: " + ex.GetBaseException().Message); }
                         try { host.Dispose(); } catch (Exception ex) { HtmlUiLogger.Error("HTML UI host disposal failed.", ex); }
                     }
                 }
