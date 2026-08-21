@@ -20,6 +20,7 @@ namespace BannerlordHtmlUI
         private const int WmMButtonUp = 0x0208;
         private const int WmMouseWheel = 0x020A;
         private const int VkEscape = 0x1B;
+        private const int VkF12 = 0x7B;
         private static HtmlUiHost _host;
         private static IMessageFilter _filter;
         private static CoreWebView2 _core;
@@ -45,7 +46,7 @@ namespace BannerlordHtmlUI
                 {
                     _filter = new KeyboardFilter();
                     Application.AddMessageFilter(_filter);
-                    HtmlUiLogger.Info("Global UI ESC close filter installed.");
+                    HtmlUiLogger.Info("Global UI ESC/F12 safety filter installed.");
                 }
 
                 var webField = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -88,7 +89,10 @@ namespace BannerlordHtmlUI
 
         private static bool TryCloseFromEscape(HtmlUiHost host, string source)
         {
-            if (host == null || !host.IsInputCaptured) return false;
+            // ESC is a page lifecycle control, not a permission check on input mode.
+            // If a page explicitly opts into CloseOnEscape, allow the Framework fallback to close it
+            // even while the active mode is Passive (e.g. a consumer temporarily hands input back).
+            if (host == null) return false;
             var page = host.Pages.Current;
             if (page == null || !page.CloseOnEscape) return false;
             try
@@ -152,11 +156,21 @@ namespace BannerlordHtmlUI
 
         private static void OnWebViewAcceleratorKeyPressed(object sender, CoreWebView2AcceleratorKeyPressedEventArgs e)
         {
-            if (e == null || e.VirtualKey != VkEscape) return;
+            if (e == null) return;
             if (e.KeyEventKind != CoreWebView2KeyEventKind.KeyDown && e.KeyEventKind != CoreWebView2KeyEventKind.SystemKeyDown) return;
-            HtmlUiInputTraceLogger.Event("WEBVIEW_ACCELERATOR vk=0x" + e.VirtualKey.ToString("X2") + " kind=" + e.KeyEventKind);
+
             var host = _host;
-            if (host == null || !host.IsInputCaptured) return;
+            if (host == null) return;
+
+            if (e.VirtualKey == VkF12 && !host.DevToolsEnabled)
+            {
+                HtmlUiInputTraceLogger.Event("WEBVIEW_ACCELERATOR F12 blocked; DevTools disabled by Framework policy");
+                e.Handled = true;
+                return;
+            }
+
+            if (e.VirtualKey != VkEscape) return;
+            HtmlUiInputTraceLogger.Event("WEBVIEW_ACCELERATOR vk=0x" + e.VirtualKey.ToString("X2") + " kind=" + e.KeyEventKind);
             var page = host.Pages.Current;
             if (page == null || !page.CloseOnEscape) return;
             e.Handled = TryCloseFromEscape(host, "webview2");
@@ -184,8 +198,14 @@ namespace BannerlordHtmlUI
                         HtmlUiInputTraceLogger.KeyMessage(m.Msg, m.WParam.ToInt64(), m.LParam.ToInt64(), "winforms-filter");
                         if (m.Msg != WmKeyDown && m.Msg != WmSysKeyDown) return false;
                         var host = _host;
-                        if (host == null || !host.IsInputCaptured) return false;
-                        if (unchecked((int)m.WParam.ToInt64()) != VkEscape) return false;
+                        if (host == null) return false;
+                        var key = unchecked((int)m.WParam.ToInt64());
+                        if (key == VkF12 && !host.DevToolsEnabled)
+                        {
+                            HtmlUiInputTraceLogger.Event("WINFORMS F12 blocked; DevTools disabled by Framework policy");
+                            return true;
+                        }
+                        if (key != VkEscape) return false;
                         return TryCloseFromEscape(host, "winforms");
 
                     case WmLButtonDown:
