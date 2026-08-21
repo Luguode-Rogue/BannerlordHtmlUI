@@ -50,13 +50,18 @@ namespace BannerlordHtmlUI
             HtmlUiLogger.Info("Overlay pass-through style enabled=" + enabled + " applied=" + applied + " transparent=" + transparent + " noActivate=" + noActivate + " hwnd=" + hWnd);
             return applied && transparent == enabled && noActivate == enabled;
         }
-        internal static void SetNoActivate(IntPtr hWnd, bool enabled)
+        internal static bool SetNoActivate(IntPtr hWnd, bool enabled)
         {
-            if (hWnd == IntPtr.Zero) return;
+            if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return false;
             var current = Environment.Is64BitProcess ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64() : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
             var next = current | WS_EX_TOOLWINDOW;
             if (enabled) next |= WS_EX_NOACTIVATE; else next &= ~WS_EX_NOACTIVATE;
-            if (Environment.Is64BitProcess) SetWindowLongPtr64(hWnd, GWL_EXSTYLE, new IntPtr(next)); else SetWindowLongPtr32(hWnd, GWL_EXSTYLE, new IntPtr(next));
+            var result = Environment.Is64BitProcess
+                ? SetWindowLongPtr64(hWnd, GWL_EXSTYLE, new IntPtr(next))
+                : SetWindowLongPtr32(hWnd, GWL_EXSTYLE, new IntPtr(next));
+            var actual = Environment.Is64BitProcess ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64() : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
+            var noActivate = (actual & WS_EX_NOACTIVATE) != 0;
+            return (result != IntPtr.Zero || Marshal.GetLastWin32Error() == 0) && noActivate == enabled;
         }
         internal static bool TryGetGameWindowHandle(IntPtr excludedWindow, out IntPtr handle)
         {
