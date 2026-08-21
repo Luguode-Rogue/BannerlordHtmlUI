@@ -15,8 +15,6 @@ namespace BannerlordHtmlUI
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            // Keep the overlay in Bannerlord's owned-window Z-order. A permanent TopMost window
-            // can cover unrelated applications after ALT-TAB or when the game is suspended.
             TopMost = false;
             Width = 1;
             Height = 1;
@@ -26,7 +24,6 @@ namespace BannerlordHtmlUI
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-
             try
             {
                 var ownerHwnd = Process.GetCurrentProcess().MainWindowHandle;
@@ -42,21 +39,13 @@ namespace BannerlordHtmlUI
         public void SetOwner(IntPtr ownerHwnd)
         {
             if (!IsHandleCreated || IsDisposed) return;
-            try
-            {
-                Win32.SetOwner(Handle, ownerHwnd);
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Debug("Failed to update HtmlUI overlay owner: " + ex.GetBaseException().Message);
-            }
+            try { Win32.SetOwner(Handle, ownerHwnd); }
+            catch (Exception ex) { HtmlUiLogger.Debug("Failed to update HtmlUI overlay owner: " + ex.GetBaseException().Message); }
         }
 
         public void SetPassThrough(bool enabled)
         {
             _passThrough = enabled;
-            // Passive mode must not activate. MouseCaptured deliberately allows activation so
-            // the WinForms/WebView2 child receives a native mouse sequence.
             Win32.SetNoActivate(Handle, enabled);
         }
 
@@ -64,6 +53,11 @@ namespace BannerlordHtmlUI
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
+            // Hidden and Passive modes never own keyboard input. This is a native-side
+            // fail-safe even if focus state briefly survives a mode transition.
+            if (!Visible || _passThrough)
+                return base.ProcessCmdKey(ref msg, keyData);
+
             if ((keyData & Keys.KeyCode) == Keys.Escape)
             {
                 try
@@ -96,8 +90,6 @@ namespace BannerlordHtmlUI
 
             if (!_passThrough && m.Msg == WM_MOUSEACTIVATE)
             {
-                // MouseCaptured must activate the overlay so WebView2 can receive the click.
-                // Keyboard focus is returned to Bannerlord after mouse release by the WebView hook.
                 m.Result = (IntPtr)MA_ACTIVATE;
                 return;
             }
