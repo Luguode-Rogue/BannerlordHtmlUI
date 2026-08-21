@@ -29,9 +29,7 @@ namespace BannerlordHtmlUI
                 if (_installed)
                 {
                     if (ReferenceEquals(_host, host))
-                    {
                         AttachToCurrentWebView();
-                    }
                     return;
                 }
 
@@ -96,7 +94,7 @@ namespace BannerlordHtmlUI
             HtmlUiHost host;
             lock (Sync)
             {
-                if (!_installed || _host == null || _host.IsWebViewReady == false && _host.InputMode == HtmlUiInputMode.Hidden && !_host.IsVisible)
+                if (!_installed || _host == null || (_host.IsWebViewReady == false && _host.InputMode == HtmlUiInputMode.Hidden && !_host.IsVisible))
                     return;
 
                 if (_recoveryInProgress != 0)
@@ -128,7 +126,7 @@ namespace BannerlordHtmlUI
         {
             try
             {
-                if (host == null || host.IsHostCreated == false || host.IsDisposedForRecovery())
+                if (host == null || !host.IsHostCreated || host.IsDisposedForRecovery())
                     throw new ObjectDisposedException(nameof(HtmlUiHost));
 
                 var currentPage = host.Pages.Current;
@@ -137,11 +135,7 @@ namespace BannerlordHtmlUI
                 var oldCore = oldWeb?.CoreWebView2;
 
                 SetWebViewReady(host, false);
-
-                if (currentPage != null)
-                    _pendingPageField.SetValue(host, currentPage);
-                else
-                    _pendingPageField.SetValue(host, null);
+                _pendingPageField.SetValue(host, currentPage);
 
                 if (oldCore != null)
                 {
@@ -181,7 +175,6 @@ namespace BannerlordHtmlUI
 
                     environment = await CreateEnvironmentAsync();
                     _environmentField.SetValue(host, environment);
-
                     replacement = new WebView2 { Dock = System.Windows.Forms.DockStyle.Fill };
                     form.Controls.Add(replacement);
                     _webField.SetValue(host, replacement);
@@ -205,10 +198,17 @@ namespace BannerlordHtmlUI
 
                 AttachToCurrentWebView();
 
+                SetWebViewReady(host, true);
                 if (requestedInputMode != HtmlUiInputMode.Hidden)
                     host.SetInputMode(requestedInputMode);
 
-                SetWebViewReady(host, true);
+                if (currentPage != null && host.Pages.Current != null &&
+                    string.Equals(host.Pages.Current.Id, currentPage.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    _pendingPageField.SetValue(host, null);
+                    host.Navigate(currentPage);
+                }
+
                 HtmlUiLogger.Info("WebView2 process recovery completed. kind=" + kind + ", page=" + (currentPage == null ? "<none>" : currentPage.Id));
             }
             catch (Exception ex)
@@ -234,53 +234,25 @@ namespace BannerlordHtmlUI
 
         private static async Task<CoreWebView2Environment> CreateEnvironmentAsync()
         {
-            var cache = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(),
-                "BannerlordHtmlUI",
-                "WebView2");
+            var cache = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BannerlordHtmlUI", "WebView2");
             System.IO.Directory.CreateDirectory(cache);
             return await CoreWebView2Environment.CreateAsync(null, cache);
         }
 
-        private static WebView2 GetWebView(HtmlUiHost host)
-        {
-            return _webField == null ? null : _webField.GetValue(host) as WebView2;
-        }
-
-        private static CoreWebView2Environment GetEnvironment(HtmlUiHost host)
-        {
-            return _environmentField == null ? null : _environmentField.GetValue(host) as CoreWebView2Environment;
-        }
-
-        private static HtmlUiOverlayForm GetForm(HtmlUiHost host)
-        {
-            return _formField == null ? null : _formField.GetValue(host) as HtmlUiOverlayForm;
-        }
-
-        private static void SetWebViewReady(HtmlUiHost host, bool ready)
-        {
-            var field = typeof(HtmlUiHost).GetField("_webViewReady", BindingFlags.Instance | BindingFlags.NonPublic);
-            field?.SetValue(host, ready);
-        }
+        private static WebView2 GetWebView(HtmlUiHost host) => _webField == null ? null : _webField.GetValue(host) as WebView2;
+        private static CoreWebView2Environment GetEnvironment(HtmlUiHost host) => _environmentField == null ? null : _environmentField.GetValue(host) as CoreWebView2Environment;
+        private static HtmlUiOverlayForm GetForm(HtmlUiHost host) => _formField == null ? null : _formField.GetValue(host) as HtmlUiOverlayForm;
+        private static void SetWebViewReady(HtmlUiHost host, bool ready) => typeof(HtmlUiHost).GetField("_webViewReady", BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(host, ready);
 
         private static class AccessToolsCompat
         {
-            public static MethodInfo Method(Type type, string name)
-            {
-                return type.GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic);
-            }
+            public static MethodInfo Method(Type type, string name) => type.GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic);
         }
     }
 
     internal static class HtmlUiHostRecoveryExtensions
     {
-        private static readonly FieldInfo DisposedField = typeof(HtmlUiHost).GetField(
-            "_disposed",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-
-        public static bool IsDisposedForRecovery(this HtmlUiHost host)
-        {
-            return DisposedField != null && (bool)DisposedField.GetValue(host);
-        }
+        private static readonly FieldInfo DisposedField = typeof(HtmlUiHost).GetField("_disposed", BindingFlags.Instance | BindingFlags.NonPublic);
+        public static bool IsDisposedForRecovery(this HtmlUiHost host) => DisposedField != null && (bool)DisposedField.GetValue(host);
     }
 }
