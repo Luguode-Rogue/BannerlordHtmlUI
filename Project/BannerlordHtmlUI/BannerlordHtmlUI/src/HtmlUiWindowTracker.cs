@@ -1,7 +1,6 @@
 using System;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Windows.Forms;
 
 namespace BannerlordHtmlUI
 {
@@ -33,7 +32,6 @@ namespace BannerlordHtmlUI
         private bool _disposed;
         private bool _hasState;
         private HtmlUiWindowState _lastState;
-        private FieldInfo _timerField;
         private FieldInfo _windowStateChangedField;
 
         private HtmlUiWindowTracker(HtmlUiHost host)
@@ -98,7 +96,6 @@ namespace BannerlordHtmlUI
             if (_disposed) return;
             if (_form == null) throw new InvalidOperationException("HtmlUi overlay form was not created.");
 
-            StopLegacyFollowTimer();
             _hook = SetWinEventHook(EventSystemForeground, EventObjectHide, IntPtr.Zero, _callback, 0, 0, WineventOutOfContext);
             if (_hook == IntPtr.Zero)
             {
@@ -109,21 +106,6 @@ namespace BannerlordHtmlUI
             SyncNow();
             HtmlUiInputTraceLogger.Event("WINDOW_TRACKER_STARTED uiThread=" + ThreadId());
             HtmlUiLogger.Info("Event-driven Bannerlord window tracker started.");
-        }
-
-        private void StopLegacyFollowTimer()
-        {
-            try
-            {
-                _timerField = typeof(HtmlUiHost).GetField("_followTimer", BindingFlags.Instance | BindingFlags.NonPublic);
-                var timer = _timerField == null ? null : _timerField.GetValue(_host) as Timer;
-                if (timer == null) return;
-                timer.Stop();
-                timer.Dispose();
-                _timerField.SetValue(_host, null);
-                HtmlUiInputTraceLogger.Event("WINDOW_TRACKER_LEGACY_TIMER_DISABLED");
-            }
-            catch (Exception ex) { HtmlUiLogger.Debug("Failed to disable legacy follow timer: " + ex.GetBaseException().Message); }
         }
 
         private void OnWinEvent(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint idEventThread, uint msEventTime)
