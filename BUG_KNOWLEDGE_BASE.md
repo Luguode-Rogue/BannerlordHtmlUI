@@ -20,12 +20,19 @@
 ### HWND = 0
 临时无法解析 Bannerlord HWND 不等于游戏退出。不得因此直接 Hide 正在显示的 UI。
 
-### WindowTracker HWND 排除条件
-`BannerlordHtmlUI` Overlay 与 Bannerlord 游戏窗口属于同一进程。调用 `Win32.TryGetGameWindowHandle(...)` 时，必须排除当前 Overlay HWND；不能为了线程封送或简化调用而把 `form.Handle` 改成 `IntPtr.Zero`。
+### ccf3231 WindowTracker 回归记录
+提交 `ccf3231a97c8d26b6439f36db96e235e79994506` 曾同时修改 WindowTracker 的启动/卸载调度、`PostToUi` 调度语义、Overlay HWND exclusion，以及 Overlay foreground 判定。
 
-历史回归：`ccf3231a97c8d26b6439f36db96e235e79994506` 将 `TryGetGameWindowHandle(form.Handle, ...)` 改为 `TryGetGameWindowHandle(IntPtr.Zero, ...)`。这样 Overlay HWND 可能被同进程窗口枚举 / foreground / main-window fallback 误认为 Bannerlord 游戏窗口，导致 WindowTracker 建立在错误 HWND 上，出现 `game=0`、异常 Bounds、Overlay 可见性/Foreground 状态错误，以及后续输入重新失效。修复为 `41b5da2940da2e7e5741c7aaef96045b1585c9de`：恢复 Overlay HWND exclusion，同时保留 UI-thread marshal。
+该提交已经确认会改变运行时行为，并与后续“输入重新失效”回归高度相关；但**具体根因不得在未经过完整实机证据链确认前定性**。因此这里不记录“某一处单独修改就是根因”的结论。
 
-结论：线程问题应通过正确的 UI-thread 边界解决，不得破坏 HWND candidate exclusion 作为副作用。
+当前处理原则：
+
+- 出现输入重新失效时，必须比较 `ccf3231` 前后的完整 WindowTracker 行为，不得只挑一个 diff 点下结论。
+- `PostToUi` 的同步/异步语义属于 WindowTracker 线程边界的一部分，修改后必须检查 `Install → StartCore → RequestSync → InputController` 的时序。
+- `TryGetGameWindowHandle(...)` 的 Overlay exclusion 不能被线程修复顺手破坏。
+- WindowTracker 不得读取或修改 `InputMode`；输入语义归 `HtmlUiInputControllerPatch`。
+
+`ccf3231` 的运行时代码已在当前 `dev` 恢复到该提交之前的 WindowTracker 基线；后续如需重新引入其中任何改动，必须单独验证并记录实机回归结果。
 
 ### Passive
 `Passive` = 可见但 HTML 完全不拥有输入。只读 Consumer 使用 Framework Passive，不增加 Consumer Harmony 输入 Patch。
