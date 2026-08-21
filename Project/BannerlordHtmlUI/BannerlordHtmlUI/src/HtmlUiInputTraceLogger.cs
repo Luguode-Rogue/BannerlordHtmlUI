@@ -13,10 +13,13 @@ namespace BannerlordHtmlUI
         private static readonly List<InputKey> TracedKeys = new List<InputKey>();
         private static string _path;
         private static bool _initialized;
-        private static int _lastMouseMoveTick;
         private static IntPtr _lastForeground;
         private static HtmlUiInputMode _lastMode = HtmlUiInputMode.Hidden;
         private static string _lastPage = null;
+        private static long _lastTickStart;
+        private static long _lastTickAfterInput;
+        private static long _lastTickAfterService;
+        private static long _tickCount;
 
         public static void Initialize(string moduleDirectory)
         {
@@ -29,6 +32,10 @@ namespace BannerlordHtmlUI
                 LastDown.Clear();
                 TracedKeys.Clear();
                 BuildTracedKeySet();
+                _tickCount = 0;
+                _lastTickStart = 0;
+                _lastTickAfterInput = 0;
+                _lastTickAfterService = 0;
                 _initialized = true;
                 Write("=== INPUT TRACE STARTED === tracedKeys=" + TracedKeys.Count);
             }
@@ -56,10 +63,31 @@ namespace BannerlordHtmlUI
             _initialized = false;
         }
 
-        public static void Event(string message)
+        public static void Event(string message) => Write("EVENT " + message);
+
+        public static void TickStart(float dt)
         {
-            Write("EVENT " + message);
+            if (!_initialized) return;
+            _tickCount++;
+            _lastTickStart = StopwatchTicks();
         }
+
+        public static void TickAfterInput()
+        {
+            if (!_initialized) return;
+            _lastTickAfterInput = StopwatchTicks();
+        }
+
+        public static void TickAfterService()
+        {
+            if (!_initialized) return;
+            _lastTickAfterService = StopwatchTicks();
+        }
+
+        public static long TickCount => Interlocked.Read(ref _tickCount);
+        public static long LastTickStartTimestamp => Interlocked.Read(ref _lastTickStart);
+        public static long LastTickAfterInputTimestamp => Interlocked.Read(ref _lastTickAfterInput);
+        public static long LastTickAfterServiceTimestamp => Interlocked.Read(ref _lastTickAfterService);
 
         public static void KeyMessage(int msg, long wParam, long lParam, string source)
         {
@@ -129,6 +157,8 @@ namespace BannerlordHtmlUI
             try { return Key.GetInputType(key).ToString(); }
             catch { return "Unknown"; }
         }
+
+        private static long StopwatchTicks() => System.Diagnostics.Stopwatch.GetTimestamp();
 
         private static void Write(string message)
         {
