@@ -32,11 +32,11 @@ namespace BannerlordHtmlUI
             {
                 HtmlUiInputTraceLogger.Event("FRAMEWORK_READY_REGISTER");
                 HtmlUiService.NotifyGameContext("application", true);
+                HtmlUiWindowTracker.Install(HtmlUiService.Host);
                 HtmlUiMouseCapture.Install();
                 HtmlUiHotReloadPatch.Install(HtmlUiService.Host);
                 HtmlUiStateRemovalPatch.Install(HtmlUiService.Host);
                 HtmlUiProcessRecovery.Install(HtmlUiService.Host);
-                HtmlUiWindowTracker.Install(HtmlUiService.Host);
                 HtmlUiInputControllerPatch.Install(HtmlUiService.Host);
                 HtmlUiContextMenuPatch.Install(HtmlUiService.Host);
 
