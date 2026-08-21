@@ -20,6 +20,13 @@
 ### HWND = 0
 临时无法解析 Bannerlord HWND 不等于游戏退出。不得因此直接 Hide 正在显示的 UI。
 
+### WindowTracker HWND 排除条件
+`BannerlordHtmlUI` Overlay 与 Bannerlord 游戏窗口属于同一进程。调用 `Win32.TryGetGameWindowHandle(...)` 时，必须排除当前 Overlay HWND；不能为了线程封送或简化调用而把 `form.Handle` 改成 `IntPtr.Zero`。
+
+历史回归：`ccf3231a97c8d26b6439f36db96e235e79994506` 将 `TryGetGameWindowHandle(form.Handle, ...)` 改为 `TryGetGameWindowHandle(IntPtr.Zero, ...)`。这样 Overlay HWND 可能被同进程窗口枚举 / foreground / main-window fallback 误认为 Bannerlord 游戏窗口，导致 WindowTracker 建立在错误 HWND 上，出现 `game=0`、异常 Bounds、Overlay 可见性/Foreground 状态错误，以及后续输入重新失效。修复为 `41b5da2940da2e7e5741c7aaef96045b1585c9de`：恢复 Overlay HWND exclusion，同时保留 UI-thread marshal。
+
+结论：线程问题应通过正确的 UI-thread 边界解决，不得破坏 HWND candidate exclusion 作为副作用。
+
 ### Passive
 `Passive` = 可见但 HTML 完全不拥有输入。只读 Consumer 使用 Framework Passive，不增加 Consumer Harmony 输入 Patch。
 
