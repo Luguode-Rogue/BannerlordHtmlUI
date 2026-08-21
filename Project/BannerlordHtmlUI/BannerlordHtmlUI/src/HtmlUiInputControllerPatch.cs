@@ -1,7 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.Drawing;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 
 namespace BannerlordHtmlUI
@@ -28,6 +28,7 @@ namespace BannerlordHtmlUI
         private static FieldInfo _inputModeField;
         private static FieldInfo _requestedVisibleField;
         private static FieldInfo _disposedField;
+        private static FieldInfo _windowStateChangedField;
 
         public static void Install(HtmlUiHost host)
         {
@@ -46,6 +47,7 @@ namespace BannerlordHtmlUI
                 _inputModeField = typeof(HtmlUiHost).GetField("_inputMode", BindingFlags.Instance | BindingFlags.NonPublic);
                 _requestedVisibleField = typeof(HtmlUiHost).GetField("_requestedVisible", BindingFlags.Instance | BindingFlags.NonPublic);
                 _disposedField = typeof(HtmlUiHost).GetField("_disposed", BindingFlags.Instance | BindingFlags.NonPublic);
+                _windowStateChangedField = typeof(HtmlUiHost).GetField("WindowStateChanged", BindingFlags.Instance | BindingFlags.NonPublic);
 
                 if (_formField == null || _webField == null || _inputModeField == null || _requestedVisibleField == null || _disposedField == null)
                     throw new MissingMemberException("HtmlUiHost input controller fields are unavailable.");
@@ -78,6 +80,7 @@ namespace BannerlordHtmlUI
                     _inputModeField = null;
                     _requestedVisibleField = null;
                     _disposedField = null;
+                    _windowStateChangedField = null;
                     _installed = false;
                 }
             }
@@ -235,8 +238,6 @@ namespace BannerlordHtmlUI
                     Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
 
-                    // Explicit mode entry may take focus only when Bannerlord is already
-                    // the active window. It never steals focus from another application.
                     var foreground = Win32.GetForegroundWindow();
                     if (mode == HtmlUiInputMode.Captured && (foreground == gameHwnd || foreground == form.Handle))
                         ActivateCapturedForm(form);
@@ -274,7 +275,8 @@ namespace BannerlordHtmlUI
             {
                 Win32.SetForegroundWindow(form.Handle);
                 form.Activate();
-                form.Controls.Count.TryGetFirstControl()?.Focus();
+                if (form.Controls.Count > 0)
+                    form.Controls[0]?.Focus();
             }
             catch
             {
@@ -292,7 +294,7 @@ namespace BannerlordHtmlUI
 
         private static Win32.RECT GetWindowRect(IntPtr hwnd)
         {
-            return Win32.GetWindowRect(hwnd, out var rect) ? rect : default;
+            return Win32.GetWindowRect(hwnd, out var rect) ? rect : default(Win32.RECT);
         }
 
         private static void ApplyWindowState(HtmlUiHost host, bool visible, IntPtr gameHwnd, Win32.RECT rect)
@@ -309,7 +311,10 @@ namespace BannerlordHtmlUI
                     rect.Top,
                     Math.Max(0, rect.Right - rect.Left),
                     Math.Max(0, rect.Bottom - rect.Top));
-                host.WindowStateChanged?.Invoke(state);
+
+                if (_windowStateChangedField == null) return;
+                var handler = _windowStateChangedField.GetValue(host) as Action<HtmlUiWindowState>;
+                try { handler?.Invoke(state); } catch (Exception ex) { HtmlUiLogger.Debug("Window state callback failed: " + ex.GetBaseException().Message); }
             }
             catch { }
         }
@@ -329,14 +334,6 @@ namespace BannerlordHtmlUI
             }
             catch (ObjectDisposedException) { }
             catch (InvalidOperationException) { }
-        }
-    }
-
-    internal static class ControlCollectionExtensions
-    {
-        public static System.Windows.Forms.Control TryGetFirstControl(this System.Windows.Forms.Control.ControlCollection controls)
-        {
-            return controls != null && controls.Count > 0 ? controls[0] : null;
         }
     }
 }
