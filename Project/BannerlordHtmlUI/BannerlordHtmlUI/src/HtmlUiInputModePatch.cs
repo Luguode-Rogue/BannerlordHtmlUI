@@ -113,9 +113,9 @@ namespace BannerlordHtmlUI
                 try { form.Hide(); } catch { }
                 try
                 {
-                    var gameWindow = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
-                    if (gameWindow != IntPtr.Zero && Win32.IsWindow(gameWindow))
-                        Win32.SetForegroundWindow(gameWindow);
+                    var hiddenGameWindow = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                    if (hiddenGameWindow != IntPtr.Zero && Win32.IsWindow(hiddenGameWindow))
+                        Win32.SetForegroundWindow(hiddenGameWindow);
                 }
                 catch { }
                 HtmlUiLogger.Info("Input mode -> Hidden: native mouse capture released, WebView disabled, overlay hidden.");
@@ -123,13 +123,13 @@ namespace BannerlordHtmlUI
             }
 
             try { if (web != null) web.Enabled = true; } catch { }
-            if (!TryResolveGameWindow(form, out var gameWindow, out var rect))
+            if (!TryResolveGameWindow(form, out var resolvedGameWindow, out var rect))
             {
                 try { form.Hide(); } catch { }
                 return;
             }
 
-            try { form.SetOwner(gameWindow); } catch { }
+            try { form.SetOwner(resolvedGameWindow); } catch { }
             try { form.Bounds = new Rectangle(rect.Left, rect.Top, Math.Max(0, rect.Right - rect.Left), Math.Max(0, rect.Bottom - rect.Top)); } catch { }
 
             switch (mode)
@@ -178,19 +178,19 @@ namespace BannerlordHtmlUI
                 return;
             }
 
-            if (!TryResolveGameWindow(form, out var gameWindow, out var rect))
+            if (!TryResolveGameWindow(form, out var trackedGameWindow, out var rect))
             {
                 try { form.Hide(); } catch { }
                 return;
             }
-            if (Win32.IsIconic(gameWindow) || !Win32.IsWindowVisible(gameWindow))
+            if (Win32.IsIconic(trackedGameWindow) || !Win32.IsWindowVisible(trackedGameWindow))
             {
                 try { form.Hide(); } catch { }
                 return;
             }
 
             var foreground = Win32.GetForegroundWindow();
-            var gameForeground = foreground == gameWindow;
+            var gameForeground = foreground == trackedGameWindow;
             var overlayForeground = foreground == form.Handle;
             if (!gameForeground && !overlayForeground)
             {
@@ -198,7 +198,7 @@ namespace BannerlordHtmlUI
                 return;
             }
 
-            try { form.SetOwner(gameWindow); } catch { }
+            try { form.SetOwner(trackedGameWindow); } catch { }
             try
             {
                 form.Bounds = new Rectangle(rect.Left, rect.Top, Math.Max(0, rect.Right - rect.Left), Math.Max(0, rect.Bottom - rect.Top));
