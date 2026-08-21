@@ -20,9 +20,6 @@
 ### HWND = 0
 临时无法解析 Bannerlord HWND 不等于游戏退出。不得因此直接 Hide 正在显示的 UI。
 
-### 100ms Window Follow
-历史 `FollowBannerlordWindow()` 同时控制位置、可见性、焦点，制造状态覆盖与卡死风险。窗口同步统一使用 Event-driven `HtmlUiWindowTracker`；禁止恢复第二个 Timer。
-
 ### Passive
 `Passive` = 可见但 HTML 完全不拥有输入。只读 Consumer 使用 Framework Passive，不增加 Consumer Harmony 输入 Patch。
 
