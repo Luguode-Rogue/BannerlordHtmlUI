@@ -591,11 +591,14 @@ namespace BannerlordHtmlUI
             if (_disposed) return;
             _disposed = true;
             try { HtmlUiKeyboardAndDiagnosticsPatch.Uninstall(this); } catch { }
-            try { _bridge?.CancelAllRequests(); } catch { }
+            try { _bridge?.Dispose(); } catch { }
             _bridge = null;
             _webViewReady = false;
             _requestedVisible = false;
             _inputMode = HtmlUiInputMode.Hidden;
+            try { Win32.ReleaseMouseCapture(); } catch { }
+            try { if (_web != null) _web.Enabled = false; } catch { }
+            try { if (_form != null && _form.IsHandleCreated) _form.SetPassThrough(true); } catch { }
             try { _watcher?.Dispose(); } catch { }
             _watcher = null;
             try { _followTimer?.Stop(); _followTimer?.Dispose(); } catch { }
