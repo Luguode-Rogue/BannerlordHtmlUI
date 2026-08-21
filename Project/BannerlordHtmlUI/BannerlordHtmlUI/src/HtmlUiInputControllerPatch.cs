@@ -116,7 +116,7 @@ namespace BannerlordHtmlUI
                 if (!Win32.TryGetGameWindowHandle(form.Handle, out var gameHwnd) || gameHwnd == IntPtr.Zero)
                 {
                     HtmlUiLogger.Warn("Input mode applied without a resolved Bannerlord window. mode=" + mode);
-                    if (mode == HtmlUiInputMode.Hidden)
+                    if (mode == HtmlUiInputMode.Hidden || mode == HtmlUiInputMode.Passive)
                     {
                         try { Win32.ReleaseMouseCapture(); } catch { }
                         try { if (web != null) web.Enabled = false; } catch { }
@@ -137,7 +137,9 @@ namespace BannerlordHtmlUI
                     return;
                 }
 
-                try { if (web != null) web.Enabled = true; } catch { }
+                // Passive means display-only: keep the WebView painted, but disable the WebView
+                // control itself so Chromium cannot consume mouse/keyboard/context-menu input.
+                try { if (web != null) web.Enabled = mode != HtmlUiInputMode.Passive; } catch { }
                 try { form.SetOwner(gameHwnd); } catch { }
                 try { form.Show(); } catch { }
 
@@ -176,8 +178,17 @@ namespace BannerlordHtmlUI
             try { Win32.ReleaseMouseCapture(); } catch { }
             try { if (web != null) web.Enabled = false; } catch { }
             try { form.SetPassThrough(true); } catch { }
-            if (gameHwnd != IntPtr.Zero && Win32.IsWindow(gameHwnd))
-                try { Win32.SetForegroundWindow(gameHwnd); } catch { }
+
+            // Restore Bannerlord only when this overlay is actually the foreground owner.
+            // Closing an HTML page must not pull the game back in front of another application.
+            try
+            {
+                var foreground = Win32.GetForegroundWindow();
+                if (foreground == form.Handle && gameHwnd != IntPtr.Zero && Win32.IsWindow(gameHwnd))
+                    Win32.SetForegroundWindow(gameHwnd);
+            }
+            catch { }
+
             try { form.Hide(); } catch { }
         }
 
