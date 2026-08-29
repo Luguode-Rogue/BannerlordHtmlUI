@@ -143,6 +143,20 @@ namespace BannerlordHtmlUI
             var foreground = Win32.GetForegroundWindow() == gameHwnd;
             var overlayForeground = form.IsHandleCreated && Win32.GetForegroundWindow() == form.Handle;
             var requestedVisible = _host.IsVisible;
+
+            // MouseCaptured is intentionally mouse-only. The overlay must never become the
+            // keyboard/foreground owner, otherwise consumer hotkeys such as TacticalMap N stop
+            // reaching Bannerlord while the map is interactive. Keep the overlay visible and
+            // mouse-capable, but restore the Bannerlord window as the foreground owner whenever
+            // the overlay is observed in the foreground.
+            if (_host.InputMode == HtmlUiInputMode.MouseCaptured && overlayForeground && gameVisible)
+            {
+                try { Win32.SetForegroundWindow(gameHwnd); }
+                catch { }
+                foreground = Win32.GetForegroundWindow() == gameHwnd;
+                overlayForeground = false;
+            }
+
             var showOverlay = requestedVisible && gameVisible && (foreground || overlayForeground);
             var windowWidth = Math.Max(0, rect.Right - rect.Left);
             var windowHeight = Math.Max(0, rect.Bottom - rect.Top);
