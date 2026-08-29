@@ -243,6 +243,15 @@ namespace BannerlordHtmlUI
                     Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
                 }
+                else if (_inputMode == HtmlUiInputMode.MouseCaptured)
+                {
+                    // MouseCaptured is owned by HtmlUiInputControllerPatch. The follow timer
+                    // only keeps the overlay positioned and above the Bannerlord owner; it must
+                    // not call SetPassThrough(false), which would clear the form's _mouseOnly
+                    // state and undo WS_EX_NOACTIVATE on every 100 ms tick.
+                    Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
+                    Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
+                }
                 else
                 {
                     _form.SetPassThrough(false);
