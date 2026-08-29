@@ -52,7 +52,8 @@ namespace BannerlordHtmlUI
         {
             var keys = new[]
             {
-                InputKey.M, InputKey.LeftShift, InputKey.RightShift,
+                InputKey.M, InputKey.N,
+                InputKey.LeftShift, InputKey.RightShift,
                 InputKey.LeftControl, InputKey.RightControl,
                 InputKey.LeftAlt, InputKey.RightAlt, InputKey.Tab,
                 InputKey.Escape,
