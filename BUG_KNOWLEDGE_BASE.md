@@ -118,6 +118,86 @@ Shutdown/Owner dispose/pagehide/timeout/abort 后晚到成功结果不得覆盖�
 ### Binding / Component
 不要使用 object spread 替换 Component；保留 prototype、Symbol、non-enumerable 成员。所有 observer/listener/timer/request/component 都必须有 disposer。
 
+### WebView2 shutdown / `RPC_E_DISCONNECTED`
+当出现：
+
+```text
+Microsoft.Web.WebView2.Core.dll
+CoreWebView2Controller.CoreWebView2.get()
+RPC_E_DISCONNECTED (0x80010108)
+DisconnectedContext
+```
+
+并且调用链进入：
+
+```text
+MissionTick
+→ State.Set
+→ HtmlUiHost.SendEvent
+→ WebView2 CoreWebView2
+```
+
+首先归类为 **Framework `HtmlUiHost` 生命周期/COM 边界问题**，不是 Consumer State 或 TacticalMap 业务问题。
+
+已确认的失败模式：
+
+```text
+WebView2 正在 ProcessFailed / Shutdown / UI message loop 退出
+→ GameThread 仍有迟到的 State/Event 发布
+→ SendEvent 在 UI thread 回调中再次取得/使用已经断开的 CoreWebView2
+→ 首次调试异常表现为 DisconnectedContext / RPC_E_DISCONNECTED
+```
+
+修复原则：
+
+```text
+所有 CoreWebView2 生命周期可用性判断与关闭闸门
+→ HtmlUiHost
+```
+
+不要在：
+
+```text
+HtmlUiStateStore
+TacticalMap
+CustomSkill
+```
+
+分别增加规避逻辑；否则会产生重复生命周期协议和多个错误 owner。
+
+当前 Framework 修复包括：
+
+- `HtmlUiHost` 保存当前 `CoreWebView2` 实例，后续发送/导航使用统一引用。
+- `ProcessFailed` 时立即把 WebView 标记为不可发送。
+- `SendEvent` 在入口和 WebView2 UI thread 回调内均检查 `_disposed / _webViewReady / _coreWebView2`。
+- `Dispose` 在开始阶段立即关闭 WebView 可用标志并清空 Core 引用，然后才关闭 Overlay/Form。
+- `MapContentRoot`、Runtime 安装、DevTools 等继续从 Host 使用同一个 Core 引用。
+
+注意：
+
+> `CoreWebView2` 断连属于宿主生命周期问题。不要通过 Consumer 降低 `PublishState` 频率或在 StateStore 捕获异常来“修复”它。
+
+### 生命周期错误的验证标准
+不仅验证“没有异常”，还要验证：
+
+```text
+Open
+→ State updates
+→ Close / ProcessFailed / Shutdown
+→ 迟到 State/Event
+→ 不再访问失效 CoreWebView2
+```
+
+同时保证正常运行期间：
+
+```text
+State.Set
+→ SendEvent
+→ JavaScript receive
+```
+
+仍然正常。
+
 ## 核心修复规则
 
 ```text
