@@ -44,25 +44,30 @@ namespace BannerlordHtmlUI
                 {
                     var form = tracker.GetForm();
                     if (form == null || form.IsDisposed || !form.IsHandleCreated) throw new InvalidOperationException("HtmlUi overlay form is not ready.");
-                    if (form.InvokeRequired)
+
+                    // StartCore touches WinForms controls and therefore always runs on the
+                    // dedicated WebView2 STA/UI thread. Do not call it directly from the
+                    // Bannerlord/game thread even when InvokeRequired is unexpectedly false.
+                    form.BeginInvoke(new Action(() =>
                     {
-                        form.BeginInvoke(new Action(() =>
+                        try { tracker.StartCore(); }
+                        catch (Exception ex)
                         {
-                            try { tracker.StartCore(); }
-                            catch (Exception ex)
+                            HtmlUiLogger.Error("Failed to start event-driven window tracker on UI thread.", ex);
+                            lock (SyncLock)
                             {
-                                HtmlUiLogger.Error("Failed to start event-driven window tracker on UI thread.", ex);
-                                lock (SyncLock)
-                                {
-                                    if (Instances.TryGetValue(host, out var current) && ReferenceEquals(current, tracker)) Instances.Remove(host);
-                                }
-                                tracker.Dispose();
+                                if (Instances.TryGetValue(host, out var current) && ReferenceEquals(current, tracker)) Instances.Remove(host);
                             }
-                        }));
-                    }
-                    else tracker.StartCore();
+                            tracker.Dispose();
+                        }
+                    }));
                 }
-                catch { tracker.Dispose(); Instances.Remove(host); throw; }
+                catch
+                {
+                    tracker.Dispose();
+                    Instances.Remove(host);
+                    throw;
+                }
             }
         }
         public static void RequestSync(HtmlUiHost host)
@@ -92,6 +97,8 @@ namespace BannerlordHtmlUI
             StopLegacyFollowTimer();
             _hook = SetWinEventHook(EventSystemForeground, EventObjectHide, IntPtr.Zero, _callback, 0, 0, WineventOutOfContext);
             if (_hook == IntPtr.Zero) throw new InvalidOperationException("Failed to install WinEvent window tracking hook.");
+            // StartCore is already on the dedicated UI thread; this keeps the first sync
+            // on that thread and prevents Control.Handle cross-thread access during startup.
             SyncNow();
             HtmlUiLogger.Info("Event-driven Bannerlord window tracker started; legacy 100ms follow timer disabled.");
         }
@@ -135,7 +142,9 @@ namespace BannerlordHtmlUI
             if (form.InvokeRequired) { form.BeginInvoke(new Action(SyncNow)); return; }
             if (!Win32.TryGetGameWindowHandle(form.Handle, out var gameHwnd) || gameHwnd == IntPtr.Zero)
             {
-                if (form.Visible) form.Hide(); PublishState(new HtmlUiWindowState(false, false, false, 0, 0, 0, 0)); return;
+                if (form.Visible) form.Hide();
+                PublishState(new HtmlUiWindowState(false, false, false, 0, 0, 0, 0));
+                return;
             }
             Win32.GetWindowRect(gameHwnd, out var rect);
             var minimized = Win32.IsIconic(gameHwnd);
@@ -143,19 +152,6 @@ namespace BannerlordHtmlUI
             var foreground = Win32.GetForegroundWindow() == gameHwnd;
             var overlayForeground = form.IsHandleCreated && Win32.GetForegroundWindow() == form.Handle;
             var requestedVisible = _host.IsVisible;
-
-            // MouseCaptured is intentionally mouse-only. The overlay must never become the
-            // keyboard/foreground owner, otherwise consumer hotkeys such as TacticalMap N stop
-            // reaching Bannerlord while the map is interactive. Keep the overlay visible and
-            // mouse-capable, but restore the Bannerlord window as the foreground owner whenever
-            // the overlay is observed in the foreground.
-            if (_host.InputMode == HtmlUiInputMode.MouseCaptured && overlayForeground && gameVisible)
-            {
-                try { Win32.SetForegroundWindow(gameHwnd); }
-                catch { }
-                foreground = Win32.GetForegroundWindow() == gameHwnd;
-                overlayForeground = false;
-            }
 
             var showOverlay = requestedVisible && gameVisible && (foreground || overlayForeground);
             var windowWidth = Math.Max(0, rect.Right - rect.Left);
