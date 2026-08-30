@@ -38,6 +38,7 @@ namespace BannerlordHtmlUI
         private TaskCompletionSource<bool> _ready;
         private HtmlUiOverlayForm _form;
         private WebView2 _web;
+        private CoreWebView2 _coreWebView2;
         private CoreWebView2Environment _environment;
         private HtmlUiBridge _bridge;
         private FileSystemWatcher _watcher;
@@ -161,7 +162,8 @@ namespace BannerlordHtmlUI
 
         private void ConfigureAfterWebViewReady()
         {
-            if (_web?.CoreWebView2 == null)
+            var core = _web?.CoreWebView2;
+            if (core == null)
             {
                 var ex = new InvalidOperationException("WebView2 reported initialization complete but CoreWebView2 is null.");
                 HtmlUiLogger.Error("WebView2 initialization produced no CoreWebView2 instance.", ex);
@@ -169,16 +171,18 @@ namespace BannerlordHtmlUI
                 return;
             }
 
-            _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-            _web.CoreWebView2.Settings.AreDevToolsEnabled = DevToolsEnabled;
-            _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            _web.CoreWebView2.WebResourceRequested += OnWebResourceRequested;
-            _web.CoreWebView2.NavigationStarting += OnNavigationStarting;
-            _web.CoreWebView2.NavigationCompleted += OnNavigationCompleted;
-            _web.CoreWebView2.SourceChanged += (s, e2) => HtmlUiLogger.Info("WebView2 source changed: " + (_web.Source == null ? "<null>" : _web.Source.ToString()));
-            _web.CoreWebView2.ContentLoading += (s, e2) => HtmlUiLogger.Info("WebView2 content loading: " + e2.NavigationId);
-            _web.CoreWebView2.ProcessFailed += (s, args) =>
+            _coreWebView2 = core;
+            _coreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+            _coreWebView2.Settings.AreDevToolsEnabled = DevToolsEnabled;
+            _coreWebView2.Settings.IsStatusBarEnabled = false;
+            _coreWebView2.WebResourceRequested += OnWebResourceRequested;
+            _coreWebView2.NavigationStarting += OnNavigationStarting;
+            _coreWebView2.NavigationCompleted += OnNavigationCompleted;
+            _coreWebView2.SourceChanged += (s, e2) => HtmlUiLogger.Info("WebView2 source changed: " + (_web.Source == null ? "<null>" : _web.Source.ToString()));
+            _coreWebView2.ContentLoading += (s, e2) => HtmlUiLogger.Info("WebView2 content loading: " + e2.NavigationId);
+            _coreWebView2.ProcessFailed += (s, args) =>
             {
+                _webViewReady = false;
                 var message = "WebView2 process failed: " + args.ProcessFailedKind;
                 HtmlUiDiagnostics.RecordBrowserError(message);
                 BrowserError?.Invoke(message);
@@ -186,7 +190,7 @@ namespace BannerlordHtmlUI
             };
 
             _bridge = new HtmlUiBridge(this);
-            _bridge.Attach(_web.CoreWebView2);
+            _bridge.Attach(_coreWebView2);
             ConfigureLocalHost();
             InstallFrameworkRuntime();
             InstallRuntimeErrorForwarder();
@@ -310,7 +314,7 @@ namespace BannerlordHtmlUI
             var host = id.Equals("framework", StringComparison.OrdinalIgnoreCase) ? "bannerlord-htmlui.local" : "bannerlord-htmlui-" + SanitizeHostPart(id) + ".local";
             _contentRoots[id] = directory;
             _contentHosts[id] = host;
-            _web.CoreWebView2.SetVirtualHostNameToFolderMapping(host, directory, CoreWebView2HostResourceAccessKind.Allow);
+            _coreWebView2.SetVirtualHostNameToFolderMapping(host, directory, CoreWebView2HostResourceAccessKind.Allow);
         }
 
         private static string SanitizeHostPart(string value)
@@ -337,7 +341,7 @@ namespace BannerlordHtmlUI
         {
             var runtimePath = Path.Combine(_webRoot, "runtime.js");
             if (!File.Exists(runtimePath)) { HtmlUiLogger.Warn("runtime.js not found in framework web root."); return; }
-            _web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(runtimePath));
+            _coreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(runtimePath));
         }
 
         private void InstallRuntimeErrorForwarder()
@@ -424,7 +428,7 @@ namespace BannerlordHtmlUI
             {
                 try
                 {
-                    if (_web?.CoreWebView2 == null) { _pendingPage = page; return; }
+                    if (!_webViewReady || _coreWebView2 == null) { _pendingPage = page; return; }
                     _currentRelativePath = page.ContentRootId + ":/" + page.RelativePath;
                     EnableWatcherIfNeeded(page);
                     var host = GetContentHost(page);
@@ -459,8 +463,8 @@ namespace BannerlordHtmlUI
             _watcher.Changed += onChange; _watcher.Created += onChange; _watcher.Deleted += onChange; _watcher.Renamed += onRename;
         }
 
-        public void Reload() { if (!_disposed) EnsureUiThread(() => _web.Reload()); }
-        public void OpenDevTools() { if (DevToolsEnabled) EnsureUiThread(() => _web.CoreWebView2?.OpenDevToolsWindow()); }
+        public void Reload() { if (!_disposed && _webViewReady) EnsureUiThread(() => _web?.Reload()); }
+        public void OpenDevTools() { if (DevToolsEnabled && !_disposed && _webViewReady) EnsureUiThread(() => _coreWebView2?.OpenDevToolsWindow()); }
         public void Show() => SetInputMode(HtmlUiInputMode.Passive);
         public void Hide() => SetInputMode(HtmlUiInputMode.Hidden);
         public void CaptureInput() => SetInputMode(HtmlUiInputMode.Captured);
@@ -535,25 +539,39 @@ namespace BannerlordHtmlUI
 
         public void SendEvent(string name, object payload)
         {
-            EnsureUiThread(async () =>
+            if (_disposed || !_webViewReady) return;
+
+            EnsureUiThread(() =>
             {
-                if (_web?.CoreWebView2 == null) return;
-                var msg = JsonConvert.SerializeObject(new { version = 1, type = "event", name, payload });
-                await _web.CoreWebView2.ExecuteScriptAsync($"window.game&&window.game.__receive({JsonConvert.SerializeObject(msg)})");
+                if (_disposed || !_webViewReady || _coreWebView2 == null) return;
+
+                try
+                {
+                    var msg = JsonConvert.SerializeObject(new { version = 1, type = "event", name, payload });
+                    _coreWebView2.ExecuteScriptAsync($"window.game&&window.game.__receive({JsonConvert.SerializeObject(msg)})");
+                }
+                catch (ObjectDisposedException)
+                {
+                    _webViewReady = false;
+                }
+                catch (InvalidOperationException)
+                {
+                    _webViewReady = false;
+                }
             });
         }
 
         internal Task SendResponseAsync(string id, object payload, string error)
         {
-            if (_disposed) return Task.CompletedTask;
+            if (_disposed || !_webViewReady) return Task.CompletedTask;
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             EnsureUiThread(async () =>
             {
                 try
                 {
-                    if (_web?.CoreWebView2 == null) { completion.TrySetResult(false); return; }
+                    if (_disposed || !_webViewReady || _coreWebView2 == null) { completion.TrySetResult(false); return; }
                     var msg = JsonConvert.SerializeObject(new { version = 1, type = "response", id, ok = error == null, payload, error });
-                    await _web.CoreWebView2.ExecuteScriptAsync($"window.game&&window.game.__receive({JsonConvert.SerializeObject(msg)})").ConfigureAwait(true);
+                    await _coreWebView2.ExecuteScriptAsync($"window.game&&window.game.__receive({JsonConvert.SerializeObject(msg)})").ConfigureAwait(true);
                     completion.TrySetResult(true);
                 }
                 catch (Exception ex) { HtmlUiLogger.Error("Failed to send browser response.", ex); completion.TrySetException(ex); }
@@ -581,10 +599,12 @@ namespace BannerlordHtmlUI
         {
             if (_disposed) return;
             _disposed = true;
+            _webViewReady = false;
+            _coreWebView2 = null;
             try { HtmlUiKeyboardAndDiagnosticsPatch.Uninstall(this); } catch { }
             try { HtmlUiWindowTracker.Uninstall(this); } catch { }
             try { StopFollowTimer(); } catch { }
-            try { if (_followTimer != null) { _followTimer.Tick -= (s, e) => FollowBannerlordWindow(); _followTimer.Dispose(); _followTimer = null; } } catch { }
+            try { if (_followTimer != null) { _followTimer.Dispose(); _followTimer = null; } } catch { }
             try { _watcher?.Dispose(); } catch { }
             _watcher = null;
             try { _bridge?.Dispose(); } catch { }
@@ -593,7 +613,6 @@ namespace BannerlordHtmlUI
             {
                 try { if (_form.InvokeRequired) _form.BeginInvoke(new Action(() => { try { _form.Close(); } catch { } })); else _form.Close(); } catch { }
             }
-            _webViewReady = false;
         }
     }
 }
