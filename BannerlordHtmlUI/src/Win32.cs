@@ -1,118 +1,90 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace BannerlordHtmlUI
 {
     internal static class Win32
     {
-        [StructLayout(LayoutKind.Sequential)]
-        internal struct RECT
-        {
-            public int Left;
-            public int Top;
-            public int Right;
-            public int Bottom;
-        }
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool IsIconic(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool IsWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool IsWindowVisible(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        internal static extern IntPtr GetForegroundWindow();
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool SetForegroundWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
-        private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
-
-        [DllImport("user32.dll", EntryPoint = "GetWindowLong", SetLastError = true)]
-        private static extern IntPtr GetWindowLongPtr32(IntPtr hWnd, int nIndex);
-
-        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr", SetLastError = true)]
-        private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
-
-        [DllImport("user32.dll", EntryPoint = "SetWindowLong", SetLastError = true)]
-        private static extern IntPtr SetWindowLongPtr32(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
+        [StructLayout(LayoutKind.Sequential)] internal struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool EnumChildWindows(IntPtr hWndParent, EnumWindowsProc lpEnumFunc, IntPtr lParam);
-
-        internal const int GWL_EXSTYLE = -20;
-        internal const long WS_EX_NOACTIVATE = 0x08000000L;
-        internal const long WS_EX_TOOLWINDOW = 0x00000080L;
-        internal const long WS_EX_TRANSPARENT = 0x00000020L;
-        internal const int SW_SHOWNOACTIVATE = 4;
-
-        internal static void SetNoActivate(IntPtr hWnd, bool enabled)
+        private static readonly object GameWindowSync = new object();
+        private static IntPtr _lastKnownGameWindow;
+        [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+        [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool IsIconic(IntPtr hWnd);
+        [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool IsWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool IsWindowVisible(IntPtr hWnd);
+        [DllImport("user32.dll")] internal static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)] private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
+        [DllImport("user32.dll", EntryPoint = "GetWindowLong", SetLastError = true)] private static extern IntPtr GetWindowLongPtr32(IntPtr hWnd, int nIndex);
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr", SetLastError = true)] private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+        [DllImport("user32.dll", EntryPoint = "SetWindowLong", SetLastError = true)] private static extern IntPtr SetWindowLongPtr32(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+        [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool ReleaseCaptureNative();
+        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+        [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+        internal static readonly IntPtr HWND_TOP = IntPtr.Zero;
+        internal const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOACTIVATE = 0x0010, SWP_SHOWWINDOW = 0x0040;
+        internal const int GWL_EXSTYLE = -20, GWL_HWNDPARENT = -8, SW_SHOWNOACTIVATE = 4;
+        internal const long WS_EX_NOACTIVATE = 0x08000000L, WS_EX_TOOLWINDOW = 0x00000080L, WS_EX_TRANSPARENT = 0x00000020L;
+        internal static void ReleaseMouseCapture() { try { ReleaseCaptureNative(); } catch { } }
+        internal static void SetOwner(IntPtr hWnd, IntPtr ownerHwnd) { if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return; if (ownerHwnd != IntPtr.Zero && !IsWindow(ownerHwnd)) return; if (Environment.Is64BitProcess) SetWindowLongPtr64(hWnd, GWL_HWNDPARENT, ownerHwnd); else SetWindowLongPtr32(hWnd, GWL_HWNDPARENT, ownerHwnd); }
+        internal static bool SetPassThroughStyle(IntPtr hWnd, bool enabled)
         {
-            if (hWnd == IntPtr.Zero) return;
-            var current = Environment.Is64BitProcess
-                ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64()
-                : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
-
+            if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return false;
+            var current = Environment.Is64BitProcess ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64() : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
             var next = current | WS_EX_TOOLWINDOW;
-            if (enabled) next |= WS_EX_NOACTIVATE;
-            else next &= ~WS_EX_NOACTIVATE;
-
-            var value = new IntPtr(next);
-            if (Environment.Is64BitProcess)
-                SetWindowLongPtr64(hWnd, GWL_EXSTYLE, value);
+            if (enabled)
+                next |= WS_EX_NOACTIVATE | WS_EX_TRANSPARENT;
             else
-                SetWindowLongPtr32(hWnd, GWL_EXSTYLE, value);
+                next &= ~(WS_EX_NOACTIVATE | WS_EX_TRANSPARENT);
+            var result = Environment.Is64BitProcess
+                ? SetWindowLongPtr64(hWnd, GWL_EXSTYLE, new IntPtr(next))
+                : SetWindowLongPtr32(hWnd, GWL_EXSTYLE, new IntPtr(next));
+            var applied = result != IntPtr.Zero || Marshal.GetLastWin32Error() == 0;
+            var actual = Environment.Is64BitProcess ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64() : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
+            var transparent = (actual & WS_EX_TRANSPARENT) != 0;
+            var noActivate = (actual & WS_EX_NOACTIVATE) != 0;
+            HtmlUiLogger.Info("Overlay pass-through style enabled=" + enabled + " applied=" + applied + " transparent=" + transparent + " noActivate=" + noActivate + " hwnd=" + hWnd);
+            return applied && transparent == enabled && noActivate == enabled;
         }
-
-        // WS_EX_TRANSPARENT makes a window transparent to hit-testing: mouse events
-        // pass through to the window below it. Applied to the WebView2 child HWND it
-        // lets clicks fall through to the game in Passive overlay mode.
-        internal static void SetHitTestTransparent(IntPtr hWnd, bool enabled)
+        /// <summary>
+        /// Mouse-only capture: the overlay takes the mouse but must never take keyboard focus.
+        /// WS_EX_TRANSPARENT has to be cleared too, because a preceding Passive mode leaves it set,
+        /// and a layered/transparent overlay keeps forwarding every mouse event to Bannerlord.
+        /// </summary>
+        internal static bool SetMouseOnlyStyle(IntPtr hWnd, bool enabled)
         {
-            if (hWnd == IntPtr.Zero) return;
-            var current = Environment.Is64BitProcess
-                ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64()
-                : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
-
-            var next = enabled ? (current | WS_EX_TRANSPARENT) : (current & ~WS_EX_TRANSPARENT);
-
-            var value = new IntPtr(next);
-            if (Environment.Is64BitProcess)
-                SetWindowLongPtr64(hWnd, GWL_EXSTYLE, value);
+            if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return false;
+            var current = Environment.Is64BitProcess ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64() : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
+            var next = current | WS_EX_TOOLWINDOW;
+            if (enabled)
+                next = (next | WS_EX_NOACTIVATE) & ~WS_EX_TRANSPARENT;
             else
-                SetWindowLongPtr32(hWnd, GWL_EXSTYLE, value);
+                next &= ~(WS_EX_NOACTIVATE | WS_EX_TRANSPARENT);
+            var result = Environment.Is64BitProcess
+                ? SetWindowLongPtr64(hWnd, GWL_EXSTYLE, new IntPtr(next))
+                : SetWindowLongPtr32(hWnd, GWL_EXSTYLE, new IntPtr(next));
+            var actual = Environment.Is64BitProcess ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64() : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
+            var noActivate = (actual & WS_EX_NOACTIVATE) != 0;
+            var transparent = (actual & WS_EX_TRANSPARENT) != 0;
+            HtmlUiLogger.Info("Overlay mouse-only style enabled=" + enabled + " transparent=" + transparent + " noActivate=" + noActivate + " hwnd=" + hWnd);
+            return (result != IntPtr.Zero || Marshal.GetLastWin32Error() == 0) && noActivate == enabled && !transparent;
         }
-
-        // Apply hit-test transparency to a window AND all of its descendant windows.
-        // WebView2 maintains several child HWNDs (browser, renderer hosts), so we must
-        // walk the whole tree or clicks will still be swallowed by one of the children.
-        internal static void SetHitTestTransparentTree(IntPtr hWnd, bool enabled)
+        internal static bool TryGetGameWindowHandle(IntPtr excludedWindow, out IntPtr handle)
         {
-            SetHitTestTransparent(hWnd, enabled);
-            EnumChildWindows(hWnd, (child, _) =>
-            {
-                SetHitTestTransparent(child, enabled);
-                return true;
-            }, IntPtr.Zero);
+            handle = IntPtr.Zero;
+            var processId = unchecked((uint)Process.GetCurrentProcess().Id);
+            lock (GameWindowSync) if (IsUsableGameWindow(_lastKnownGameWindow, processId, excludedWindow)) { handle = _lastKnownGameWindow; return true; }
+            try { var main = Process.GetCurrentProcess().MainWindowHandle; if (IsUsableGameWindow(main, processId, excludedWindow)) return RememberGameWindow(main, out handle); } catch { }
+            try { var foreground = GetForegroundWindow(); if (IsUsableGameWindow(foreground, processId, excludedWindow)) return RememberGameWindow(foreground, out handle); } catch { }
+            try { IntPtr candidate = IntPtr.Zero; EnumWindows((hWnd, _) => { if (IsUsableGameWindow(hWnd, processId, excludedWindow)) { candidate = hWnd; return false; } return true; }, IntPtr.Zero); if (candidate != IntPtr.Zero) return RememberGameWindow(candidate, out handle); } catch { }
+            return false;
         }
+        private static bool RememberGameWindow(IntPtr handle, out IntPtr result) { var changed = false; lock (GameWindowSync) { changed = _lastKnownGameWindow != handle; _lastKnownGameWindow = handle; } result = handle; if (changed) HtmlUiLogger.Info("Bannerlord game window resolved: hwnd=" + handle); return true; }
+        private static bool IsUsableGameWindow(IntPtr hWnd, uint processId, IntPtr excludedWindow) { if (hWnd == IntPtr.Zero || hWnd == excludedWindow || !IsWindow(hWnd) || !IsWindowVisible(hWnd) || IsIconic(hWnd)) return false; GetWindowThreadProcessId(hWnd, out var ownerProcessId); return ownerProcessId == processId; }
+        internal static void BringWindowAboveOwnerWithoutActivate(IntPtr hWnd) { if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return; SetWindowPos(hWnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW); }
     }
 }

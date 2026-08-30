@@ -1,59 +1,21 @@
-# BannerlordHtmlUI Documentation
+# Framework 辅助文档
 
-Index of the Framework documentation. Keep this up to date as docs are added.
+当前规范入口已经移到仓库根目录，不在本目录重复维护。
 
-## Get Started
+## 根目录必读
 
-- [QUICKSTART.md](QUICKSTART.md) — first run and minimal page.
-- [USAGE.md](USAGE.md) — general usage.
-- [CONSUMER_INTEGRATION.md](CONSUMER_INTEGRATION.md) — integrating as a consumer mod.
-- [CONSUMER_TEMPLATE.md](CONSUMER_TEMPLATE.md) — project template.
-- [CONSUMER_DEPLOYMENT_CHECKLIST.md](CONSUMER_DEPLOYMENT_CHECKLIST.md) — deployment checklist.
-- [CONSUMER_SCOPE.md](CONSUMER_SCOPE.md) — consumer scope API.
-- [CONSUMER_TEST.md](CONSUMER_TEST.md) — acceptance test coverage.
-- [GOLDEN_CONSUMER_EXAMPLE.md](GOLDEN_CONSUMER_EXAMPLE.md) — canonical example.
+- `../../../.. /ARCHITECTURE_MASTER.md` — 架构、模块职责、代码归属
+- `../../../.. /BUG_KNOWLEDGE_BASE.md` — Bug 经验与定位
+- `../../../.. /API.md` — Public API
+- `../../../.. /DEVELOPMENT_GUIDE.md` — 开发规则
+- `../../../.. /PROJECT_STATUS.md` — 当前状态与回归矩阵
 
-## API & Architecture
+上面的路径仅示意；在 GitHub 页面中直接从仓库根目录打开这些文件。
 
-- [API.md](API.md) — C# API reference (HtmlUiService, HtmlUiPage, HtmlUiPageManager, state, input).
-- [ARCHITECTURE.md](ARCHITECTURE.md) — overall design.
-- [PROTOCOL.md](PROTOCOL.md) — web <-> C# message protocol.
-- [THREADING.md](THREADING.md) — threading model.
-- [LIFECYCLE.md](LIFECYCLE.md) — Framework/page lifecycle.
-- [ROUTING.md](ROUTING.md) — page routing.
-- [CONTENT_ROOTS.md](CONTENT_ROOTS.md) — content root resolution.
-- [RUNTIME_BASELINE.md](RUNTIME_BASELINE.md) — runtime baseline decisions.
-- [MIGRATION_JSON.md](MIGRATION_JSON.md) — JSON migration notes.
+## 本目录仅保留
 
-## Frontend
+- `FRONTEND_GUIDE.md`：Runtime / State / Binding / i18n / Component 辅助指南
+- `CHANGELOG.md`：历史版本索引
+- 其他 Frontend / Protocol 原始资料：只有仍被实际代码或发布流程引用时才保留。
 
-- [FRONTEND_API.md](FRONTEND_API.md) — `game.*` API overview.
-- [FRONTEND_APP.md](FRONTEND_APP.md) — `game.app` scope.
-- [FRONTEND_BINDING.md](FRONTEND_BINDING.md) — declarative and imperative binding.
-- [FRONTEND_COMPONENTS.md](FRONTEND_COMPONENTS.md) — component binding.
-- [FRONTEND_EVENTS.md](FRONTEND_EVENTS.md) — events.
-- [FRONTEND_FORMS.md](FRONTEND_FORMS.md) — forms / two-way binding.
-- [FRONTEND_LIFECYCLE.md](FRONTEND_LIFECYCLE.md) — page lifecycle from JS.
-
-## Features
-
-- [LOCALIZATION.md](LOCALIZATION.md) — localization / i18n.
-- [INPUT.md](INPUT.md) — input capture / release / modes.
-- [OVERLAY.md](OVERLAY.md) — **non-fullscreen transparent overlay / HUD** (since v0.44).
-- [COMPONENTS.md](COMPONENTS.md) — component model.
-- [LOGGING.md](LOGGING.md) — logging behavior.
-- [DIAGNOSTICS.md](DIAGNOSTICS.md) — F10 diagnostics / snapshot.
-
-## Operations
-
-- [DEBUGGING.md](DEBUGGING.md) — debugging the host.
-- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — common issues.
-- [REAL_WORLD_TEST.md](REAL_WORLD_TEST.md) — on-device test notes.
-- [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) — release checklist.
-
-## Changelogs
-
-- [CHANGELOG_v0.44.md](CHANGELOG_v0.44.md) — overlay, runtime fix, robustness, page reload.
-- [CHANGELOG_v0.43.md](CHANGELOG_v0.43.md)
-- [CHANGELOG_v0.42.md](CHANGELOG_v0.42.md)
-- earlier versions under `CHANGELOG_v0.*.md`.
+不要在这里重新创建与根目录当前规范重复的 Architecture / API / Status / Bug Knowledge 文档。

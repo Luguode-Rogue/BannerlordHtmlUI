@@ -41,6 +41,20 @@ Pages.Register(new HtmlUiPage("settings", "Settings/index.html")
 
 打开页面后 Framework 会自动应用该页面的默认模式。
 
+## 页面级 Escape 策略
+
+默认情况下，Framework 会把 Escape 解释为“关闭当前 Page”。如果一个页面自己拥有 Escape 状态机，可以显式关闭宿主的 Page-close 行为：
+
+```csharp
+Pages.Register(new HtmlUiPage("tacticalmap", "TacticalMap/index.html")
+{
+    DefaultInputMode = HtmlUiInputMode.Passive,
+    CloseOnEscape = false
+});
+```
+
+此时 Framework 的 Overlay、全局键盘过滤器和 WebView2 `AcceleratorKeyPressed` 都不会消费 Escape，Captured 状态下按键可以继续送入页面自己的 JavaScript `keydown` 处理。
+
 ## 关于“区域级穿透”
 
 当前版本做到的是**页面级输入策略**。一个 WebView2 原生窗口的 Win32 命中测试不能直接读取 DOM 的每个元素，因此不能仅靠 `WM_NCHITTEST` 实现可靠的“这个 HTML 按钮拦截、旁边区域把鼠标交给 Bannerlord”的跨窗口区域穿透。
@@ -53,4 +67,5 @@ Pages.Register(new HtmlUiPage("settings", "Settings/index.html")
 2. Captured 页面打开后，HTML 控件可以正常点击/输入。
 3. Release 后页面回到 Passive，而不是强制隐藏页面。
 4. Hidden 后覆盖层消失。
-5. Bannerlord 最小化、切到其他窗口时覆盖层隐藏；重新回到 Bannerlord 时按原状态恢复。
+5. `CloseOnEscape=false` 页面在 Captured 状态下，Escape 可以交给页面 JavaScript，而不是自动关闭 Page。
+6. Bannerlord 最小化、切到其他窗口时覆盖层隐藏；重新回到 Bannerlord 时按原状态恢复。

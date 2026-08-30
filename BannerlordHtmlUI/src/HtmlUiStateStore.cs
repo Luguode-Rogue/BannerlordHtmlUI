@@ -15,14 +15,28 @@ namespace BannerlordHtmlUI
 
         public int Count
         {
-            get { lock (_sync) return _values.Count; }
+            get
+            {
+                lock (_sync) return _values.Count;
+            }
         }
 
         public void Set(string key, object value)
         {
             if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("State key is required.", nameof(key));
-            lock (_sync) _values[key] = value;
-            _host.SendEvent("state:" + key, value);
+
+            bool changed;
+            lock (_sync)
+            {
+                if (_values.TryGetValue(key, out var existing) && AreEqual(existing, value))
+                    return;
+
+                _values[key] = value;
+                changed = true;
+            }
+
+            if (changed)
+                _host.SendEvent("state:" + key, value);
         }
 
         public bool TryGet(string key, out object value)
@@ -32,8 +46,15 @@ namespace BannerlordHtmlUI
 
         public void Remove(string key)
         {
-            lock (_sync) _values.Remove(key);
-            _host.SendEvent("state:removed", new { key });
+            if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("State key is required.", nameof(key));
+
+            bool removed;
+            lock (_sync) removed = _values.Remove(key);
+            if (!removed) return;
+
+            // Null is a legitimate state value, so removal must not reuse state:<key>.
+            // The runtime patch consumes state-remove:<key> and deletes the JS Map entry.
+            _host.SendEvent("state-remove:" + key, null);
         }
 
         public IReadOnlyDictionary<string, object> GetSnapshot()
@@ -44,6 +65,31 @@ namespace BannerlordHtmlUI
         public string SnapshotJson()
         {
             lock (_sync) return JsonConvert.SerializeObject(_values);
+        }
+
+        private static bool AreEqual(object left, object right)
+        {
+            if (ReferenceEquals(left, right)) return true;
+            if (left == null || right == null) return false;
+
+            // Avoid JSON conversion for the common scalar-state case.
+            // These are the values most likely to be updated frequently by bindings.
+            if (left is string || left is bool || left is char || left is decimal || left is double || left is float ||
+                left is byte || left is sbyte || left is short || left is ushort || left is int || left is uint ||
+                left is long || left is ulong || left is DateTime || left is DateTimeOffset || left is Guid ||
+                left is TimeSpan)
+            {
+                return left.GetType() == right.GetType() && left.Equals(right);
+            }
+
+            try
+            {
+                return JToken.DeepEquals(JToken.FromObject(left), JToken.FromObject(right));
+            }
+            catch
+            {
+                return Equals(left, right);
+            }
         }
     }
 }
