@@ -167,6 +167,7 @@ namespace BannerlordHtmlUI
                     form.SetPassThrough(true);
                     Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
+                    ReturnForegroundToGame(form, gameHwnd, "Passive");
                     HtmlUiInputTraceLogger.Event(
                         "INPUT_MODE_PASSIVE_APPLIED htmlMouse=false htmlKeyboard=false nativeCaptureReleased=" + captureReleased +
                         " webEnabled=false passThrough=true mouseOnly=false");
@@ -179,6 +180,7 @@ namespace BannerlordHtmlUI
                     form.SetMouseOnly(true);
                     Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
+                    ReturnForegroundToGame(form, gameHwnd, "MouseCaptured");
                     HtmlUiInputTraceLogger.Event(
                         "INPUT_MODE_MOUSE_CAPTURED_APPLIED htmlMouse=true htmlKeyboard=false mouseOnly=true noActivate=true");
                 }
@@ -208,6 +210,27 @@ namespace BannerlordHtmlUI
             finally
             {
                 state.Applying = false;
+            }
+        }
+
+        /// <summary>
+        /// Passive and MouseCaptured both leave the keyboard with the game, so the game window must own
+        /// the foreground. SW_SHOWNOACTIVATE only stops the overlay from taking focus; it never hands
+        /// focus back, so a preceding Captured mode leaves the overlay in front and silently swallows
+        /// every game hotkey.
+        /// </summary>
+        private static void ReturnForegroundToGame(HtmlUiOverlayForm form, IntPtr gameHwnd, string mode)
+        {
+            if (form == null || gameHwnd == IntPtr.Zero) return;
+            try
+            {
+                if (Win32.GetForegroundWindow() != form.Handle) return;
+                Win32.SetForegroundWindow(gameHwnd);
+                HtmlUiInputTraceLogger.Event("FOREGROUND_RETURNED_TO_GAME mode=" + mode + " gameHwnd=" + gameHwnd);
+            }
+            catch (Exception ex)
+            {
+                HtmlUiInputTraceLogger.Event("FOREGROUND_RETURN_ERROR mode=" + mode + " error=" + ex.GetBaseException().Message);
             }
         }
 

@@ -259,6 +259,10 @@ namespace BannerlordHtmlUI
 
         private static void SetWebViewReady(HtmlUiHost host, bool ready)
         {
+            // Prefer the host-owned transition so the cached CoreWebView2 reference is invalidated
+            // atomically with the ready flag. Reflection is only a fallback for older layouts.
+            try { host.SetWebViewReady(ready); return; }
+            catch { }
             var field = typeof(HtmlUiHost).GetField("_webViewReady", BindingFlags.Instance | BindingFlags.NonPublic);
             field?.SetValue(host, ready);
         }

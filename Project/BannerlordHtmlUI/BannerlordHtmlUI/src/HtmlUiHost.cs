@@ -38,7 +38,6 @@ namespace BannerlordHtmlUI
         private TaskCompletionSource<bool> _ready;
         private HtmlUiOverlayForm _form;
         private WebView2 _web;
-        private CoreWebView2 _coreWebView2;
         private CoreWebView2Environment _environment;
         private HtmlUiBridge _bridge;
         private FileSystemWatcher _watcher;
@@ -47,9 +46,12 @@ namespace BannerlordHtmlUI
         private bool _navigationInProgress;
         private bool _disposed;
         private volatile bool _webViewReady;
+        // Cached CoreWebView2 reference. Reading WebView2.CoreWebView2 after the underlying
+        // WebView has been disposed raises COM failures (RPC_E_DISCONNECTED / DisconnectedContext)
+        // instead of returning null, so every script dispatch must go through this field.
+        private CoreWebView2 _coreWebView2;
         private HtmlUiInputMode _inputMode = HtmlUiInputMode.Hidden;
         private bool _requestedVisible;
-        private System.Windows.Forms.Timer _followTimer;
         private readonly Dictionary<string, string> _contentRoots = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, string> _contentHosts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -58,6 +60,12 @@ namespace BannerlordHtmlUI
         public bool DevToolsEnabled { get; set; } = true;
         public bool HotReloadEnabled { get; set; } = false;
         public bool IsVisible => _requestedVisible && _form != null && !_form.IsDisposed && _form.Visible;
+        /// <summary>
+        /// Whether the framework currently intends the overlay to be shown. Unlike <see cref="IsVisible"/>
+        /// this does not depend on the form's actual visibility, so window tracking can decide whether
+        /// to show the overlay without a circular dependency on the very state it is producing.
+        /// </summary>
+        internal bool IsOverlayRequested => _requestedVisible;
         public bool IsWebViewReady => _webViewReady;
         public bool IsInputCaptured => _inputMode == HtmlUiInputMode.Captured || _inputMode == HtmlUiInputMode.MouseCaptured;
         public HtmlUiInputMode InputMode => _inputMode;
@@ -100,16 +108,6 @@ namespace BannerlordHtmlUI
                 _form = new HtmlUiOverlayForm { BackColor = Color.Black, Opacity = 1.0 };
                 _web = new WebView2 { Dock = DockStyle.Fill };
                 _form.Controls.Add(_web);
-                _followTimer = new System.Windows.Forms.Timer { Interval = 100 };
-                _followTimer.Tick += (s, e) =>
-                {
-                    if (_inputMode == HtmlUiInputMode.Hidden || !_requestedVisible)
-                    {
-                        StopFollowTimer();
-                        return;
-                    }
-                    FollowBannerlordWindow();
-                };
                 _form.Load += OnFormLoad;
                 HtmlUiLogger.Info("WebView2 UI form created. Starting WinForms message loop.");
                 Application.Run(_form);
@@ -120,18 +118,6 @@ namespace BannerlordHtmlUI
                 HtmlUiLogger.Error("WebView2 UI thread failed.", ex);
                 _ready?.TrySetException(ex);
             }
-        }
-
-        private void StartFollowTimer()
-        {
-            if (_followTimer == null || _followTimer.Enabled) return;
-            _followTimer.Start();
-        }
-
-        private void StopFollowTimer()
-        {
-            if (_followTimer == null || !_followTimer.Enabled) return;
-            _followTimer.Stop();
         }
 
         private void OnFormLoad(object sender, EventArgs e)
@@ -160,6 +146,17 @@ namespace BannerlordHtmlUI
             }
         }
 
+        /// <summary>
+        /// Single owner of the ready flag. Process recovery rebuilds CoreWebView2 in place, so the
+        /// cached reference must be invalidated together with the flag; otherwise script dispatch
+        /// can reach a torn-down COM object during the recovery window.
+        /// </summary>
+        internal void SetWebViewReady(bool ready)
+        {
+            if (!ready) Volatile.Write(ref _coreWebView2, null);
+            _webViewReady = ready;
+        }
+
         private void ConfigureAfterWebViewReady()
         {
             var core = _web?.CoreWebView2;
@@ -171,18 +168,18 @@ namespace BannerlordHtmlUI
                 return;
             }
 
-            _coreWebView2 = core;
-            _coreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-            _coreWebView2.Settings.AreDevToolsEnabled = DevToolsEnabled;
-            _coreWebView2.Settings.IsStatusBarEnabled = false;
-            _coreWebView2.WebResourceRequested += OnWebResourceRequested;
-            _coreWebView2.NavigationStarting += OnNavigationStarting;
-            _coreWebView2.NavigationCompleted += OnNavigationCompleted;
-            _coreWebView2.SourceChanged += (s, e2) => HtmlUiLogger.Info("WebView2 source changed: " + (_web.Source == null ? "<null>" : _web.Source.ToString()));
-            _coreWebView2.ContentLoading += (s, e2) => HtmlUiLogger.Info("WebView2 content loading: " + e2.NavigationId);
-            _coreWebView2.ProcessFailed += (s, args) =>
+            Volatile.Write(ref _coreWebView2, core);
+
+            core.Settings.AreDefaultContextMenusEnabled = true;
+            core.Settings.AreDevToolsEnabled = DevToolsEnabled;
+            core.Settings.IsStatusBarEnabled = false;
+            core.WebResourceRequested += OnWebResourceRequested;
+            core.NavigationStarting += OnNavigationStarting;
+            core.NavigationCompleted += OnNavigationCompleted;
+            core.SourceChanged += (s, e2) => HtmlUiLogger.Info("WebView2 source changed: " + (_web.Source == null ? "<null>" : _web.Source.ToString()));
+            core.ContentLoading += (s, e2) => HtmlUiLogger.Info("WebView2 content loading: " + e2.NavigationId);
+            core.ProcessFailed += (s, args) =>
             {
-                _webViewReady = false;
                 var message = "WebView2 process failed: " + args.ProcessFailedKind;
                 HtmlUiDiagnostics.RecordBrowserError(message);
                 BrowserError?.Invoke(message);
@@ -190,13 +187,13 @@ namespace BannerlordHtmlUI
             };
 
             _bridge = new HtmlUiBridge(this);
-            _bridge.Attach(_coreWebView2);
+            _bridge.Attach(_web.CoreWebView2);
             ConfigureLocalHost();
             InstallFrameworkRuntime();
             InstallRuntimeErrorForwarder();
             InstallRuntimePatchesOnUiThread();
 
-            _webViewReady = true;
+            SetWebViewReady(true);
             _ready.TrySetResult(true);
             HtmlUiLogger.Info("WebView2 ready. Host is operational.");
             Ready?.Invoke();
@@ -215,61 +212,9 @@ namespace BannerlordHtmlUI
             try { HtmlUiNavigationRacePatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install navigation race guard.", ex); }
         }
 
-        private void FollowBannerlordWindow()
-        {
-            try
-            {
-                var hwnd = Win32.TryGetGameWindowHandle(_form != null && _form.IsHandleCreated ? _form.Handle : IntPtr.Zero, out var resolved) ? resolved : IntPtr.Zero;
-                if (hwnd == IntPtr.Zero || !Win32.GetWindowRect(hwnd, out var rect))
-                {
-                    return;
-                }
-                var minimized = Win32.IsIconic(hwnd);
-                var windowVisible = Win32.IsWindowVisible(hwnd);
-                if (_inputMode == HtmlUiInputMode.Hidden || !_requestedVisible)
-                {
-                    StopFollowTimer();
-                    return;
-                }
-                if (minimized || !windowVisible)
-                {
-                    ReleaseNativeCaptureOnly();
-                    _form?.Hide();
-                    return;
-                }
-
-                _form.SetOwner(hwnd);
-                _form.Bounds = new Rectangle(rect.Left, rect.Top, Math.Max(1, rect.Right - rect.Left), Math.Max(1, rect.Bottom - rect.Top));
-                if (!_form.Visible) _form.Show();
-                if (_inputMode == HtmlUiInputMode.Passive)
-                {
-                    _form.SetPassThrough(true);
-                    Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
-                    Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
-                }
-                else if (_inputMode == HtmlUiInputMode.MouseCaptured)
-                {
-                    // MouseCaptured is owned by HtmlUiInputControllerPatch. The follow timer
-                    // only keeps the overlay positioned and above the Bannerlord owner; it must
-                    // not call SetPassThrough(false), which would clear the form's _mouseOnly
-                    // state and undo WS_EX_NOACTIVATE on every 100 ms tick.
-                    Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
-                    Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
-                }
-                else
-                {
-                    _form.SetPassThrough(false);
-                    Win32.ShowWindow(_form.Handle, Win32.SW_SHOWNOACTIVATE);
-                    Win32.BringWindowAboveOwnerWithoutActivate(_form.Handle);
-                }
-            }
-            catch (Exception ex) { HtmlUiLogger.Debug("Legacy window tracking failed: " + ex.GetBaseException().Message); }
-        }
-
-        private void ReleaseNativeCaptureOnly()
-        {
-            try { Win32.ReleaseMouseCapture(); } catch { }
-        }
+        // Overlay geometry and follow behaviour are owned exclusively by HtmlUiWindowTracker.
+        // Host.SetInputMode only carries input semantics; keeping a second timer-driven follow
+        // mechanism here is what previously let two components fight over the same overlay.
 
         private void ConfigureLocalHost() => MapContentRoot("framework", _webRoot);
 
@@ -314,7 +259,9 @@ namespace BannerlordHtmlUI
             var host = id.Equals("framework", StringComparison.OrdinalIgnoreCase) ? "bannerlord-htmlui.local" : "bannerlord-htmlui-" + SanitizeHostPart(id) + ".local";
             _contentRoots[id] = directory;
             _contentHosts[id] = host;
-            _coreWebView2.SetVirtualHostNameToFolderMapping(host, directory, CoreWebView2HostResourceAccessKind.Allow);
+            var core = Volatile.Read(ref _coreWebView2);
+            if (core == null) return;
+            core.SetVirtualHostNameToFolderMapping(host, directory, CoreWebView2HostResourceAccessKind.Allow);
         }
 
         private static string SanitizeHostPart(string value)
@@ -341,13 +288,16 @@ namespace BannerlordHtmlUI
         {
             var runtimePath = Path.Combine(_webRoot, "runtime.js");
             if (!File.Exists(runtimePath)) { HtmlUiLogger.Warn("runtime.js not found in framework web root."); return; }
-            _coreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(runtimePath));
+            var core = Volatile.Read(ref _coreWebView2);
+            if (core == null) return;
+            core.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(runtimePath));
         }
 
         private void InstallRuntimeErrorForwarder()
         {
             var js = @"(() => { const send=(kind,error)=>{ try { chrome.webview.postMessage({version:1,type:'command',id:null,name:'runtime.error',payload:{kind,message:String(error)}}); } catch(_){} }; window.addEventListener('error',e=>send('error',e.error||e.message)); window.addEventListener('unhandledrejection',e=>send('unhandledrejection',e.reason)); })();";
-            _web.ExecuteScriptAsync(js);
+            var core = Volatile.Read(ref _coreWebView2);
+            if (core != null) DispatchScript(core, js, null);
         }
 
         private void OnWebResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs e) { }
@@ -428,7 +378,7 @@ namespace BannerlordHtmlUI
             {
                 try
                 {
-                    if (!_webViewReady || _coreWebView2 == null) { _pendingPage = page; return; }
+                    if (_web == null || Volatile.Read(ref _coreWebView2) == null) { _pendingPage = page; return; }
                     _currentRelativePath = page.ContentRootId + ":/" + page.RelativePath;
                     EnableWatcherIfNeeded(page);
                     var host = GetContentHost(page);
@@ -463,14 +413,20 @@ namespace BannerlordHtmlUI
             _watcher.Changed += onChange; _watcher.Created += onChange; _watcher.Deleted += onChange; _watcher.Renamed += onRename;
         }
 
-        public void Reload() { if (!_disposed && _webViewReady) EnsureUiThread(() => _web?.Reload()); }
-        public void OpenDevTools() { if (DevToolsEnabled && !_disposed && _webViewReady) EnsureUiThread(() => _coreWebView2?.OpenDevToolsWindow()); }
+        public void Reload() { if (!_disposed) EnsureUiThread(() => _web.Reload()); }
+        public void OpenDevTools() { if (DevToolsEnabled) EnsureUiThread(() => Volatile.Read(ref _coreWebView2)?.OpenDevToolsWindow()); }
         public void Show() => SetInputMode(HtmlUiInputMode.Passive);
         public void Hide() => SetInputMode(HtmlUiInputMode.Hidden);
         public void CaptureInput() => SetInputMode(HtmlUiInputMode.Captured);
         public void CaptureMouse() => SetInputMode(HtmlUiInputMode.MouseCaptured);
         public void ReleaseInput() => SetInputMode(HtmlUiInputMode.Passive);
 
+        /// <summary>
+        /// Normally intercepted by HtmlUiInputControllerPatch, which owns input semantics. This body
+        /// remains as the fallback path when that patch is unavailable: it still applies the overlay
+        /// state for the requested mode, while continuous window following belongs to
+        /// HtmlUiWindowTracker and is intentionally not duplicated here.
+        /// </summary>
         public void SetInputMode(HtmlUiInputMode mode)
         {
             if (_disposed) return;
@@ -487,8 +443,7 @@ namespace BannerlordHtmlUI
             if (mode == HtmlUiInputMode.Hidden)
             {
                 _requestedVisible = false;
-                StopFollowTimer();
-                ReleaseNativeCaptureOnly();
+                try { Win32.ReleaseMouseCapture(); } catch { }
                 try { if (_web != null) _web.Enabled = false; } catch { }
                 try { _form.SetPassThrough(true); } catch { }
                 try { _form.Hide(); } catch { }
@@ -497,7 +452,6 @@ namespace BannerlordHtmlUI
                 return;
             }
             _requestedVisible = true;
-            StartFollowTimer();
             if (gameWindow != IntPtr.Zero)
             {
                 try { _form.SetOwner(gameWindow); } catch { }
@@ -539,44 +493,88 @@ namespace BannerlordHtmlUI
 
         public void SendEvent(string name, object payload)
         {
-            if (_disposed || !_webViewReady) return;
-
             EnsureUiThread(() =>
             {
-                if (_disposed || !_webViewReady || _coreWebView2 == null) return;
-
-                try
-                {
-                    var msg = JsonConvert.SerializeObject(new { version = 1, type = "event", name, payload });
-                    _coreWebView2.ExecuteScriptAsync($"window.game&&window.game.__receive({JsonConvert.SerializeObject(msg)})");
-                }
-                catch (ObjectDisposedException)
-                {
-                    _webViewReady = false;
-                }
-                catch (InvalidOperationException)
-                {
-                    _webViewReady = false;
-                }
+                var core = Volatile.Read(ref _coreWebView2);
+                if (_disposed || core == null) return;
+                var msg = JsonConvert.SerializeObject(new { version = 1, type = "event", name, payload });
+                DispatchScript(core, "window.game&&window.game.__receive(" + JsonConvert.SerializeObject(msg) + ")", null);
             });
         }
 
         internal Task SendResponseAsync(string id, object payload, string error)
         {
-            if (_disposed || !_webViewReady) return Task.CompletedTask;
+            if (_disposed) return Task.CompletedTask;
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            EnsureUiThread(async () =>
+
+            // EnsureUiThread silently drops the callback once the overlay form is gone, which would
+            // leave the caller awaiting a completion source that can never settle.
+            var form = _form;
+            if (form == null || form.IsDisposed) { completion.TrySetResult(false); return completion.Task; }
+
+            EnsureUiThread(() =>
             {
-                try
-                {
-                    if (_disposed || !_webViewReady || _coreWebView2 == null) { completion.TrySetResult(false); return; }
-                    var msg = JsonConvert.SerializeObject(new { version = 1, type = "response", id, ok = error == null, payload, error });
-                    await _coreWebView2.ExecuteScriptAsync($"window.game&&window.game.__receive({JsonConvert.SerializeObject(msg)})").ConfigureAwait(true);
-                    completion.TrySetResult(true);
-                }
-                catch (Exception ex) { HtmlUiLogger.Error("Failed to send browser response.", ex); completion.TrySetException(ex); }
+                var core = Volatile.Read(ref _coreWebView2);
+                if (_disposed || core == null) { completion.TrySetResult(false); return; }
+                var msg = JsonConvert.SerializeObject(new { version = 1, type = "response", id, ok = error == null, payload, error });
+                DispatchScript(core, "window.game&&window.game.__receive(" + JsonConvert.SerializeObject(msg) + ")", completion);
             });
             return completion.Task;
+        }
+
+        /// <summary>
+        /// Executes a script against a cached CoreWebView2 reference and normalizes the WebView2
+        /// shutdown races (RPC_E_DISCONNECTED / DisconnectedContext / ObjectDisposed) into a
+        /// non-throwing result. Never rethrows onto the WinForms message loop.
+        /// </summary>
+        private static void DispatchScript(CoreWebView2 core, string script, TaskCompletionSource<bool> completion)
+        {
+            if (core == null) { completion?.TrySetResult(false); return; }
+            try
+            {
+                var task = core.ExecuteScriptAsync(script);
+                if (task == null) { completion?.TrySetResult(false); return; }
+                task.ContinueWith(t =>
+                {
+                    if (t.IsCanceled) { completion?.TrySetResult(false); return; }
+                    var error = t.Exception?.GetBaseException();
+                    if (error != null)
+                    {
+                        if (IsWebViewShutdownFailure(error)) { completion?.TrySetResult(false); return; }
+                        HtmlUiLogger.Error("Failed to dispatch script to the browser.", error);
+                        if (completion != null) completion.TrySetException(error);
+                        return;
+                    }
+                    completion?.TrySetResult(true);
+                }, TaskContinuationOptions.ExecuteSynchronously);
+            }
+            catch (Exception ex)
+            {
+                var error = ex.GetBaseException();
+                if (!IsWebViewShutdownFailure(error)) HtmlUiLogger.Error("Failed to dispatch script to the browser.", error);
+                completion?.TrySetResult(false);
+            }
+        }
+
+        private static bool IsWebViewShutdownFailure(Exception error)
+        {
+            if (error is ObjectDisposedException || error is OperationCanceledException) return true;
+            var com = error as System.Runtime.InteropServices.COMException;
+            if (com != null)
+            {
+                switch ((uint)com.HResult)
+                {
+                    case 0x80010108u: // RPC_E_DISCONNECTED
+                    case 0x8001010Du: // RPC_E_SERVER_DIED_DNE
+                    case 0x8001010Eu: // RPC_E_WRONG_THREAD
+                    case 0x800706BAu: // RPC_S_SERVER_UNAVAILABLE (DisconnectedContext)
+                    case 0x800706BEu: // RPC_S_CALL_FAILED
+                        return true;
+                }
+                return false;
+            }
+            // WebView2 surfaces a torn-down CoreWebView2 as InvalidOperationException.
+            return error is InvalidOperationException && error.Message.IndexOf("disposed", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void EnsureUiThread(Action action)
@@ -599,12 +597,12 @@ namespace BannerlordHtmlUI
         {
             if (_disposed) return;
             _disposed = true;
+            // Drop the cached CoreWebView2 first: any in-flight script dispatch started before
+            // disposal must observe a dead host rather than touch a torn-down COM object.
             _webViewReady = false;
-            _coreWebView2 = null;
+            Volatile.Write(ref _coreWebView2, null);
             try { HtmlUiKeyboardAndDiagnosticsPatch.Uninstall(this); } catch { }
             try { HtmlUiWindowTracker.Uninstall(this); } catch { }
-            try { StopFollowTimer(); } catch { }
-            try { if (_followTimer != null) { _followTimer.Dispose(); _followTimer = null; } } catch { }
             try { _watcher?.Dispose(); } catch { }
             _watcher = null;
             try { _bridge?.Dispose(); } catch { }
@@ -613,6 +611,7 @@ namespace BannerlordHtmlUI
             {
                 try { if (_form.InvokeRequired) _form.BeginInvoke(new Action(() => { try { _form.Close(); } catch { } })); else _form.Close(); } catch { }
             }
+            _webViewReady = false;
         }
     }
 }

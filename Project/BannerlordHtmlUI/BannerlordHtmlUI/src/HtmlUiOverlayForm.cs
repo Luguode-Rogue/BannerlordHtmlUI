@@ -56,8 +56,8 @@ namespace BannerlordHtmlUI
         {
             _mouseOnly = enabled;
             _passThrough = false;
-            var applied = Win32.SetNoActivate(Handle, enabled);
-            HtmlUiLogger.Info("Overlay SetMouseOnly enabled=" + enabled + " noActivateApplied=" + applied + " hwnd=" + Handle);
+            var applied = Win32.SetMouseOnlyStyle(Handle, enabled);
+            HtmlUiLogger.Info("Overlay SetMouseOnly enabled=" + enabled + " applied=" + applied + " hwnd=" + Handle);
         }
 
         protected override bool ShowWithoutActivation => _passThrough || _mouseOnly;

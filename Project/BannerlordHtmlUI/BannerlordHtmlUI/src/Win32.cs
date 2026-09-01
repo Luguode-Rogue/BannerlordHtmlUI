@@ -50,18 +50,28 @@ namespace BannerlordHtmlUI
             HtmlUiLogger.Info("Overlay pass-through style enabled=" + enabled + " applied=" + applied + " transparent=" + transparent + " noActivate=" + noActivate + " hwnd=" + hWnd);
             return applied && transparent == enabled && noActivate == enabled;
         }
-        internal static bool SetNoActivate(IntPtr hWnd, bool enabled)
+        /// <summary>
+        /// Mouse-only capture: the overlay takes the mouse but must never take keyboard focus.
+        /// WS_EX_TRANSPARENT has to be cleared too, because a preceding Passive mode leaves it set,
+        /// and a layered/transparent overlay keeps forwarding every mouse event to Bannerlord.
+        /// </summary>
+        internal static bool SetMouseOnlyStyle(IntPtr hWnd, bool enabled)
         {
             if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return false;
             var current = Environment.Is64BitProcess ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64() : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
             var next = current | WS_EX_TOOLWINDOW;
-            if (enabled) next |= WS_EX_NOACTIVATE; else next &= ~WS_EX_NOACTIVATE;
+            if (enabled)
+                next = (next | WS_EX_NOACTIVATE) & ~WS_EX_TRANSPARENT;
+            else
+                next &= ~(WS_EX_NOACTIVATE | WS_EX_TRANSPARENT);
             var result = Environment.Is64BitProcess
                 ? SetWindowLongPtr64(hWnd, GWL_EXSTYLE, new IntPtr(next))
                 : SetWindowLongPtr32(hWnd, GWL_EXSTYLE, new IntPtr(next));
             var actual = Environment.Is64BitProcess ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64() : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
             var noActivate = (actual & WS_EX_NOACTIVATE) != 0;
-            return (result != IntPtr.Zero || Marshal.GetLastWin32Error() == 0) && noActivate == enabled;
+            var transparent = (actual & WS_EX_TRANSPARENT) != 0;
+            HtmlUiLogger.Info("Overlay mouse-only style enabled=" + enabled + " transparent=" + transparent + " noActivate=" + noActivate + " hwnd=" + hWnd);
+            return (result != IntPtr.Zero || Marshal.GetLastWin32Error() == 0) && noActivate == enabled && !transparent;
         }
         internal static bool TryGetGameWindowHandle(IntPtr excludedWindow, out IntPtr handle)
         {
