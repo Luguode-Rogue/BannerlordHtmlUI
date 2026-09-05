@@ -20,9 +20,9 @@ namespace BannerlordHtmlUI
             {
                 if (_installed) return;
 
-                // Framework default: WebView2 DevTools and browser context menus are disabled.
-                // An embedding consumer may explicitly opt into DevTools after Framework startup if needed.
-                host.DevToolsEnabled = false;
+                // Framework policy: browser context menus are suppressed; DevTools stays enabled
+                // (F12) for diagnosis and consumer development. Revisit before public release.
+                host.DevToolsEnabled = true;
 
                 var method = AccessTools.Method(typeof(HtmlUiHost), "ConfigureAfterWebViewReady");
                 if (method == null)

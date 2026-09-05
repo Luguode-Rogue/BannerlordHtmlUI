@@ -1,11 +1,4 @@
 E:\SteamLibrary\steamapps\common\Mount & Blade II Bannerlord\Modules\BannerlordHtmlUI\BannerlordHtmlUI\bin\x64\Debug\net472\runtimes\win-x64\native\WebView2Loader.dll
-E:\SteamLibrary\steamapps\common\Mount & Blade II Bannerlord\Modules\BannerlordHtmlUI\BannerlordHtmlUI\bin\x64\Debug\net472\_Module\SubModule.xml
-E:\SteamLibrary\steamapps\common\Mount & Blade II Bannerlord\Modules\BannerlordHtmlUI\BannerlordHtmlUI\bin\x64\Debug\net472\web\app.js
-E:\SteamLibrary\steamapps\common\Mount & Blade II Bannerlord\Modules\BannerlordHtmlUI\BannerlordHtmlUI\bin\x64\Debug\net472\web\bannerlord-html-ui.d.ts
-E:\SteamLibrary\steamapps\common\Mount & Blade II Bannerlord\Modules\BannerlordHtmlUI\BannerlordHtmlUI\bin\x64\Debug\net472\web\diagnostics.html
-E:\SteamLibrary\steamapps\common\Mount & Blade II Bannerlord\Modules\BannerlordHtmlUI\BannerlordHtmlUI\bin\x64\Debug\net472\web\index.html
-E:\SteamLibrary\steamapps\common\Mount & Blade II Bannerlord\Modules\BannerlordHtmlUI\BannerlordHtmlUI\bin\x64\Debug\net472\web\runtime.js
-E:\SteamLibrary\steamapps\common\Mount & Blade II Bannerlord\Modules\BannerlordHtmlUI\BannerlordHtmlUI\bin\x64\Debug\net472\web\style.css
 E:\SteamLibrary\steamapps\common\Mount & Blade II Bannerlord\Modules\BannerlordHtmlUI\BannerlordHtmlUI\bin\x64\Debug\net472\BannerlordHtmlUI.dll
 E:\SteamLibrary\steamapps\common\Mount & Blade II Bannerlord\Modules\BannerlordHtmlUI\BannerlordHtmlUI\bin\x64\Debug\net472\BannerlordHtmlUI.pdb
 E:\SteamLibrary\steamapps\common\Mount & Blade II Bannerlord\Modules\BannerlordHtmlUI\BannerlordHtmlUI\bin\x64\Debug\net472\Microsoft.Web.WebView2.Core.dll

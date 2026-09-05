@@ -32,13 +32,15 @@ namespace BannerlordHtmlUI
             {
                 HtmlUiInputTraceLogger.Event("FRAMEWORK_READY_REGISTER");
                 HtmlUiService.NotifyGameContext("application", true);
-                HtmlUiWindowTracker.Install(HtmlUiService.Host);
-                HtmlUiMouseCapture.Install();
-                HtmlUiHotReloadPatch.Install(HtmlUiService.Host);
-                HtmlUiStateRemovalPatch.Install(HtmlUiService.Host);
-                HtmlUiProcessRecovery.Install(HtmlUiService.Host);
-                HtmlUiInputControllerPatch.Install(HtmlUiService.Host);
-                HtmlUiContextMenuPatch.Install(HtmlUiService.Host);
+                // Each component installs independently: one failure must never leave the
+                // remaining owners (especially the input controller and blocker) uninstalled.
+                TryInstall("WindowTracker", () => HtmlUiWindowTracker.Install(HtmlUiService.Host));
+                TryInstall("InputBlocker", () => HtmlUiMouseCapture.Install());
+                TryInstall("HotReloadPatch", () => HtmlUiHotReloadPatch.Install(HtmlUiService.Host));
+                TryInstall("StateRemovalPatch", () => HtmlUiStateRemovalPatch.Install(HtmlUiService.Host));
+                TryInstall("ProcessRecovery", () => HtmlUiProcessRecovery.Install(HtmlUiService.Host));
+                TryInstall("InputControllerPatch", () => HtmlUiInputControllerPatch.Install(HtmlUiService.Host));
+                TryInstall("ContextMenuPatch", () => HtmlUiContextMenuPatch.Install(HtmlUiService.Host));
 
                 if (!HtmlUiCommands.CommandExists("runtime.error"))
                 {
@@ -52,11 +54,27 @@ namespace BannerlordHtmlUI
                 if (!HtmlUiService.Pages.Contains("framework"))
                     HtmlUiService.Pages.Register(new HtmlUiPage("framework", "index.html") { HotReload = true });
                 if (!HtmlUiService.Pages.Contains("diagnostics"))
-                    HtmlUiService.Pages.Register(new HtmlUiPage("diagnostics", "diagnostics.html") { HotReload = true });
+                    HtmlUiService.Pages.Register(new HtmlUiPage("diagnostics", "diagnostics.html")
+                    {
+                        HotReload = true,
+                        // Without Captured the page opens pass-through: no clicks, no keys, no way
+                        // to close it. Any interactive framework page must own its input.
+                        DefaultInputMode = HtmlUiInputMode.Captured
+                    });
                 if (!HtmlUiCommands.CommandExists("framework.openDiagnostics"))
                     HtmlUiService.RegisterCommand("framework.openDiagnostics", _ => HtmlUiService.Pages.Open("diagnostics"));
             }
             catch (Exception ex) { HtmlUiLogger.Error("Failed to register framework page.", ex); HtmlUiInputTraceLogger.Event("FRAMEWORK_READY_REGISTER_FAILED " + ex.GetBaseException().Message); }
+        }
+
+        private static void TryInstall(string name, Action install)
+        {
+            try { install(); }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Error("Framework component installation failed: " + name, ex);
+                HtmlUiInputTraceLogger.Event("COMPONENT_INSTALL_FAILED " + name);
+            }
         }
 
         protected override void OnApplicationTick(float dt)

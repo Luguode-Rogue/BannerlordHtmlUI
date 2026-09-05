@@ -28,6 +28,17 @@ namespace BannerlordHtmlUI
         public int BridgeRequestCount { get; set; }
         public int ActiveRequestCount { get; set; }
         public bool NavigationInProgress { get; set; }
+
+        // Surfaces
+        public int SurfaceCount { get; set; }
+        public int VisibleSurfaceCount { get; set; }
+        public bool ShellActive { get; set; }
+        public bool SurfacesSuppressedByPage { get; set; }
+        public string SurfaceEffectiveInputMode { get; set; }
+        public string SurfaceInputOwner { get; set; }
+        public bool BlockingGameMouse { get; set; }
+        public bool BlockingGameKeyboard { get; set; }
+        public string SurfaceSummary { get; set; }
     }
 
     public static class HtmlUiDiagnostics
@@ -51,6 +62,26 @@ namespace BannerlordHtmlUI
             var bridge = HtmlUiBridge.Current;
             string lastError;
             lock (Sync) lastError = _lastBrowserError;
+
+            var surfaces = host?.Surfaces;
+            var aggregate = surfaces?.Aggregate;
+            var surfaceSummary = string.Empty;
+            if (surfaces != null)
+            {
+                var lines = new System.Text.StringBuilder();
+                foreach (var view in surfaces.All)
+                {
+                    if (lines.Length > 0) lines.Append('\n');
+                    lines.Append(view.Id)
+                         .Append(" | owner=").Append(view.OwnerId)
+                         .Append(" | z=").Append(view.ZIndex)
+                         .Append(" | visible=").Append(view.Visible)
+                         .Append(" | demand=").Append(view.InputDemand);
+                    if (view.Enabled == false) lines.Append(" | disabled");
+                    if (view.Suppressed) lines.Append(" | suppressed-by-page");
+                }
+                surfaceSummary = lines.ToString();
+            }
 
             return new HtmlUiDiagnosticsSnapshot
             {
@@ -77,7 +108,17 @@ namespace BannerlordHtmlUI
                 BridgeCommandCount = bridge?.CommandCount ?? 0,
                 BridgeRequestCount = bridge?.RequestCount ?? 0,
                 ActiveRequestCount = bridge?.ActiveRequestCount ?? 0,
-                NavigationInProgress = host?.NavigationInProgress ?? false
+                NavigationInProgress = host?.NavigationInProgress ?? false,
+
+                SurfaceCount = surfaces?.Count ?? 0,
+                VisibleSurfaceCount = surfaces?.VisibleCount ?? 0,
+                ShellActive = host?.IsShellActive ?? false,
+                SurfacesSuppressedByPage = surfaces?.IsSuppressedByPage ?? false,
+                SurfaceEffectiveInputMode = aggregate?.EffectiveInputMode.ToString() ?? HtmlUiInputMode.Hidden.ToString(),
+                SurfaceInputOwner = aggregate?.InputOwnerId ?? string.Empty,
+                BlockingGameMouse = HtmlUiInputBlocker.IsBlockingMouse,
+                BlockingGameKeyboard = HtmlUiInputBlocker.IsBlockingKeyboard,
+                SurfaceSummary = surfaceSummary
             };
         }
     }

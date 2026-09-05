@@ -41,7 +41,7 @@
           "auditLevel": "low",
           "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "10.0.300"
+        "SdkAnalysisLevel": "10.0.400"
       },
       "frameworks": {
         "net472": {
@@ -79,7 +79,7 @@
             },
             "Microsoft.Web.WebView2": {
               "target": "Package",
-              "version": "[1.0.4078.44, )"
+              "version": "[1.0.2849.39, )"
             },
             "Nullable": {
               "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
@@ -88,7 +88,7 @@
               "version": "[1.3.1, )"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.301\\RuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.400\\RuntimeIdentifierGraph.json"
         }
       }
     }

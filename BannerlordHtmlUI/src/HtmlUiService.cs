@@ -21,6 +21,10 @@ namespace BannerlordHtmlUI
 
         public static HtmlUiHost Host => _host ?? throw new InvalidOperationException("BannerlordHtmlUI is not initialized.");
         public static HtmlUiPageManager Pages => Host.Pages;
+
+        /// <summary>Parallel overlay surfaces. Use this for HUD-like UI that must coexist with other UI.</summary>
+        public static HtmlUiSurfaceManager Surfaces => Host.Surfaces;
+
         public static HtmlUiStateStore State => Host.State;
         public static bool IsInitialized => _initialized;
         public static HtmlUiLifecycleState LifecycleState => _lifecycleState;
@@ -99,6 +103,28 @@ namespace BannerlordHtmlUI
             Host.RegisterRequest("framework.i18n.formatDate", payload => Task.FromResult<object>(new { text = HtmlUiLocalization.FormatDate(DateTime.Parse(payload?["value"]?.Value<string>() ?? DateTime.UtcNow.ToString("o"), null, System.Globalization.DateTimeStyles.RoundtripKind)) }));
             Host.RegisterRequest("framework.i18n.formatTime", payload => Task.FromResult<object>(new { text = HtmlUiLocalization.FormatTime(DateTime.Parse(payload?["value"]?.Value<string>() ?? DateTime.UtcNow.ToString("o"), null, System.Globalization.DateTimeStyles.RoundtripKind)) }));
             Host.RegisterCommand("framework.incrementTestState", _ => State.Set("framework.testCounter", Interlocked.Increment(ref _testCounter)));
+
+            // Surface self-service commands. A surface may only address itself; these mirror the
+            // C# API and are not an authorization boundary. Prefer controlling surfaces from C#.
+            Host.RegisterCommand("framework.surface.setVisible", payload =>
+            {
+                var id = payload?["id"]?.Value<string>();
+                var visible = payload?["visible"]?.Value<bool>() ?? false;
+                if (!string.IsNullOrWhiteSpace(id)) Surfaces.SetVisible(id, visible);
+            });
+            Host.RegisterCommand("framework.surface.setInputDemand", payload =>
+            {
+                var id = payload?["id"]?.Value<string>();
+                var value = payload?["mode"]?.Value<string>();
+                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(value)) return;
+                if (Enum.TryParse<HtmlUiInputMode>(value, true, out var parsed)) Surfaces.SetInputDemand(id, parsed);
+            });
+            Host.RegisterCommand("framework.surface.setZIndex", payload =>
+            {
+                var id = payload?["id"]?.Value<string>();
+                var zIndex = payload?["zIndex"]?.Value<int>() ?? 0;
+                if (!string.IsNullOrWhiteSpace(id)) Surfaces.SetZIndex(id, zIndex);
+            });
             Host.RegisterCommand("framework.openPage", payload =>
             {
                 var ownerId = payload?["ownerId"]?.Value<string>();
@@ -148,12 +174,32 @@ namespace BannerlordHtmlUI
         }
 
         internal static void PostToGameThread(Action action) => Dispatcher.Post(action);
+
+        /// <summary>
+        /// Await this to resume execution on the game thread. Required after any real await in a
+        /// request handler, because the game thread has no SynchronizationContext.
+        /// </summary>
+        public static GameThreadAwaiter SwitchToGameThread() => Dispatcher.SwitchToGameThread();
         public static void Show() => Host.Show();
         public static void Hide() => Host.Hide();
         public static void CaptureInput() => Host.CaptureInput();
         public static void ReleaseInput() => Host.ReleaseInput();
-        public static void SetInputMode(HtmlUiInputMode mode) => Host.SetInputMode(mode);
+        /// <summary>
+        /// Sets the host mode directly. Pages still use this. Surfaces must not: they declare
+        /// <see cref="HtmlUiSurface.InputDemand"/> and let the coordinator aggregate it, otherwise
+        /// arbitration between surfaces is bypassed and the last writer wins.
+        /// </summary>
+        public static void SetInputMode(HtmlUiInputMode mode)
+        {
+            if (Host.Surfaces.Count > 0)
+                HtmlUiLogger.Warn("SetInputMode called directly while surfaces are registered. " +
+                    "Surfaces should declare InputDemand instead; direct calls bypass surface arbitration.");
+            Host.SetInputMode(mode);
+        }
         public static HtmlUiInputMode InputMode => Host.InputMode;
+
+        /// <summary>Aggregated result of every visible surface's input demand.</summary>
+        public static HtmlUiInputMode EffectiveInputMode => Host.Surfaces.Aggregate.EffectiveInputMode;
         public static string CurrentPagePath => Host.CurrentPagePath;
         public static void RegisterContentRoot(string id, string directory) => Host.RegisterContentRoot(id, directory);
         internal static void RegisterContentRoot(string id, string directory, string ownerId) => Host.RegisterContentRoot(id, directory);

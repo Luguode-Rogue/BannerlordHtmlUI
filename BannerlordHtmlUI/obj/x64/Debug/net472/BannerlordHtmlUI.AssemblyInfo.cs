@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BannerlordHtmlUI")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.44.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.44.0+aacf045532c7aecda537e968a3bf92d56f77f997")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.44.0+fa24da7302e35c2f1e595079c6fda4b4126bb26b")]
 [assembly: System.Reflection.AssemblyProductAttribute("BannerlordHtmlUI")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BannerlordHtmlUI")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.44.0.0")]

@@ -15,17 +15,25 @@
 <body>
   <h1>BannerlordHtmlUI Diagnostics</h1>
   <p id="status">Loading...</p>
+  <div class="actions" style="margin:12px 0">
+    <button id="openDevToolsBtn">Open DevTools</button>
+    <button id="closePageBtn">Close Page</button>
+    <span id="probe" style="font-family:ui-monospace,Consolas,monospace;color:#7f9d78"></span>
+  </div>
   <div class="grid" id="grid"></div>
   <h2>Raw snapshot</h2>
   <pre id="raw"></pre>
   <script>
-    (async () => {
+    (() => {
       const status = document.getElementById('status');
-      try {
-        const data = await game.request('framework.getDiagnostics');
-        status.textContent = 'Diagnostics request succeeded.';
-        const grid = document.getElementById('grid');
-        for (const [key, value] of Object.entries(data)) {
+      const grid = document.getElementById('grid');
+      const raw = document.getElementById('raw');
+      let disposed = false;
+      let refreshInFlight = false;
+
+      const render = data => {
+        while (grid.firstChild) grid.removeChild(grid.firstChild);
+        for (const [key, value] of Object.entries(data || {})) {
           const card = document.createElement('div');
           card.className = 'card';
           card.innerHTML = '<div class="key"></div><div class="value"></div>';
@@ -33,10 +41,43 @@
           card.children[1].textContent = typeof value === 'object' ? JSON.stringify(value) : String(value);
           grid.appendChild(card);
         }
-        document.getElementById('raw').textContent = JSON.stringify(data, null, 2);
-      } catch (e) {
-        status.textContent = 'Diagnostics request failed: ' + e.message;
-      }
+        raw.textContent = JSON.stringify(data || {}, null, 2);
+      };
+
+      const refresh = async () => {
+        if (disposed || refreshInFlight) return;
+        refreshInFlight = true;
+        try {
+          const data = await game.request('framework.getDiagnostics');
+          if (disposed) return;
+          status.textContent = 'Diagnostics request succeeded. Auto-refresh: 1000 ms.';
+          render(data);
+        } catch (e) {
+          if (!disposed) status.textContent = 'Diagnostics request failed: ' + e.message;
+        } finally {
+          refreshInFlight = false;
+        }
+      };
+
+      refresh();
+      const timer = setInterval(refresh, 1000);
+
+      // These buttons double as a click-dispatch probe: if clicking them works, Chromium is
+      // receiving and dispatching mouse input; if not, the activation problem is active.
+      let probeClicks = 0;
+      document.getElementById('openDevToolsBtn').onclick = () => {
+        probe.textContent = 'clicks=' + (++probeClicks) + ' hasFocus=' + document.hasFocus();
+        game.call('framework.openDevTools').catch(e => { probe.textContent = 'openDevTools failed: ' + e.message; });
+      };
+      document.getElementById('closePageBtn').onclick = () => {
+        game.call('framework.closePage', { ownerId: 'framework' }).catch(e => { probe.textContent = 'closePage failed: ' + e.message; });
+      };
+      setInterval(() => { probe.textContent = 'clicks=' + probeClicks + ' hasFocus=' + document.hasFocus(); }, 1000);
+
+      window.addEventListener('pagehide', () => {
+        disposed = true;
+        clearInterval(timer);
+      }, { once: true });
     })();
   </script>
 </body>

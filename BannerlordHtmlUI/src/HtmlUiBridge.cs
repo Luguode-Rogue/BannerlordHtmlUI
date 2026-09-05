@@ -244,6 +244,86 @@ namespace BannerlordHtmlUI
             if (IsDisposed) throw new ObjectDisposedException(nameof(HtmlUiBridge));
         }
 
+        /// <summary>
+        /// Runs on the game thread: validates the entry, arms cancellation, then invokes the
+        /// handler. The synchronous part of the handler executes here; any real await inside it
+        /// continues on the thread pool, so consumers must switch back with
+        /// <c>HtmlUiService.SwitchToGameThread()</c> before touching game state. Result handling
+        /// is scheduled back onto the game thread through the dispatcher scheduler.
+        /// </summary>
+        private void ExecuteRequestOnGameThread(string id, string name, JToken payload, RequestEntry requestEntry)
+        {
+            if (!IsCurrentRequest(name, requestEntry))
+            {
+                _ = SendResponseSafelyAsync(id, null, "Request was unregistered before execution: " + name, "stale request");
+                return;
+            }
+
+            var cancellation = new CancellationTokenSource();
+            _requestCancellation[id] = cancellation;
+            _activeRequestOwners[id] = requestEntry.OwnerId;
+            _activeRequestNames[id] = name;
+            if (_preCanceledRequests.TryRemove(id, out _)) cancellation.Cancel();
+
+            // A cancel that raced ahead of execution means the caller is gone: do not invoke.
+            if (cancellation.IsCancellationRequested)
+            {
+                CleanupRequest(id);
+                return;
+            }
+
+            Task<object> task;
+            try
+            {
+                task = requestEntry.CancellableHandler != null
+                    ? requestEntry.CancellableHandler(payload, cancellation.Token)
+                    : requestEntry.Handler(payload);
+            }
+            catch (Exception ex)
+            {
+                CleanupRequest(id);
+                HtmlUiLogger.Error("Request failed: " + name, ex);
+                if (!IsDisposed)
+                    _ = SendResponseSafelyAsync(id, null, ex.GetBaseException().Message, "request failure: " + name);
+                return;
+            }
+
+            task.ContinueWith((Task<object> t) =>
+            {
+                try
+                {
+                    if (t.IsCanceled) return;
+                    if (t.IsFaulted)
+                    {
+                        var fault = t.Exception?.GetBaseException();
+                        HtmlUiLogger.Error("Request failed: " + name, fault);
+                        if (!cancellation.IsCancellationRequested && !IsDisposed)
+                            _ = SendResponseSafelyAsync(id, null, fault == null ? "Unknown error" : fault.Message, "request failure: " + name);
+                        return;
+                    }
+                    if (cancellation.IsCancellationRequested || IsDisposed) return;
+                    if (!IsCurrentRequest(name, requestEntry))
+                    {
+                        _ = SendResponseSafelyAsync(id, null, "Request was unregistered while executing: " + name, "request unregistered");
+                        return;
+                    }
+                    _ = SendResponseSafelyAsync(id, t.Result, null, "request success: " + name);
+                }
+                finally
+                {
+                    CleanupRequest(id);
+                }
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, _host.GameThreadScheduler);
+        }
+
+        private void CleanupRequest(string id)
+        {
+            _requestCancellation.TryRemove(id, out _);
+            _activeRequestOwners.TryRemove(id, out _);
+            _activeRequestNames.TryRemove(id, out _);
+            _preCanceledRequests.TryRemove(id, out _);
+        }
+
         private async void OnWebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
             if (IsDisposed || Volatile.Read(ref _attached) == 0) return;
@@ -306,40 +386,7 @@ namespace BannerlordHtmlUI
                         return;
                     }
 
-                    _host.DispatchToGameThread(async () =>
-                    {
-                        if (!IsCurrentRequest(name, requestEntry)) { await SendResponseSafelyAsync(id, null, "Request was unregistered before execution: " + name, "stale request").ConfigureAwait(false); return; }
-                        using (var cancellation = new CancellationTokenSource())
-                        {
-                            _requestCancellation[id] = cancellation;
-                            _activeRequestOwners[id] = requestEntry.OwnerId;
-                            _activeRequestNames[id] = name;
-                            if (_preCanceledRequests.TryRemove(id, out _)) cancellation.Cancel();
-                            try
-                            {
-                                if (cancellation.IsCancellationRequested) return;
-                                object result = requestEntry.CancellableHandler != null
-                                    ? await requestEntry.CancellableHandler(payload, cancellation.Token).ConfigureAwait(false)
-                                    : await requestEntry.Handler(payload).ConfigureAwait(false);
-                                if (cancellation.IsCancellationRequested || IsDisposed) return;
-                                if (!IsCurrentRequest(name, requestEntry)) { await SendResponseSafelyAsync(id, null, "Request was unregistered while executing: " + name, "request unregistered").ConfigureAwait(false); return; }
-                                await SendResponseSafelyAsync(id, result, null, "request success: " + name).ConfigureAwait(false);
-                            }
-                            catch (OperationCanceledException) { }
-                            catch (Exception ex)
-                            {
-                                HtmlUiLogger.Error("Request failed: " + name, ex);
-                                if (!cancellation.IsCancellationRequested && !IsDisposed) await SendResponseSafelyAsync(id, null, ex.GetBaseException().Message, "request failure: " + name).ConfigureAwait(false);
-                            }
-                            finally
-                            {
-                                _requestCancellation.TryRemove(id, out _);
-                                _activeRequestOwners.TryRemove(id, out _);
-                                _activeRequestNames.TryRemove(id, out _);
-                                _preCanceledRequests.TryRemove(id, out _);
-                            }
-                        }
-                    });
+                    _host.DispatchToGameThread(() => ExecuteRequestOnGameThread(id, name, payload, requestEntry));
                     return;
                 }
 
