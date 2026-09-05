@@ -242,7 +242,10 @@ errors: {
 on(handler) { return window.game.errors.on(handler); },
 get last() { return window.game.errors.last; }
 },
-i18n,
+// Getter, not a captured reference: runtime-i18n.js replaces game.i18n after
+// the core runs, and a captured legacy object would freeze stale translations
+// and a dead onLocaleChanged for every scope created by page code.
+get i18n() { return window.game.i18n; },
 bind: createBinder(ownerId),
 input: window.game ? window.game.input : null,
 pages: {

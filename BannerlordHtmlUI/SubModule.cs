@@ -37,7 +37,8 @@ namespace BannerlordHtmlUI
                 TryInstall("WindowTracker", () => HtmlUiWindowTracker.Install(HtmlUiService.Host));
                 TryInstall("InputBlocker", () => HtmlUiMouseCapture.Install());
                 TryInstall("HotReloadPatch", () => HtmlUiHotReloadPatch.Install(HtmlUiService.Host));
-                TryInstall("StateRemovalPatch", () => HtmlUiStateRemovalPatch.Install(HtmlUiService.Host));
+                // StateRemovalPatch 是 document-script patch，注册已移入 Host.InstallRuntimePatchesOnUiThread，
+                // 这样 WebView2 进程恢复重建 CoreWebView2 后会自动重新注册（Ready 事件恢复时不重触发）。
                 TryInstall("ProcessRecovery", () => HtmlUiProcessRecovery.Install(HtmlUiService.Host));
                 TryInstall("InputControllerPatch", () => HtmlUiInputControllerPatch.Install(HtmlUiService.Host));
                 TryInstall("ContextMenuPatch", () => HtmlUiContextMenuPatch.Install(HtmlUiService.Host));

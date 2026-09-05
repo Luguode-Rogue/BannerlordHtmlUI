@@ -237,6 +237,10 @@ namespace BannerlordHtmlUI
             try { HtmlUiBindingSchedulerPatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install binding scheduler patch.", ex); }
             try { HtmlUiErrorModelPatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install bridge error model patch.", ex); }
             try { HtmlUiRequestCancellationPatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install request cancellation patch.", ex); }
+            // Document-script patches must ALL live here: recovery re-runs this method on a
+            // rebuilt CoreWebView2, and anything registered only at SubModule-ready time is
+            // silently lost for every document created after a WebView2 process recovery.
+            try { HtmlUiStateRemovalPatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install state removal compatibility patch.", ex); }
             try { HtmlUiNavigationRacePatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install navigation race guard.", ex); }
         }
 
