@@ -65,7 +65,7 @@ namespace BannerlordHtmlUI
                 catch (Exception ex) { HtmlUiLogger.Debug("Input controller uninstall failed: " + ex.GetBaseException().Message); }
                 finally
                 {
-                    HtmlUiCursorController.SetOwned(host, false);
+                    HtmlUiCursorController.SetOwned(__instance, false);
                     _harmony = null;
                     _formField = null;
                     _webField = null;
