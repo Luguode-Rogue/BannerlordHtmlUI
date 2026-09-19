@@ -36,7 +36,7 @@ await HtmlUiService.SwitchToGameThread(); // 回游戏线程
 | 窗口事实 | `HtmlUiWindowTracker` | 位置/状态/最小化，不参与 UI 业务 |
 | Page 生命周期 | `HtmlUiPageManager` | 独占式页面；**不再直接操作 Host 可见性** |
 | Surface 生命周期 | `HtmlUiSurfaceManager` | 注册/显示/抑制/聚合 |
-| Surface 资源服务 | `HtmlUiHost.OnWebResourceRequested` | `__surface/` 同域映射 |
+| Surface 资源服务 | `HtmlUiHost.SetVirtualHostNameToFolderMapping` | Surface URI = content root 虚拟主机 + 相对路径（与 Page 同机制）。**禁止改回 `__surface/` 通道**：WebView2 不对 iframe 子框架导航触发 WebResourceRequested，该通道在 iframe 内必然 404/错误页 |
 | 布局 | Surface 自身 CSS | Framework 不做布局计算 |
 | Browser policy | `HtmlUiHost` | 导航白名单、资源映射 |
 
@@ -75,7 +75,8 @@ string id = scope.RegisterSurface(new HtmlUiSurface("missionhud", "index.html")
 {
     ContentRootId = "hud",
     ZIndex = 200,
-    InputDemand = HtmlUiInputMode.Passive   // 需求，不是结果
+    InputDemand = HtmlUiInputMode.Passive,  // 需求，不是结果
+    CoexistWithPage = true                  // v2 Coexist：Page 打开时不被抑制，由框架直接挂载进页面文档
 });
 
 HtmlUiService.Surfaces.Show(id);
@@ -114,6 +115,10 @@ game.state.subscribe('myKey', render);  // 与 Page 相同
 ```
 
 **v1 限制（必读）**：输入是整窗的，不是分区的。任一 Surface 请求 `MouseCaptured/Captured` 时整窗不穿透；shell 中只有 inputOwner 的 iframe 是 `pointer-events:auto`。可交互 Surface 应设计为短暂状态。
+
+**v2 Coexist（已实现）**：`CoexistWithPage = true` 的 Passive Surface 在 Page 打开期间不被抑制。由于 Page 打开时 WebView 加载的是页面文档而非 Shell，框架通过 `HtmlUiCoexistHost`（document-created 脚本）把这类 Surface 以透明 `pointer-events:none` iframe 直接挂载进页面文档；回到 Shell 后由 shell.js 正常接管。桥接响应与 state 事件已广播到所有存活 frame（`HtmlUiHost.ExecuteScriptInAllDocuments`），iframe 内 runtime 收发消息与顶层文档一致。首个消费示例：`New_ZZZF.BattleHud`。
+
+**⚠️ Surface 文档强制约束**：根元素**禁止声明 `color-scheme:dark`**（或任何依赖 UA 默认画布色的写法）。规范规定根背景透明时画布使用"当前配色方案的 UA 默认色"——顶层文档有 WebView2 透明环境变量兜底不受影响，但 **iframe 子框架没有这层兜底**，画布会被填充为不透明深色，整个 Surface 变成一块盖住游戏的全屏色块（2026-09-06 实测踩坑）。所有颜色显式声明，不依赖 UA 控件样式。
 
 **游戏侧屏蔽**：Bannerlord 轮询 `TaleWorlds.InputSystem.Input`，不看 Win32 消息归谁。`HtmlUiInputBlocker` 在 overlay 持有输入期间对 `IsKeyDown / IsKeyPressed / IsKeyReleased / IsKeyDownImmediate` 做前缀拦截（已对照 1.5.0 反编译源码确认四个方法均为无重载静态方法）。`Passive/Hidden` 永不屏蔽；所有异常路径强制释放。诊断字段：`framework.getDiagnostics` 的 `BlockingGameMouse / BlockingGameKeyboard`。
 
@@ -162,6 +167,7 @@ game.state.subscribe('myKey', render);  // 与 Page 相同
 | Surface 全部不挂载（曾有） | C# 属性 PascalCase 序列化 vs JS camelCase 读取 | 已修：state 载荷统一小写匿名对象。教训：**跨语言契约没有编译器兜底，序列化形状必须显式声明** |
 | Page 关闭后 Surface 消失（曾有） | PageManager 关闭路径无条件 `Hidden+Hide` 覆盖协调器 | 已修：Host 状态唯一归协调器。教训：**两个 Owner 写同一状态必然漂移** |
 | request handler await 后线程错误 | 游戏线程无 SyncContext | 已修：结果处理回投游戏线程 + `SwitchToGameThread()`。教训：**线程契约不能只靠文档** |
+| Surface iframe 全屏错误页 → 全屏色块（2026-09-06 三连坑） | ① `WebResourceRequested` **不对 iframe 子框架导航触发**，`__surface/` 资源通道在 iframe 内必然漏掉 → 错误页；② 桥接 `ExecuteScriptAsync` 只达顶层文档，iframe runtime 收不到任何响应/事件；③ iframe 文档 `color-scheme:dark` 时画布按配色方案被 UA 填充为不透明深色（顶层有透明环境变量兜底，iframe 没有） | 已修：① Surface URI 改走 content root 虚拟主机（与 Page 同机制）；② 响应/事件经 `FrameCreated` 追踪广播到全部存活 frame，各 runtime 按 pending-map 幂等结算；③ Surface 文档禁止 `color-scheme`，颜色全部显式声明。教训：**iframe 不是"小号顶层文档"——平台对子框架的资源拦截、消息投递、画布默认色都有独立行为，每个都要实测** |
 
 ---
 

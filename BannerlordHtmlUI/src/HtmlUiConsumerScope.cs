@@ -101,6 +101,7 @@ namespace BannerlordHtmlUI
                     ZIndex = surface.ZIndex,
                     InputDemand = surface.InputDemand,
                     Enabled = surface.Enabled,
+                    CoexistWithPage = surface.CoexistWithPage,
                     Opened = surface.Opened,
                     Closed = surface.Closed
                 };

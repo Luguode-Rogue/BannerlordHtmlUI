@@ -56,7 +56,9 @@
         continue;
       }
 
-      const uri = surface.uri || '';
+      // Prefer a same-origin candidate (a content root sharing this document's directory):
+      // cross-origin subframe compositing/transparency is unreliable under site isolation.
+      const uri = (surface.coexistUris && surface.coexistUris[location.host]) || surface.uri || '';
       const signature = signatureOf(surface);
       const existing = mounted.get(surface.id);
 

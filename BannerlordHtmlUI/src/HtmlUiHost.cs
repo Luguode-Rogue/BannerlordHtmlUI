@@ -195,6 +195,10 @@ namespace BannerlordHtmlUI
             _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             _web.CoreWebView2.Settings.AreDevToolsEnabled = DevToolsEnabled;
             _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            // Explicit transparent controller background: the env-var default covers the top
+            // document, but surface/coexist iframes must also composite with alpha.
+            try { _web.DefaultBackgroundColor = System.Drawing.Color.Transparent; }
+            catch (Exception ex) { HtmlUiLogger.Debug("DefaultBackgroundColor not supported: " + ex.GetBaseException().Message); }
             _web.CoreWebView2.WebResourceRequested += OnWebResourceRequested;
             try
             {
@@ -204,6 +208,11 @@ namespace BannerlordHtmlUI
             catch (Exception ex) { HtmlUiLogger.Error("Failed to register surface resource filter.", ex); }
             _web.CoreWebView2.NavigationStarting += OnNavigationStarting;
             _web.CoreWebView2.NavigationCompleted += OnNavigationCompleted;
+            // Track live iframes so scripts (state events, responses) can be delivered into
+            // surface/coexist frames. WebView2 exposes no frame enumeration API; frames are
+            // only observable through these events. Cleared on recovery re-configuration.
+            lock (_liveFrames) _liveFrames.Clear();
+            _web.CoreWebView2.FrameCreated += OnCoreFrameCreated;
             _web.CoreWebView2.SourceChanged += (s, e2) => HtmlUiLogger.Info("WebView2 source changed: " + (_web.Source == null ? "<null>" : _web.Source.ToString()));
             _web.CoreWebView2.ContentLoading += (s, e2) => HtmlUiLogger.Info("WebView2 content loading: " + e2.NavigationId);
             _web.CoreWebView2.ProcessFailed += (s, args) =>
@@ -241,6 +250,7 @@ namespace BannerlordHtmlUI
             // rebuilt CoreWebView2, and anything registered only at SubModule-ready time is
             // silently lost for every document created after a WebView2 process recovery.
             try { HtmlUiStateRemovalPatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install state removal compatibility patch.", ex); }
+            try { HtmlUiCoexistHost.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install coexist surface host.", ex); }
             try { HtmlUiNavigationRacePatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install navigation race guard.", ex); }
         }
 
@@ -552,11 +562,42 @@ namespace BannerlordHtmlUI
             if (!_contentRoots.ContainsKey(surface.ContentRootId))
                 throw new InvalidOperationException("Content root is not registered: " + surface.ContentRootId);
 
+            return BuildSurfaceUriOnHost(surface, GetContentHost(surface.ContentRootId));
+        }
+
+        /// <summary>
+        /// Candidate URLs for a surface keyed by virtual host. Contains an entry for every
+        /// registered content root whose directory equals the surface's root directory, so a
+        /// coexist iframe mounted inside a page document can pick the SAME-ORIGIN candidate
+        /// (cross-origin subframe compositing/transparency is unreliable under site isolation).
+        /// </summary>
+        internal System.Collections.Generic.Dictionary<string, string> BuildCoexistUris(HtmlUiSurface surface)
+        {
+            var result = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (surface == null || !_contentRoots.TryGetValue(surface.ContentRootId, out var root)) return result;
+            var rootFull = root.TrimEnd(Path.DirectorySeparatorChar);
+
+            foreach (var pair in _contentHosts)
+            {
+                if (!_contentRoots.TryGetValue(pair.Key, out var dir)) continue;
+                if (!string.Equals(dir.TrimEnd(Path.DirectorySeparatorChar), rootFull, StringComparison.OrdinalIgnoreCase)) continue;
+                result[pair.Value] = BuildSurfaceUriOnHost(surface, pair.Value);
+            }
+            return result;
+        }
+
+        private string BuildSurfaceUriOnHost(HtmlUiSurface surface, string host)
+        {
             var encodedPath = Uri.EscapeUriString(surface.RelativePath);
             var separator = encodedPath.IndexOf('?') >= 0 ? "&" : "?";
             var owner = Uri.EscapeDataString(surface.OwnerId ?? "framework");
             var surfaceId = Uri.EscapeDataString(surface.Id ?? string.Empty);
-            return SurfaceUrlPrefix + Uri.EscapeDataString(surface.ContentRootId) + "/" + encodedPath
+            // Surface documents load through the content root's own virtual host — the same
+            // proven path as page documents. Do NOT switch back to the __surface/ prefix:
+            // WebView2 does not raise WebResourceRequested for sub-frame navigations, so
+            // iframe requests to that prefix fall through, miss the virtual-host folder and
+            // render a full-viewport browser error page (observed live 2026-09-05).
+            return "https://" + host + "/" + encodedPath
                  + separator + "__bannerlord_htmlui_owner=" + owner
                  + "&__bannerlord_htmlui_surface=" + surfaceId;
         }
@@ -603,6 +644,7 @@ namespace BannerlordHtmlUI
                 {
                     if (_web?.CoreWebView2 == null) { _pendingShell = true; return; }
                     if (_watcher != null) { _watcher.Dispose(); _watcher = null; }
+                    lock (_liveFrames) _liveFrames.Clear();
                     _currentRelativePath = ShellRelativePath;
                     _navigationInProgress = true;
                     _web.Source = new Uri("https://" + FrameworkHostName + "/" + ShellFileName);
@@ -642,6 +684,10 @@ namespace BannerlordHtmlUI
                 try
                 {
                     if (_web?.CoreWebView2 == null) { _pendingPage = page; return; }
+                    // 导航即丢弃旧文档的全部 frame 追踪：Destroyed 事件在导航销毁路径上
+                    // 并不总是触发，残留引用会让每次状态事件对死 frame 做跨进程调用
+                    // （多次进战斗逐场变卡的累积来源）。新文档的 frame 会重新经 FrameCreated 登记。
+                    lock (_liveFrames) _liveFrames.Clear();
                     _currentRelativePath = page.ContentRootId + ":/" + page.RelativePath;
                     EnableWatcherIfNeeded(page);
                     var host = GetContentHost(page.ContentRootId);
@@ -780,30 +826,92 @@ namespace BannerlordHtmlUI
 
         public void SendEvent(string name, object payload)
         {
-            EnsureUiThread(async () =>
-            {
-                if (_web?.CoreWebView2 == null) return;
-                var msg = JsonConvert.SerializeObject(new { version = 1, type = "event", name, payload });
-                await _web.CoreWebView2.ExecuteScriptAsync($"window.game&&window.game.__receive({JsonConvert.SerializeObject(msg)})");
-            });
+            var msg = JsonConvert.SerializeObject(new { version = 1, type = "event", name, payload });
+            var js = $"window.game&&window.game.__receive({JsonConvert.SerializeObject(msg)})";
+            ExecuteScriptInAllDocuments(js);
         }
 
         internal Task SendResponseAsync(string id, object payload, string error)
         {
             if (_disposed) return Task.CompletedTask;
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            EnsureUiThread(async () =>
+            // Responses are broadcast to every live document/frame. Only the runtime whose
+            // pending map contains the id settles it, so broadcast is correct by construction
+            // and keeps surface iframes reachable without frame-tracking state.
+            var msg = JsonConvert.SerializeObject(new { version = 1, type = "response", id, ok = error == null, payload, error });
+            var js = $"window.game&&window.game.__receive({JsonConvert.SerializeObject(msg)})";
+            EnsureUiThread(() =>
             {
                 try
                 {
                     if (_web?.CoreWebView2 == null) { completion.TrySetResult(false); return; }
-                    var msg = JsonConvert.SerializeObject(new { version = 1, type = "response", id, ok = error == null, payload, error });
-                    await _web.CoreWebView2.ExecuteScriptAsync($"window.game&&window.game.__receive({JsonConvert.SerializeObject(msg)})").ConfigureAwait(true);
+                    ExecuteScriptInAllDocumentsCore(js);
                     completion.TrySetResult(true);
                 }
                 catch (Exception ex) { HtmlUiLogger.Error("Failed to send browser response.", ex); completion.TrySetException(ex); }
             });
             return completion.Task;
+        }
+
+        /// <summary>
+        /// Runs a script in the top-level document AND every live iframe. CoreWebView2.ExecuteScriptAsync
+        /// only reaches the top document, which would leave surface iframes (and coexist iframes
+        /// mounted inside page documents) permanently starved of state events and responses.
+        /// Each frame's own runtime guards with <c>window.game&amp;&amp;</c>, so foreign frames are no-ops.
+        /// </summary>
+        private void ExecuteScriptInAllDocuments(string js)
+        {
+            EnsureUiThread(() =>
+            {
+                try { ExecuteScriptInAllDocumentsCore(js); }
+                catch (Exception ex) { HtmlUiLogger.Debug("Script dispatch failed: " + ex.GetBaseException().Message); }
+            });
+        }
+
+        private void ExecuteScriptInAllDocumentsCore(string js)
+        {
+            var core = _web?.CoreWebView2;
+            if (core == null) return;
+            _ = core.ExecuteScriptAsync(js);
+            CoreWebView2Frame[] frames;
+            lock (_liveFrames) frames = new CoreWebView2Frame[_liveFrames.Count];
+            lock (_liveFrames) _liveFrames.CopyTo(frames);
+            foreach (var frame in frames)
+            {
+                try { _ = frame.ExecuteScriptAsync(js); }
+                catch
+                {
+                    // the frame may be mid-destroy; skip it AND drop the dead reference —
+                    // otherwise it stays in _liveFrames forever and every state event pays
+                    // a doomed cross-process call for it (accumulates per navigation).
+                    lock (_liveFrames) _liveFrames.Remove(frame);
+                    try { frame.Destroyed -= OnTrackedFrameDestroyed; } catch { }
+                }
+            }
+        }
+
+        private readonly System.Collections.Generic.HashSet<CoreWebView2Frame> _liveFrames =
+            new System.Collections.Generic.HashSet<CoreWebView2Frame>();
+
+        private void OnCoreFrameCreated(object sender, CoreWebView2FrameCreatedEventArgs e)
+        {
+            if (e?.Frame == null) return;
+            try
+            {
+                lock (_liveFrames) _liveFrames.Add(e.Frame);
+                e.Frame.Destroyed += OnTrackedFrameDestroyed;
+                HtmlUiLogger.Info("Frame created: name=" + (e.Frame.Name ?? "<unnamed>"));
+            }
+            catch (Exception ex) { HtmlUiLogger.Debug("Frame tracking failed: " + ex.GetBaseException().Message); }
+        }
+
+        private void OnTrackedFrameDestroyed(object sender, object e)
+        {
+            if (sender is CoreWebView2Frame frame)
+            {
+                lock (_liveFrames) _liveFrames.Remove(frame);
+                try { frame.Destroyed -= OnTrackedFrameDestroyed; } catch { }
+            }
         }
 
         private void EnsureUiThread(Action action)

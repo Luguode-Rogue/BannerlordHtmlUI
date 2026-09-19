@@ -26,6 +26,13 @@ namespace BannerlordHtmlUI
         /// <summary>When false the surface is mounted but excluded from rendering and input aggregation.</summary>
         public bool Enabled { get; set; } = true;
 
+        /// <summary>
+        /// v2 Coexist extension: when true the surface survives the Page-dominant suppression and
+        /// is mounted directly into the page document by HtmlUiCoexistHost (the shell document is
+        /// not active while a page owns the host). Only meaningful for Passive surfaces.
+        /// </summary>
+        public bool CoexistWithPage { get; set; } = false;
+
         public Action Opened { get; set; }
         public Action Closed { get; set; }
 

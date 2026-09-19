@@ -14,6 +14,9 @@ namespace BannerlordHtmlUI
         public bool Visible { get; internal set; }
         public bool Enabled { get; internal set; }
         public bool Suppressed { get; internal set; }
+        public bool CoexistWithPage { get; internal set; }
+        /// <summary>Same-directory candidate URLs keyed by virtual host (see HtmlUiHost.BuildCoexistUris).</summary>
+        public System.Collections.Generic.Dictionary<string, string> CoexistUris { get; internal set; }
         public HtmlUiInputMode InputDemand { get; internal set; }
     }
 
@@ -97,7 +100,8 @@ namespace BannerlordHtmlUI
                 {
                     Surface = surface,
                     Visible = false,
-                    Suppressed = _suppressAll,
+                    // Coexist surfaces opt out of the page-dominant suppression and stay displayed.
+                    Suppressed = _suppressAll && !surface.CoexistWithPage,
                     Sequence = NextSequenceLocked()
                 });
             }
@@ -274,7 +278,7 @@ namespace BannerlordHtmlUI
                 {
                     var entry = pair.Value;
                     var wasDisplayed = IsDisplayed(entry);
-                    entry.Suppressed = suppressed;
+                    entry.Suppressed = suppressed && !entry.Surface.CoexistWithPage;
                     if (wasDisplayed != IsDisplayed(entry))
                     {
                         flipped = flipped ?? new List<Entry>();
@@ -391,6 +395,8 @@ namespace BannerlordHtmlUI
                 Visible = IsDisplayed(entry),
                 Enabled = entry.Surface.Enabled,
                 Suppressed = entry.Suppressed,
+                CoexistWithPage = entry.Surface.CoexistWithPage,
+                CoexistUris = _host == null ? null : _host.BuildCoexistUris(entry.Surface),
                 InputDemand = entry.Surface.InputDemand
             };
         }
@@ -430,6 +436,8 @@ namespace BannerlordHtmlUI
                         visible = view.Visible,
                         enabled = view.Enabled,
                         suppressed = view.Suppressed,
+                        coexistWithPage = view.CoexistWithPage,
+                        coexistUris = view.CoexistUris,
                         inputDemand = view.InputDemand.ToString()
                     });
                 }

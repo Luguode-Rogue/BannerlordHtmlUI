@@ -344,6 +344,15 @@ namespace BannerlordHtmlUI
                 var type = root["type"]?.Value<string>() ?? string.Empty;
                 var name = root["name"]?.Value<string>() ?? string.Empty;
                 var payload = root["payload"] ?? JValue.CreateNull();
+                try
+                {
+                    // Diagnostic: messages arriving from a frame other than the framework host
+                    // prove whether iframe runtimes can reach the bridge at all.
+                    var source = e.Source ?? string.Empty;
+                    if (source.Length > 0 && source.IndexOf("bannerlord-htmlui.local/", StringComparison.OrdinalIgnoreCase) < 0)
+                        HtmlUiLogger.Info("Frame web message: type=" + type + " name=" + name + " source=" + source);
+                }
+                catch { }
                 if (type == "cancel")
                 {
                     if (string.IsNullOrWhiteSpace(id)) return;
