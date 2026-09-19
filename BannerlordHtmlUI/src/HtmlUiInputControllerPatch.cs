@@ -65,7 +65,7 @@ namespace BannerlordHtmlUI
                 catch (Exception ex) { HtmlUiLogger.Debug("Input controller uninstall failed: " + ex.GetBaseException().Message); }
                 finally
                 {
-                    HtmlUiCursorController.SetOwned(__instance, false);
+                    HtmlUiCursorController.SetOwned(host, false);
                     _harmony = null;
                     _formField = null;
                     _webField = null;
@@ -96,7 +96,7 @@ namespace BannerlordHtmlUI
                 {
                     // The overlay cannot own input it cannot show. Never leave the game blocked.
                     HtmlUiInputBlocker.SetBlocking(false, false);
-                    HtmlUiCursorController.SetOwned(host, false);
+                    HtmlUiCursorController.SetOwned(__instance, false);
                     HtmlUiInputTraceLogger.Event(
                         "INPUT_MODE_REQUEST_UNAPPLIED requested=" + mode +
                         " reason=form-not-ready");
