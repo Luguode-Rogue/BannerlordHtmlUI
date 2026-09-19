@@ -176,14 +176,12 @@ namespace BannerlordHtmlUI
                                 foreground == gameHwnd;
                             if (!overlayOwnsForeground && !gameOwnsForeground)
                                 return CallNextHookEx(_mouseHook, code, wParam, lParam);
-                            bool nativeWebViewReceivesWheel = overlayOwnsForeground && form.ContainsFocus;
-                            if (!nativeWebViewReceivesWheel)
+                            int delta = unchecked((short)((data.MouseData >> 16) & 0xffff));
+                            if (delta != 0 && host.TryDispatchPageWheel(data.Point.X, data.Point.Y, delta))
                             {
-                                int delta = unchecked((short)((data.MouseData >> 16) & 0xffff));
-                                if (delta != 0 && host.TryDispatchPageWheel(data.Point.X, data.Point.Y, delta))
-                                {
-                                    return new IntPtr(1);
-                                }
+                                HtmlUiInputTraceLogger.Event("NATIVE_WHEEL_FALLBACK delta=" + delta +
+                                                             " x=" + data.Point.X + " y=" + data.Point.Y);
+                                return new IntPtr(1);
                             }
                         }
                     }
