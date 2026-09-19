@@ -15,10 +15,14 @@ namespace BannerlordHtmlUI
         {
             try { HtmlUiInputBlocker.Install(); }
             catch (Exception ex) { HtmlUiLogger.Error("Failed to install the Bannerlord input blocker.", ex); }
+            try { HtmlUiCursorController.Install(); }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install the HTML UI cursor owner.", ex); }
         }
 
         internal static void Uninstall()
         {
+            try { HtmlUiCursorController.Uninstall(); }
+            catch (Exception ex) { HtmlUiLogger.Debug("Cursor owner uninstall failed: " + ex.GetBaseException().Message); }
             try { HtmlUiInputBlocker.Uninstall(); }
             catch (Exception ex) { HtmlUiLogger.Debug("Input blocker uninstall failed: " + ex.GetBaseException().Message); }
         }

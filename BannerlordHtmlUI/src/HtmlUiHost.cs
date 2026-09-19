@@ -812,6 +812,26 @@ namespace BannerlordHtmlUI
             return true;
         }
 
+        /// <summary>
+        /// Delivers a physical wheel notch to the DOM below the cursor when Chromium cannot
+        /// receive native mouse messages because Bannerlord reclaimed the foreground window.
+        /// </summary>
+        internal bool TryDispatchPageWheel(int screenX, int screenY, int wheelDelta)
+        {
+            if (_disposed || !IsWebViewReady || wheelDelta == 0) return false;
+            string script =
+                "(function(px,py,wd){try{const dpr=window.devicePixelRatio||1;" +
+                "const cx=px/dpr-(window.screenX||0),cy=py/dpr-(window.screenY||0);" +
+                "const el=document.elementFromPoint(cx,cy);if(!el)return;const dy=-wd;" +
+                "const ev=new WheelEvent('wheel',{bubbles:true,cancelable:true,clientX:cx,clientY:cy,deltaY:dy,deltaMode:0});" +
+                "el.dispatchEvent(ev);if(ev.defaultPrevented)return;let n=el;" +
+                "while(n&&n!==document.documentElement){const s=getComputedStyle(n);" +
+                "if(/(auto|scroll|overlay)/.test(s.overflowY)&&n.scrollHeight>n.clientHeight){n.scrollTop+=dy;return;}n=n.parentElement;}" +
+                "const root=document.scrollingElement||document.documentElement;if(root)root.scrollTop+=dy;" +
+                "}catch(e){}})(" + screenX + "," + screenY + "," + wheelDelta + ")";
+            return TryExecutePageScript(script);
+        }
+
         /// <summary>Runs task continuations on the game thread through Drain.</summary>
         public System.Threading.Tasks.TaskScheduler GameThreadScheduler => _gameThread.Scheduler;
         public bool CommandExists(string name) { return _bridge != null && _bridge.CommandExists(name); }
