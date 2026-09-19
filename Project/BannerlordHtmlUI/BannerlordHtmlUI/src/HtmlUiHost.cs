@@ -819,16 +819,20 @@ namespace BannerlordHtmlUI
         internal bool TryDispatchPageWheel(int screenX, int screenY, int wheelDelta)
         {
             if (_disposed || !IsWebViewReady || wheelDelta == 0) return false;
+            var form = _form;
+            if (form == null || form.IsDisposed || form.Width <= 0 || form.Height <= 0) return false;
+            var bounds = form.Bounds;
             string script =
-                "(function(px,py,wd){try{const dpr=window.devicePixelRatio||1;" +
-                "const cx=px/dpr-(window.screenX||0),cy=py/dpr-(window.screenY||0);" +
+                "(function(px,py,l,t,w,h,wd){try{" +
+                "const cx=(px-l)*innerWidth/Math.max(1,w),cy=(py-t)*innerHeight/Math.max(1,h);" +
                 "const el=document.elementFromPoint(cx,cy);if(!el)return;const dy=-wd;" +
                 "const ev=new WheelEvent('wheel',{bubbles:true,cancelable:true,clientX:cx,clientY:cy,deltaY:dy,deltaMode:0});" +
                 "el.dispatchEvent(ev);if(ev.defaultPrevented)return;let n=el;" +
                 "while(n&&n!==document.documentElement){const s=getComputedStyle(n);" +
                 "if(/(auto|scroll|overlay)/.test(s.overflowY)&&n.scrollHeight>n.clientHeight){n.scrollTop+=dy;return;}n=n.parentElement;}" +
                 "const root=document.scrollingElement||document.documentElement;if(root)root.scrollTop+=dy;" +
-                "}catch(e){}})(" + screenX + "," + screenY + "," + wheelDelta + ")";
+                "}catch(e){}})(" + screenX + "," + screenY + "," + bounds.Left + "," + bounds.Top + "," +
+                bounds.Width + "," + bounds.Height + "," + wheelDelta + ")";
             return TryExecutePageScript(script);
         }
 
