@@ -87,7 +87,7 @@ namespace BannerlordHtmlUI
             if (ReferenceEquals(_host, host)) _host = null;
         }
 
-        private static bool TryCloseFromEscape(HtmlUiHost host, string source)
+        internal static bool TryCloseFromEscape(HtmlUiHost host, string source)
         {
             // ESC is a page lifecycle control, not a permission check on input mode.
             // If a page explicitly opts into CloseOnEscape, allow the Framework fallback to close it

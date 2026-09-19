@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BannerlordHtmlUI Diagnostics</title>
+  <style>
+    body{font-family:system-ui,sans-serif;margin:24px;line-height:1.45;background:#111;color:#eee}
+    h1{margin-top:0}.grid{display:grid;grid-template-columns:repeat(2,minmax(240px,1fr));gap:12px}
+    .card{background:#1b1b1b;border:1px solid #333;border-radius:8px;padding:12px}
+    .key{font-size:12px;color:#aaa}.value{font-family:ui-monospace,Consolas,monospace;word-break:break-word}
+    pre{white-space:pre-wrap;background:#0b0b0b;padding:12px;border-radius:8px;border:1px solid #333}
+  </style>
+</head>
+<body>
+  <h1>BannerlordHtmlUI Diagnostics</h1>
+  <p id="status">Loading...</p>
+  <div class="grid" id="grid"></div>
+  <h2>Raw snapshot</h2>
+  <pre id="raw"></pre>
+  <script>
+    (() => {
+      const status = document.getElementById('status');
+      const grid = document.getElementById('grid');
+      const raw = document.getElementById('raw');
+      let disposed = false;
+      let refreshInFlight = false;
+
+      const render = data => {
+        while (grid.firstChild) grid.removeChild(grid.firstChild);
+        for (const [key, value] of Object.entries(data || {})) {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML = '<div class="key"></div><div class="value"></div>';
+          card.children[0].textContent = key;
+          card.children[1].textContent = typeof value === 'object' ? JSON.stringify(value) : String(value);
+          grid.appendChild(card);
+        }
+        raw.textContent = JSON.stringify(data || {}, null, 2);
+      };
+
+      const refresh = async () => {
+        if (disposed || refreshInFlight) return;
+        refreshInFlight = true;
+        try {
+          const data = await game.request('framework.getDiagnostics');
+          if (disposed) return;
+          status.textContent = 'Diagnostics request succeeded. Auto-refresh: 1000 ms.';
+          render(data);
+        } catch (e) {
+          if (!disposed) status.textContent = 'Diagnostics request failed: ' + e.message;
+        } finally {
+          refreshInFlight = false;
+        }
+      };
+
+      refresh();
+      const timer = setInterval(refresh, 1000);
+      window.addEventListener('pagehide', () => {
+        disposed = true;
+        clearInterval(timer);
+      }, { once: true });
+    })();
+  </script>
+</body>
+</html>

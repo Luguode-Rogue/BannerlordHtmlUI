@@ -56,8 +56,15 @@ namespace BannerlordHtmlUI
         {
             _mouseOnly = enabled;
             _passThrough = false;
-            var applied = Win32.SetMouseOnlyStyle(Handle, enabled);
-            HtmlUiLogger.Info("Overlay SetMouseOnly enabled=" + enabled + " applied=" + applied + " hwnd=" + Handle);
+
+            // MouseCaptured must stop being transparent. WS_EX_TRANSPARENT makes the system skip
+            // this window during hit testing, so no mouse message would ever reach the overlay.
+            // Clearing it here is what actually lets the overlay receive the mouse while the game
+            // keeps the keyboard (no activation is requested).
+            if (enabled) Win32.SetPassThroughStyle(Handle, false);
+
+            var applied = Win32.SetNoActivate(Handle, enabled);
+            HtmlUiLogger.Info("Overlay SetMouseOnly enabled=" + enabled + " noActivateApplied=" + applied + " hwnd=" + Handle);
         }
 
         protected override bool ShowWithoutActivation => _passThrough || _mouseOnly;

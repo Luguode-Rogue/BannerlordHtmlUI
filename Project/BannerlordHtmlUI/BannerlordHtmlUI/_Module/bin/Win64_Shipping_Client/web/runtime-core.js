@@ -192,7 +192,10 @@
         on(handler) { return window.game.errors.on(handler); },
         get last() { return window.game.errors.last; }
       },
-      i18n,
+      // Getter, not a captured reference: runtime-i18n.js replaces game.i18n after
+      // the core runs, and a captured legacy object would freeze stale translations
+      // and a dead onLocaleChanged for every scope created by page code.
+      get i18n() { return window.game.i18n; },
       bind: createBinder(ownerId),
       input: window.game ? window.game.input : null,
       pages: {
@@ -691,8 +694,14 @@
 
   const queryOwner = getQueryParam('__bannerlord_htmlui_owner');
   const queryPage = getQueryParam('__bannerlord_htmlui_page');
+  const querySurface = getQueryParam('__bannerlord_htmlui_surface');
 
   const currentOwnerId = queryOwner && queryOwner !== 'framework' ? queryOwner : null;
+
+  const requireSurface = apiName => {
+    if (querySurface) return null;
+    return Promise.reject(new Error(apiName + ' is only available inside a surface document.'));
+  };
 
   window.game = {
     ownerId: queryOwner || null,
@@ -705,6 +714,27 @@
         if (typeof handler !== 'function') throw new Error('A lifecycle handler is required.');
         lifecycleListeners.add(handler);
         return () => lifecycleListeners.delete(handler);
+      }
+    },
+    surface: {
+      id: querySurface || null,
+      ownerId: queryOwner || null,
+      isSurface() { return !!querySurface; },
+      isInputOwner() {
+        const aggregate = state.get('framework.surfaces.aggregate');
+        return !!aggregate && aggregate.inputOwnerId === querySurface;
+      },
+      setVisible(visible) {
+        const guard = requireSurface('game.surface.setVisible');
+        return guard || window.game.call('framework.surface.setVisible', { id: querySurface, visible: !!visible });
+      },
+      requestInput(mode) {
+        const guard = requireSurface('game.surface.requestInput');
+        return guard || window.game.call('framework.surface.setInputDemand', { id: querySurface, mode: String(mode || '') });
+      },
+      setZIndex(zIndex) {
+        const guard = requireSurface('game.surface.setZIndex');
+        return guard || window.game.call('framework.surface.setZIndex', { id: querySurface, zIndex: Number(zIndex) || 0 });
       }
     },
     scope(ownerId = queryOwner) { return createScope(ownerId); },

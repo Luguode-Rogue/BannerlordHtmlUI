@@ -17,6 +17,7 @@ namespace BannerlordHtmlUI
         private static FieldInfo _environmentField;
         private static FieldInfo _formField;
         private static FieldInfo _pendingPageField;
+        private static FieldInfo _pendingShellField;
         private static FieldInfo _readyEventField;
         private static MethodInfo _configureMethod;
 
@@ -40,6 +41,7 @@ namespace BannerlordHtmlUI
                 _environmentField = typeof(HtmlUiHost).GetField("_environment", BindingFlags.Instance | BindingFlags.NonPublic);
                 _formField = typeof(HtmlUiHost).GetField("_form", BindingFlags.Instance | BindingFlags.NonPublic);
                 _pendingPageField = typeof(HtmlUiHost).GetField("_pendingPage", BindingFlags.Instance | BindingFlags.NonPublic);
+                _pendingShellField = typeof(HtmlUiHost).GetField("_pendingShell", BindingFlags.Instance | BindingFlags.NonPublic);
                 _readyEventField = typeof(HtmlUiHost).GetField("Ready", BindingFlags.Instance | BindingFlags.NonPublic);
                 _configureMethod = AccessToolsCompat.Method(typeof(HtmlUiHost), "ConfigureAfterWebViewReady");
 
@@ -66,6 +68,7 @@ namespace BannerlordHtmlUI
                 _environmentField = null;
                 _formField = null;
                 _pendingPageField = null;
+                _pendingShellField = null;
                 _readyEventField = null;
                 _configureMethod = null;
                 _recoveryInProgress = 0;
@@ -139,9 +142,21 @@ namespace BannerlordHtmlUI
                 SetWebViewReady(host, false);
 
                 if (currentPage != null)
+                {
                     _pendingPageField.SetValue(host, currentPage);
+                    if (_pendingShellField != null) _pendingShellField.SetValue(host, false);
+                }
                 else
+                {
                     _pendingPageField.SetValue(host, null);
+
+                    // Surfaces live in the shell, not in a page. Re-arm the shell so every
+                    // visible surface is re-mounted after the WebView2 instance is rebuilt.
+                    var surfacesVisible = false;
+                    try { surfacesVisible = host.Surfaces.Aggregate.HasVisible; }
+                    catch (Exception ex) { HtmlUiLogger.Debug("Surface visibility probe during recovery failed: " + ex.GetBaseException().Message); }
+                    if (_pendingShellField != null) _pendingShellField.SetValue(host, surfacesVisible);
+                }
 
                 if (oldCore != null)
                 {
@@ -259,10 +274,6 @@ namespace BannerlordHtmlUI
 
         private static void SetWebViewReady(HtmlUiHost host, bool ready)
         {
-            // Prefer the host-owned transition so the cached CoreWebView2 reference is invalidated
-            // atomically with the ready flag. Reflection is only a fallback for older layouts.
-            try { host.SetWebViewReady(ready); return; }
-            catch { }
             var field = typeof(HtmlUiHost).GetField("_webViewReady", BindingFlags.Instance | BindingFlags.NonPublic);
             field?.SetValue(host, ready);
         }

@@ -14,6 +14,7 @@ namespace BannerlordHtmlUI
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool IsIconic(IntPtr hWnd);
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool IsWindow(IntPtr hWnd);
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool IsWindowVisible(IntPtr hWnd);
+        [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool IsChild(IntPtr hWndParent, IntPtr hWnd);
         [DllImport("user32.dll")] internal static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
@@ -50,28 +51,18 @@ namespace BannerlordHtmlUI
             HtmlUiLogger.Info("Overlay pass-through style enabled=" + enabled + " applied=" + applied + " transparent=" + transparent + " noActivate=" + noActivate + " hwnd=" + hWnd);
             return applied && transparent == enabled && noActivate == enabled;
         }
-        /// <summary>
-        /// Mouse-only capture: the overlay takes the mouse but must never take keyboard focus.
-        /// WS_EX_TRANSPARENT has to be cleared too, because a preceding Passive mode leaves it set,
-        /// and a layered/transparent overlay keeps forwarding every mouse event to Bannerlord.
-        /// </summary>
-        internal static bool SetMouseOnlyStyle(IntPtr hWnd, bool enabled)
+        internal static bool SetNoActivate(IntPtr hWnd, bool enabled)
         {
             if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return false;
             var current = Environment.Is64BitProcess ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64() : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
             var next = current | WS_EX_TOOLWINDOW;
-            if (enabled)
-                next = (next | WS_EX_NOACTIVATE) & ~WS_EX_TRANSPARENT;
-            else
-                next &= ~(WS_EX_NOACTIVATE | WS_EX_TRANSPARENT);
+            if (enabled) next |= WS_EX_NOACTIVATE; else next &= ~WS_EX_NOACTIVATE;
             var result = Environment.Is64BitProcess
                 ? SetWindowLongPtr64(hWnd, GWL_EXSTYLE, new IntPtr(next))
                 : SetWindowLongPtr32(hWnd, GWL_EXSTYLE, new IntPtr(next));
             var actual = Environment.Is64BitProcess ? GetWindowLongPtr64(hWnd, GWL_EXSTYLE).ToInt64() : GetWindowLongPtr32(hWnd, GWL_EXSTYLE).ToInt64();
             var noActivate = (actual & WS_EX_NOACTIVATE) != 0;
-            var transparent = (actual & WS_EX_TRANSPARENT) != 0;
-            HtmlUiLogger.Info("Overlay mouse-only style enabled=" + enabled + " transparent=" + transparent + " noActivate=" + noActivate + " hwnd=" + hWnd);
-            return (result != IntPtr.Zero || Marshal.GetLastWin32Error() == 0) && noActivate == enabled && !transparent;
+            return (result != IntPtr.Zero || Marshal.GetLastWin32Error() == 0) && noActivate == enabled;
         }
         internal static bool TryGetGameWindowHandle(IntPtr excludedWindow, out IntPtr handle)
         {
@@ -86,5 +77,42 @@ namespace BannerlordHtmlUI
         private static bool RememberGameWindow(IntPtr handle, out IntPtr result) { var changed = false; lock (GameWindowSync) { changed = _lastKnownGameWindow != handle; _lastKnownGameWindow = handle; } result = handle; if (changed) HtmlUiLogger.Info("Bannerlord game window resolved: hwnd=" + handle); return true; }
         private static bool IsUsableGameWindow(IntPtr hWnd, uint processId, IntPtr excludedWindow) { if (hWnd == IntPtr.Zero || hWnd == excludedWindow || !IsWindow(hWnd) || !IsWindowVisible(hWnd) || IsIconic(hWnd)) return false; GetWindowThreadProcessId(hWnd, out var ownerProcessId); return ownerProcessId == processId; }
         internal static void BringWindowAboveOwnerWithoutActivate(IntPtr hWnd) { if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return; SetWindowPos(hWnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW); }
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll")]
+        private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+        /// <summary>
+        /// Sets the foreground window even when the caller is no longer eligible (the foreground
+        /// belongs to the WebView2 render process after activation drifted to it). Uses the
+        /// classic AttachThreadInput trick to join the foreground thread's input queue.
+        /// </summary>
+        internal static void ForceSetForegroundWindow(IntPtr targetHwnd)
+        {
+            if (targetHwnd == IntPtr.Zero || !IsWindow(targetHwnd)) return;
+            var foreground = GetForegroundWindow();
+            if (foreground == targetHwnd) return;
+
+            uint currentThread = GetCurrentThreadId();
+            uint foregroundThread = GetWindowThreadProcessId(foreground, out _);
+            uint targetThread = GetWindowThreadProcessId(targetHwnd, out _);
+            bool attachedForeground = false;
+            bool attachedTarget = false;
+            try
+            {
+                if (foregroundThread != 0 && foregroundThread != currentThread)
+                    attachedForeground = AttachThreadInput(currentThread, foregroundThread, true);
+                if (targetThread != 0 && targetThread != currentThread)
+                    attachedTarget = AttachThreadInput(currentThread, targetThread, true);
+                SetForegroundWindow(targetHwnd);
+            }
+            catch { }
+            finally
+            {
+                if (attachedForeground) AttachThreadInput(currentThread, foregroundThread, false);
+                if (attachedTarget) AttachThreadInput(currentThread, targetThread, false);
+            }
+        }
     }
 }

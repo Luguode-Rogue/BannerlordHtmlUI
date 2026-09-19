@@ -10,6 +10,7 @@ namespace BannerlordHtmlUI
     {
         private readonly object _sync = new object();
         private readonly List<string> _pageIds = new List<string>();
+        private readonly List<string> _surfaceIds = new List<string>();
         private readonly List<string> _commandNames = new List<string>();
         private readonly List<string> _requestNames = new List<string>();
         private readonly List<string> _stateKeys = new List<string>();
@@ -71,6 +72,44 @@ namespace BannerlordHtmlUI
                 HtmlUiService.Pages.Register(scopedPage);
                 _pageIds.Add(scopedPage.Id);
                 return scopedPage.Id;
+            }
+        }
+
+        /// <summary>
+        /// Registers a parallel overlay surface owned by this scope. The surface id and content
+        /// root are scoped automatically, and the surface is unregistered when the scope disposes.
+        /// </summary>
+        public string RegisterSurface(HtmlUiSurface surface)
+        {
+            if (surface == null) throw new ArgumentNullException(nameof(surface));
+
+            lock (_sync)
+            {
+                ThrowIfDisposedOrDisposingLocked();
+
+                var surfaceId = HtmlUiService.MakeScopedName(OwnerId, surface.Id);
+                var requestedContentRoot = string.IsNullOrWhiteSpace(surface.ContentRootId) ? "ui" : surface.ContentRootId;
+                var contentRootId = string.Equals(requestedContentRoot, "framework", StringComparison.OrdinalIgnoreCase)
+                    ? HtmlUiService.MakeScopedName(OwnerId, "ui")
+                    : (requestedContentRoot.StartsWith(OwnerId + ".", StringComparison.OrdinalIgnoreCase)
+                        ? requestedContentRoot
+                        : HtmlUiService.MakeScopedName(OwnerId, requestedContentRoot));
+
+                var scoped = new HtmlUiSurface(surfaceId, surface.RelativePath)
+                {
+                    ContentRootId = contentRootId,
+                    ZIndex = surface.ZIndex,
+                    InputDemand = surface.InputDemand,
+                    Enabled = surface.Enabled,
+                    CoexistWithPage = surface.CoexistWithPage,
+                    Opened = surface.Opened,
+                    Closed = surface.Closed
+                };
+                scoped.OwnerId = OwnerId;
+
+                HtmlUiService.Surfaces.Register(scoped);
+                _surfaceIds.Add(scoped.Id);
+                return scoped.Id;
             }
         }
 
@@ -160,6 +199,7 @@ namespace BannerlordHtmlUI
         public void Dispose()
         {
             List<string> pageIds;
+            List<string> surfaceIds;
             List<string> commandNames;
             List<string> requestNames;
             List<string> stateKeys;
@@ -171,6 +211,7 @@ namespace BannerlordHtmlUI
                 _disposing = true;
 
                 pageIds = new List<string>(_pageIds);
+                surfaceIds = new List<string>(_surfaceIds);
                 commandNames = new List<string>(_commandNames);
                 requestNames = new List<string>(_requestNames);
                 stateKeys = new List<string>(_stateKeys);
@@ -210,6 +251,12 @@ namespace BannerlordHtmlUI
                 {
                     try { HtmlUiService.Pages.Unregister(pageId); }
                     catch (Exception ex) { HtmlUiLogger.Error("Consumer scope page cleanup failed: " + pageId, ex); }
+                }
+
+                foreach (var surfaceId in surfaceIds)
+                {
+                    try { HtmlUiService.Surfaces.Unregister(surfaceId); }
+                    catch (Exception ex) { HtmlUiLogger.Error("Consumer scope surface cleanup failed: " + surfaceId, ex); }
                 }
 
                 foreach (var command in commandNames)
@@ -252,6 +299,7 @@ namespace BannerlordHtmlUI
         private void ClearOwnershipListsLocked()
         {
             _pageIds.Clear();
+            _surfaceIds.Clear();
             _commandNames.Clear();
             _requestNames.Clear();
             _stateKeys.Clear();

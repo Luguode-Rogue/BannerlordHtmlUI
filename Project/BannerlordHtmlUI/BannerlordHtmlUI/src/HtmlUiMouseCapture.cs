@@ -1,21 +1,30 @@
+using System;
+
 namespace BannerlordHtmlUI
 {
     /// <summary>
     /// Compatibility facade retained for older consumers.
-    /// Native overlay mouse interception is intentionally disabled until a correct
-    /// Bannerlord-side input routing implementation replaces it.
+    ///
+    /// Game-side suppression now exists: <see cref="HtmlUiInputBlocker"/> hides owned input from
+    /// Bannerlord's polling API. The input controller is the only caller that turns it on, and it
+    /// is always released for Passive and Hidden.
     /// </summary>
     public static class HtmlUiMouseCapture
     {
         internal static void Install()
         {
-            // Intentionally no-op. Do not install a Harmony patch over Host input state.
-            HtmlUiLogger.Info("HtmlUiMouseCapture compatibility facade loaded; native mouse interception disabled.");
+            try { HtmlUiInputBlocker.Install(); }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install the Bannerlord input blocker.", ex); }
+            try { HtmlUiCursorController.Install(); }
+            catch (Exception ex) { HtmlUiLogger.Error("Failed to install the HTML UI cursor owner.", ex); }
         }
 
         internal static void Uninstall()
         {
-            // Intentionally no-op.
+            try { HtmlUiCursorController.Uninstall(); }
+            catch (Exception ex) { HtmlUiLogger.Debug("Cursor owner uninstall failed: " + ex.GetBaseException().Message); }
+            try { HtmlUiInputBlocker.Uninstall(); }
+            catch (Exception ex) { HtmlUiLogger.Debug("Input blocker uninstall failed: " + ex.GetBaseException().Message); }
         }
 
         public static void Capture()

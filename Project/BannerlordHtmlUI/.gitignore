@@ -17,3 +17,9 @@ obj/
 *.pdb
 *.Up2Date
 *.log
+
+# 2026-09-05 仓库完整性修正：上面的 bin/ 规则会连带忽略
+# BannerlordHtmlUI/_Module/bin（web 运行时唯一源：runtime-bootstrap/core/i18n、shell 等）
+# 以及根 bin（游戏实际加载的部署目录），导致关键源文件从未入库。现予例外：
+!/bin/
+!BannerlordHtmlUI/_Module/bin/

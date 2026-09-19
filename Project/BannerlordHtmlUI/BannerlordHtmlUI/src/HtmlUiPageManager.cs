@@ -51,8 +51,8 @@ namespace BannerlordHtmlUI
                     _host.ClearPendingNavigation();
                     InvokeClosed(page, id);
                     PublishClosed(id, page);
-                    _host.SetInputMode(HtmlUiInputMode.Hidden);
-                    _host.Hide();
+                    try { _host.NotifyPageClosed(); }
+                    catch (Exception ex) { HtmlUiLogger.Error("Page unregister notification failed: " + id, ex); }
                 }
                 HtmlUiLogger.Info("Page unregistered: " + id);
                 return true;
@@ -104,6 +104,8 @@ namespace BannerlordHtmlUI
                     PublishOpening(page);
                     _host.Navigate(page);
                     _host.SetInputMode(page.DefaultInputMode);
+                    try { _host.NotifyPageOpened(); }
+                    catch (Exception ex) { HtmlUiLogger.Error("Page open notification failed: " + page.Id, ex); }
                     try { page.Opened?.Invoke(); }
                     catch (Exception ex) { HtmlUiLogger.Error("Page open callback failed: " + page.Id, ex); }
                 }
@@ -115,8 +117,7 @@ namespace BannerlordHtmlUI
                     }
                     _host.ClearPendingNavigation();
                     PublishClosed(page.Id, page);
-                    try { _host.SetInputMode(HtmlUiInputMode.Hidden); } catch { }
-                    try { _host.Hide(); } catch { }
+                    try { _host.NotifyPageClosed(); } catch { }
                     HtmlUiLogger.Error("Page open failed and was rolled back: " + page.Id, ex);
                     throw;
                 }
@@ -150,7 +151,7 @@ namespace BannerlordHtmlUI
                 if (openId == null)
                 {
                     HtmlUiLogger.Info("Page CloseCurrent ignored: no open page.");
-                    try { _host.SetInputMode(HtmlUiInputMode.Hidden); } catch { }
+                    try { _host.NotifyPageClosed(); } catch { }
                     _host.ClearPendingNavigation();
                     return;
                 }
@@ -162,10 +163,10 @@ namespace BannerlordHtmlUI
             _host.ClearPendingNavigation();
             InvokeClosed(page, openId);
             PublishClosed(openId, page);
-            try { _host.SetInputMode(HtmlUiInputMode.Hidden); }
-            catch (Exception ex) { HtmlUiLogger.Error("Failed to restore Hidden input mode while closing page: " + openId, ex); }
-            try { _host.Hide(); }
-            catch (Exception ex) { HtmlUiLogger.Error("Failed to hide HTML UI host while closing page: " + openId, ex); }
+            // The input coordinator owns the post-page host state. With no visible surfaces it
+            // resolves to Hidden (the legacy behavior); with visible surfaces it restores them.
+            try { _host.NotifyPageClosed(); }
+            catch (Exception ex) { HtmlUiLogger.Error("Page closed notification failed: " + openId, ex); }
 
             HtmlUiLogger.Info("Page CloseCurrent finished: page=" + openId + ", currentAfter=" + (CurrentId ?? "<null>") + ", hostVisible=" + _host.IsVisible + ", inputMode=" + _host.InputMode);
         }

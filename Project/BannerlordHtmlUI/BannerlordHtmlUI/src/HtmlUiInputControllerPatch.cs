@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using HarmonyLib;
+using Microsoft.Web.WebView2.WinForms;
 
 namespace BannerlordHtmlUI
 {
@@ -64,6 +65,7 @@ namespace BannerlordHtmlUI
                 catch (Exception ex) { HtmlUiLogger.Debug("Input controller uninstall failed: " + ex.GetBaseException().Message); }
                 finally
                 {
+                    HtmlUiCursorController.SetOwned(host, false);
                     _harmony = null;
                     _formField = null;
                     _webField = null;
@@ -92,6 +94,9 @@ namespace BannerlordHtmlUI
                 var form = GetForm(__instance);
                 if (form == null || form.IsDisposed || !form.IsHandleCreated)
                 {
+                    // The overlay cannot own input it cannot show. Never leave the game blocked.
+                    HtmlUiInputBlocker.SetBlocking(false, false);
+                    HtmlUiCursorController.SetOwned(__instance, false);
                     HtmlUiInputTraceLogger.Event(
                         "INPUT_MODE_REQUEST_UNAPPLIED requested=" + mode +
                         " reason=form-not-ready");
@@ -105,6 +110,9 @@ namespace BannerlordHtmlUI
             }
             catch (Exception ex)
             {
+                HtmlUiInputBlocker.SetBlocking(false, false);
+                HtmlUiNativeMouseDispatcher.Stop();
+                HtmlUiCursorController.SetOwned(__instance, false);
                 HtmlUiLogger.Error("Unified input mode transition failed.", ex);
                 HtmlUiInputTraceLogger.Event("INPUT_MODE_REQUEST_ERROR requested=" + mode + " error=" + ex.GetBaseException().Message);
                 return false;
@@ -128,6 +136,9 @@ namespace BannerlordHtmlUI
                 if (!Win32.TryGetGameWindowHandle(form.Handle, out var gameHwnd) || gameHwnd == IntPtr.Zero)
                 {
                     HtmlUiLogger.Warn("Input mode applied without a resolved Bannerlord window. mode=" + mode);
+                    HtmlUiInputBlocker.SetBlocking(false, false);
+                    HtmlUiNativeMouseDispatcher.Stop();
+                    HtmlUiCursorController.SetOwned(host, false);
                     HtmlUiInputTraceLogger.Event("INPUT_MODE_APPLY_UNRESOLVED_HWND mode=" + mode);
                     if (mode == HtmlUiInputMode.Hidden || mode == HtmlUiInputMode.Passive)
                     {
@@ -144,6 +155,9 @@ namespace BannerlordHtmlUI
 
                 if (mode == HtmlUiInputMode.Hidden)
                 {
+                    HtmlUiInputBlocker.SetBlocking(false, false);
+                    HtmlUiNativeMouseDispatcher.Stop();
+                    HtmlUiCursorController.SetOwned(host, false);
                     RestoreGameInput(host, gameHwnd, form);
                     state.LastAppliedMode = HtmlUiInputMode.Hidden;
                     HtmlUiLogger.Info("Input mode applied: Hidden; game input restored.");
@@ -154,6 +168,10 @@ namespace BannerlordHtmlUI
 
                 if (mode == HtmlUiInputMode.Passive)
                 {
+                    // Passive means the game keeps everything; the overlay is display only.
+                    HtmlUiInputBlocker.SetBlocking(false, false);
+                    HtmlUiNativeMouseDispatcher.Stop();
+                    HtmlUiCursorController.SetOwned(host, false);
                     bool captureReleased = true;
                     try { Win32.ReleaseMouseCapture(); }
                     catch (Exception ex)
@@ -167,25 +185,46 @@ namespace BannerlordHtmlUI
                     form.SetPassThrough(true);
                     Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
-                    ReturnForegroundToGame(form, gameHwnd, "Passive");
+
+                    // Leaving MouseCaptured may have left the foreground with the WebView2 child
+                    // (clicking the map activates it by design). Passive is display-only, so hand
+                    // activation back to the game immediately.
+                    if (Win32.GetForegroundWindow() != gameHwnd)
+                    {
+                        Win32.ForceSetForegroundWindow(gameHwnd);
+                    }
+
                     HtmlUiInputTraceLogger.Event(
                         "INPUT_MODE_PASSIVE_APPLIED htmlMouse=false htmlKeyboard=false nativeCaptureReleased=" + captureReleased +
                         " webEnabled=false passThrough=true mouseOnly=false");
                 }
                 else if (mode == HtmlUiInputMode.MouseCaptured)
                 {
+                    // The overlay owns the mouse, the game keeps the keyboard.
+                    HtmlUiInputBlocker.SetBlocking(true, false);
+                    HtmlUiCursorController.SetOwned(host, true);
+                    HtmlUiNativeMouseDispatcher.EnsureStarted(host);
                     try { if (web != null) web.Enabled = true; } catch { }
                     try { form.SetOwner(gameHwnd); } catch { }
                     try { form.Show(); } catch { }
                     form.SetMouseOnly(true);
                     Win32.ShowWindow(form.Handle, Win32.SW_SHOWNOACTIVATE);
                     Win32.BringWindowAboveOwnerWithoutActivate(form.Handle);
-                    ReturnForegroundToGame(form, gameHwnd, "MouseCaptured");
+
+                    // Do NOT fight the activation here, and do NOT MoveFocus: probe logs proved
+                    // Chromium's input pipeline stays fully closed in this state either way. The
+                    // game keeps polling input through its own tick (Input.IsKeyDown /
+                    // GetAsyncKeyState work unfocused), which is what ESC and N rely on.
+                    // Passive/Hidden restore the game foreground.
+
                     HtmlUiInputTraceLogger.Event(
                         "INPUT_MODE_MOUSE_CAPTURED_APPLIED htmlMouse=true htmlKeyboard=false mouseOnly=true noActivate=true");
                 }
                 else
                 {
+                    HtmlUiInputBlocker.SetBlocking(true, true);
+                    HtmlUiCursorController.SetOwned(host, true);
+                    HtmlUiNativeMouseDispatcher.EnsureStarted(host);
                     try { if (web != null) web.Enabled = true; } catch { }
                     try { form.SetOwner(gameHwnd); } catch { }
                     try { form.Show(); } catch { }
@@ -210,27 +249,6 @@ namespace BannerlordHtmlUI
             finally
             {
                 state.Applying = false;
-            }
-        }
-
-        /// <summary>
-        /// Passive and MouseCaptured both leave the keyboard with the game, so the game window must own
-        /// the foreground. SW_SHOWNOACTIVATE only stops the overlay from taking focus; it never hands
-        /// focus back, so a preceding Captured mode leaves the overlay in front and silently swallows
-        /// every game hotkey.
-        /// </summary>
-        private static void ReturnForegroundToGame(HtmlUiOverlayForm form, IntPtr gameHwnd, string mode)
-        {
-            if (form == null || gameHwnd == IntPtr.Zero) return;
-            try
-            {
-                if (Win32.GetForegroundWindow() != form.Handle) return;
-                Win32.SetForegroundWindow(gameHwnd);
-                HtmlUiInputTraceLogger.Event("FOREGROUND_RETURNED_TO_GAME mode=" + mode + " gameHwnd=" + gameHwnd);
-            }
-            catch (Exception ex)
-            {
-                HtmlUiInputTraceLogger.Event("FOREGROUND_RETURN_ERROR mode=" + mode + " error=" + ex.GetBaseException().Message);
             }
         }
 
@@ -276,6 +294,59 @@ namespace BannerlordHtmlUI
                 "CAPTURED_ACTIVATE_RESULT foreground=" + after +
                 " overlayHwnd=" + form.Handle +
                 " webFocused=" + (web != null && web.Focused));
+        }
+
+        internal static void EnsureCapturedFocus(HtmlUiHost host)
+        {
+            if (host == null || host.InputMode != HtmlUiInputMode.Captured || IsDisposed(host)) return;
+            var form = GetForm(host);
+            var web = GetWeb(host);
+            if (form == null || form.IsDisposed || !form.Visible || !form.IsHandleCreated) return;
+
+            var foreground = Win32.GetForegroundWindow();
+            bool overlayOwnsForeground = foreground == form.Handle ||
+                                         (foreground != IntPtr.Zero && Win32.IsChild(form.Handle, foreground));
+            if (overlayOwnsForeground && (web == null || web.Focused)) return;
+            bool webWasFocused = web != null && web.Focused;
+
+            // Captured may remain active while the user Alt+Tabs. Only recover from Bannerlord
+            // reclaiming focus; never pull an unrelated foreground application back to the game.
+            if (!overlayOwnsForeground &&
+                (!Win32.TryGetGameWindowHandle(form.Handle, out var gameHwnd) || foreground != gameHwnd))
+                return;
+
+            try
+            {
+                if (!overlayOwnsForeground)
+                {
+                    Win32.SetForegroundWindow(form.Handle);
+                    form.Activate();
+                }
+                if (web != null && !web.Focused) web.Focus();
+                bool webIsFocused = web != null && web.Focused;
+                if (!overlayOwnsForeground || (!webWasFocused && webIsFocused))
+                {
+                    HtmlUiInputTraceLogger.Event(
+                        "CAPTURED_FOCUS_RECOVERY previousForeground=" + foreground +
+                        " foreground=" + Win32.GetForegroundWindow() +
+                        " webFocused=" + webIsFocused);
+                }
+            }
+            catch (Exception ex)
+            {
+                HtmlUiInputTraceLogger.Event("CAPTURED_FOCUS_RECOVERY_ERROR error=" + ex.GetBaseException().Message);
+            }
+        }
+
+        private static object GetCoreWebView2Controller(WebView2 web)
+        {
+            if (web == null) return null;
+            foreach (var field in web.GetType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic))
+            {
+                if (typeof(Microsoft.Web.WebView2.Core.CoreWebView2Controller).IsAssignableFrom(field.FieldType))
+                    return field.GetValue(web);
+            }
+            return null;
         }
 
         private static HtmlUiOverlayForm GetForm(HtmlUiHost host) { return _formField?.GetValue(host) as HtmlUiOverlayForm; }
