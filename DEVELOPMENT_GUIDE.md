@@ -26,6 +26,19 @@ await HtmlUiService.SwitchToGameThread(); // 回游戏线程
 
 框架兜底：request 的**结果处理与清理**已由 `HtmlUiBridge.ExecuteRequestOnGameThread` 通过 `GameThreadTaskScheduler` 回投游戏线程，handler 的**同步起始段**也在游戏线程。handler 内部的 await 是 Consumer 自己的责任。
 
+### 1.1.1 跨桥刷新性能契约
+
+**WebView2 的跨线程、跨进程脚本调用容易制造短暂帧时间尖峰。** `HtmlUiService.SendEvent` / `State.Set` 会把载荷序列化为 JavaScript，并通过 `ExecuteScriptAsync` 广播到顶层文档和所有存活 frame；高频调用可能显著拉低 1% Low，因此 Consumer 必须限制频率和载荷。
+
+Consumer 必须遵守以下规则：
+
+1. 禁止把逐帧变化、连续倒计时或自然回复值直接跨桥发送；应在浏览器侧使用本地时钟推进，只同步开始、结束、跳变和校准。
+2. 高频状态必须拆成最小增量载荷，不得因一个标量变化重新构造、序列化并发送包含列表或大对象的完整状态。
+3. 同一游戏帧内的多项变化必须先合并，再发送至多一条事件。
+4. 大图片、二进制数据和大段文本必须经虚拟主机资源管线加载，禁止 Base64 塞入 state/event。
+5. 动态集合必须设置数量上限、使用紧凑表示，并按实际显示需求限频；前端用 `requestAnimationFrame` 合并绘制，避免每个事件触发重复布局或整棵 DOM 重建。
+6. `State.Set` 的非标量相等比较会产生 `JToken` 转换成本；高频且已自行去重的数据应使用轻量事件，完整 state 仅用于首次水合或低频结构变化。
+
 ### 1.2 唯一 Owner 清单
 
 | 职责 | Owner | 说明 |
