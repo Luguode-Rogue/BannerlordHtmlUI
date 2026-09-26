@@ -83,6 +83,7 @@ declare namespace BannerlordHtmlUI {
     get<T = unknown>(key: string): T | undefined;
     has(key: string): boolean;
     subscribe<T = unknown>(key: string, handler: (value: T) => void): () => void;
+    watch<T = unknown>(key: string, handler: (value: T | undefined) => void): () => void;
     snapshot(): Record<string, unknown>;
   }
 
@@ -117,15 +118,18 @@ declare namespace BannerlordHtmlUI {
   }
 
   interface WindowApi {
+    readonly documentId: string;
     readonly ownerId: string | null;
     scope(ownerId?: string): GameScope;
     call<T = unknown>(name: string, payload?: unknown, timeoutMs?: number): Promise<T>;
     request<T = unknown>(name: string, payload?: unknown, timeoutMs?: number): Promise<T>;
+    refreshState(): Promise<Record<string, unknown>>;
     requestCancellable<T = unknown>(name: string, payload?: unknown, timeoutMs?: number, signal?: AbortSignal | null): Promise<T>;
     on<T = unknown>(name: string, handler: (payload: T) => void): () => void;
     readonly state: GameState;
     readonly app: GameApp;
     readonly page: BannerlordHtmlUiPageContext | null;
+    readonly surface: { readonly id: string | null; readonly ownerId: string | null; isSurface(): boolean; isInputOwner(): boolean; setVisible(visible: boolean): Promise<unknown>; requestInput(mode: string): Promise<unknown>; setZIndex(zIndex: number): Promise<unknown>; ready(details?: { component?: string }): Promise<unknown> };
     readonly lifecycle: { readonly state: string | undefined; on(handler: (info: unknown) => void): () => void };
     readonly errors: { readonly last: unknown; on(handler: (error: unknown) => void): () => void };
     readonly pages: BannerlordHtmlUiScopePages;

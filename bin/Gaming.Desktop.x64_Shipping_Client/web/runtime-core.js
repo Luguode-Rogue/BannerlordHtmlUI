@@ -4,9 +4,15 @@
   const state = new Map();
   const lifecycleListeners = new Set();
   const errorListeners = new Set();
+  const stateRevisions = new Map();
+  const documentId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function')
+    ? globalThis.crypto.randomUUID()
+    : `doc_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   let nextId = 1;
   let lastError = null;
   let runtimeDisposed = false;
+  let readyPromise = null;
+  let latestStateRevision = 0;
 
   const emit = (name, payload) => {
     const set = listeners.get(name);
@@ -18,7 +24,7 @@
 
   const send = (type, name, payload, id = null) => {
     if (runtimeDisposed) throw new Error('BannerlordHtmlUI runtime is disposed.');
-    chrome.webview.postMessage({ version: 1, type, id, name, payload });
+    chrome.webview.postMessage({ version: 1, type, id, name, payload, documentId });
   };
 
   const requestInternal = (type, name, payload, timeoutMs) => new Promise((resolve, reject) => {
@@ -27,7 +33,7 @@
       return;
     }
 
-    const id = `${type[0]}${Date.now()}_${nextId++}`;
+    const id = `${documentId}:${type[0]}:${nextId++}`;
     const item = { resolve, reject, timer: null };
     pending.set(id, item);
 
@@ -82,6 +88,66 @@
     if (!ownerId) return name;
     if (!name) throw new Error('A command/event/state name is required.');
     return `${ownerId}.${String(name).replace(/^\.+/, '')}`;
+  };
+
+  const applyStateUpdate = (key, value, revision = 0, removed = false, notify = true) => {
+    if (!key) return;
+    const numericRevision = Math.max(0, Number(revision) || 0);
+    const currentRevision = stateRevisions.get(key) || 0;
+    if (numericRevision && currentRevision >= numericRevision) return;
+    if (removed) state.delete(key); else state.set(key, value);
+    if (numericRevision) {
+      stateRevisions.set(key, numericRevision);
+      latestStateRevision = Math.max(latestStateRevision, numericRevision);
+    }
+    if (notify) emit(removed ? `state-remove:${key}` : `state:${key}`, removed ? null : value);
+  };
+
+  const watchState = (key, handler) => {
+    if (typeof handler !== 'function') throw new Error('A state handler is required.');
+    let active = true;
+    let deliveries = 0;
+    const deliver = value => {
+      if (!active) return;
+      deliveries++;
+      handler(value);
+    };
+    const off = window.game.on(`state:${key}`, value => {
+      deliver(value);
+    });
+    const offRemove = window.game.on(`state-remove:${key}`, () => {
+      deliver(undefined);
+    });
+    const observedDeliveries = deliveries;
+    if (state.has(key)) {
+      const value = state.get(key);
+      queueMicrotask(() => {
+        if (active && deliveries === observedDeliveries) deliver(value);
+      });
+    }
+    window.game.ready().then(() => {
+      if (!active || deliveries !== observedDeliveries) return;
+      deliver(state.has(key) ? state.get(key) : undefined);
+    }).catch(error => { if (active) console.error('State watch hydration failed:', error); });
+    return () => { active = false; off(); offRemove(); };
+  };
+
+  const hydrateStateSnapshot = (response, notify) => {
+    const snapshotRevision = Math.max(0, Number(response && response.revision) || 0);
+    const snapshot = response && response.values ? response.values : {};
+    if (snapshotRevision) {
+      for (const key of [...state.keys()]) {
+        const currentRevision = stateRevisions.get(key) || 0;
+        if (!Object.prototype.hasOwnProperty.call(snapshot, key) && currentRevision < snapshotRevision)
+          applyStateUpdate(key, null, snapshotRevision, true, notify);
+      }
+    }
+    for (const [key, value] of Object.entries(snapshot)) {
+      const currentRevision = stateRevisions.get(key) || 0;
+      if (!snapshotRevision || currentRevision < snapshotRevision)
+        applyStateUpdate(key, value, snapshotRevision, false, notify);
+    }
+    return snapshot;
   };
 
   const createI18n = () => {
@@ -168,6 +234,9 @@
         has(key) { return state.has(scopedName(ownerId, key)); },
         subscribe(key, handler) {
           return window.game.on(`state:${scopedName(ownerId, key)}`, handler);
+        },
+        watch(key, handler) {
+          return watchState(scopedName(ownerId, key), handler);
         },
         snapshot() {
           const result = {};
@@ -704,6 +773,7 @@
   };
 
   window.game = {
+    documentId,
     ownerId: queryOwner || null,
     page: {
       id: queryPage || null,
@@ -735,6 +805,15 @@
       setZIndex(zIndex) {
         const guard = requireSurface('game.surface.setZIndex');
         return guard || window.game.call('framework.surface.setZIndex', { id: querySurface, zIndex: Number(zIndex) || 0 });
+      },
+      ready(details = {}) {
+        const guard = requireSurface('game.surface.ready');
+        return guard || window.game.call('framework.surface.ready', {
+          documentId,
+          ownerId: queryOwner || null,
+          surfaceId: querySurface,
+          component: details && details.component ? String(details.component) : null
+        });
       }
     },
     scope(ownerId = queryOwner) { return createScope(ownerId); },
@@ -743,6 +822,15 @@
     },
     request(name, payload = {}, timeoutMs = 10000) {
       return requestInternal('request', name, payload, timeoutMs);
+    },
+    async refreshState() {
+      let response;
+      try {
+        response = await window.game.request('framework.getStateSnapshotV2');
+      } catch (_) {
+        response = { revision: 0, values: await window.game.request('framework.getStateSnapshot') };
+      }
+      return hydrateStateSnapshot(response, false);
     },
     on(name, handler) {
       if (!listeners.has(name)) listeners.set(name, new Set());
@@ -753,6 +841,7 @@
       get(key) { return state.get(key); },
       has(key) { return state.has(key); },
       subscribe(key, handler) { return window.game.on(`state:${key}`, handler); },
+      watch(key, handler) { return watchState(key, handler); },
       snapshot() { return Object.fromEntries(state.entries()); }
     },
     lifecycle: {
@@ -784,6 +873,9 @@
     },
     i18n,
     app: null,
+    __hydrateState(snapshot) {
+      return hydrateStateSnapshot(snapshot, true);
+    },
     __receive(messageJson) {
       if (runtimeDisposed) return;
       const msg = typeof messageJson === 'string' ? JSON.parse(messageJson) : messageJson;
@@ -796,7 +888,7 @@
         return;
       }
       if (msg.type === 'event') {
-        if (msg.name.startsWith('state:')) state.set(msg.name.substring(6), msg.payload);
+        if (msg.name.startsWith('state:')) applyStateUpdate(msg.name.substring(6), msg.payload, msg.revision, false, false);
         if (msg.name === 'framework.page.lifecycle') {
           if (msg.payload && msg.payload.state) {
             window.game.page.lifecycle = msg.payload.state;
@@ -809,6 +901,13 @@
           return;
         }
         emit(msg.name, msg.payload);
+        return;
+      }
+      if (msg.type === 'stateBatch') {
+        for (const update of (Array.isArray(msg.updates) ? msg.updates : [])) {
+          if (!update || !update.key) continue;
+          applyStateUpdate(update.key, update.value, update.revision, !!update.removed, true);
+        }
       }
     }
   };
@@ -837,24 +936,38 @@
   };
   window.game.app.app = window.game.app;
 
-  window.game.ready = async () => {
-    try {
-      const snapshot = await window.game.request('framework.getStateSnapshot');
-      if (runtimeDisposed) throw new Error('BannerlordHtmlUI runtime was disposed during initialization.');
-      for (const [key, value] of Object.entries(snapshot || {})) state.set(key, value);
-      if (snapshot && snapshot['framework.page.lifecycle']) {
-        const lifecycle = snapshot['framework.page.lifecycle'];
-        window.game.page.lifecycle = lifecycle.state || lifecycle;
-        emitPageLifecycle(lifecycle);
-      } else {
-        window.game.page.lifecycle = 'ready';
+  window.game.ready = () => {
+    if (readyPromise) return readyPromise;
+    readyPromise = (async () => {
+      try {
+        const snapshot = await window.game.refreshState();
+        if (runtimeDisposed) throw new Error('BannerlordHtmlUI runtime was disposed during initialization.');
+        if (snapshot && snapshot['framework.page.lifecycle']) {
+          const lifecycle = snapshot['framework.page.lifecycle'];
+          window.game.page.lifecycle = lifecycle.state || lifecycle;
+          emitPageLifecycle(lifecycle);
+        } else {
+          window.game.page.lifecycle = 'ready';
+        }
+        emit('ready', snapshot);
+        try {
+          window.game.call('framework.document.hello', {
+            documentId,
+            ownerId: queryOwner || null,
+            pageId: queryPage || null,
+            surfaceId: querySurface || null,
+            url: String(window.location && window.location.href || ''),
+            runtimeVersion: '2'
+          }).catch(() => {});
+        } catch (_) {}
+        return snapshot;
+      } catch (e) {
+        if (!runtimeDisposed) console.error('BannerlordHtmlUI runtime initialization failed:', e);
+        readyPromise = null;
+        throw e;
       }
-      emit('ready', snapshot || {});
-      return snapshot || {};
-    } catch (e) {
-      if (!runtimeDisposed) console.error('BannerlordHtmlUI runtime initialization failed:', e);
-      throw e;
-    }
+    })();
+    return readyPromise;
   };
 
   window.addEventListener('pagehide', () => {
@@ -863,13 +976,15 @@
   }, { once: true });
 
   window.addEventListener('error', e => {
-    const payload = { kind: 'error', message: String(e.error || e.message || 'Unknown error'), source: e.filename || null, line: e.lineno || 0, column: e.colno || 0 };
+    const payload = { kind: 'error', message: String(e.error || e.message || 'Unknown error'), source: e.filename || null, line: e.lineno || 0, column: e.colno || 0, documentId, ownerId: queryOwner || null, pageId: queryPage || null, surfaceId: querySurface || null };
     emitRuntimeError(payload);
+    try { window.game.call('runtime.error', payload, 2000).catch(() => {}); } catch (_) {}
     console.error('HTML UI error:', payload);
   });
   window.addEventListener('unhandledrejection', e => {
-    const payload = { kind: 'unhandledrejection', message: String(e.reason || 'Unhandled rejection') };
+    const payload = { kind: 'unhandledrejection', message: String(e.reason || 'Unhandled rejection'), documentId, ownerId: queryOwner || null, pageId: queryPage || null, surfaceId: querySurface || null };
     emitRuntimeError(payload);
+    try { window.game.call('runtime.error', payload, 2000).catch(() => {}); } catch (_) {}
     console.error('HTML UI rejection:', payload);
   });
   queueMicrotask(() => window.game.ready().catch(() => {}));
