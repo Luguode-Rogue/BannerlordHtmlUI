@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using System.Threading.Tasks;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -78,40 +79,16 @@ namespace BannerlordHtmlUI
   setTimeout(retry, 0);
 })();";
 
-        public static void Install(HtmlUiHost host)
+        public static async Task InstallAsync(HtmlUiHost host)
         {
-            if (host == null) return;
-            try
-            {
-                var field = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
-                var web = field?.GetValue(host) as WebView2;
-                if (web == null || web.IsDisposed) return;
-
-                void InstallOnUiThread()
-                {
-                    try
-                    {
-                        var core = web.CoreWebView2;
-                        if (core == null) return;
-                        _ = core.AddScriptToExecuteOnDocumentCreatedAsync(Script);
-                        _ = core.ExecuteScriptAsync(Script);
-                        HtmlUiLogger.Info("state removal compatibility patch installed.");
-                    }
-                    catch (Exception ex)
-                    {
-                        HtmlUiLogger.Error("Failed to install state removal compatibility patch on UI thread.", ex);
-                    }
-                }
-
-                if (web.InvokeRequired)
-                    web.BeginInvoke((Action)InstallOnUiThread);
-                else
-                    InstallOnUiThread();
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("Failed to install state removal compatibility patch.", ex);
-            }
+            if (host == null) throw new ArgumentNullException(nameof(host));
+            var field = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
+            var web = field?.GetValue(host) as WebView2;
+            if (web == null || web.IsDisposed) throw new InvalidOperationException("WebView2 is unavailable for state removal patch installation.");
+            var core = web.CoreWebView2 ?? throw new InvalidOperationException("CoreWebView2 is not ready for state removal patch installation.");
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(Script);
+            await core.ExecuteScriptAsync(Script);
+            HtmlUiLogger.Info("state removal compatibility patch installed.");
         }
     }
 }

@@ -210,6 +210,18 @@ namespace BannerlordHtmlUI
             Volatile.Write(ref _attached, 1);
         }
 
+        internal void AttachFrame(CoreWebView2Frame frame)
+        {
+            if (frame == null || IsDisposed) return;
+            frame.WebMessageReceived += OnWebMessageReceived;
+        }
+
+        internal void DetachFrame(CoreWebView2Frame frame)
+        {
+            if (frame == null) return;
+            try { frame.WebMessageReceived -= OnWebMessageReceived; } catch { }
+        }
+
         public void Detach()
         {
             var web = _web;

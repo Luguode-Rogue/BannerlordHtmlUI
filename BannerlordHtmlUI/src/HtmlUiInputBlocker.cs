@@ -78,7 +78,7 @@ namespace BannerlordHtmlUI
         }
 
         /// <summary>
-        /// Called only by the input controller when it applies a mode.
+        /// Called by the input controller and by window tracking when an overlay becomes unavailable.
         /// Passive and Hidden never block: the game must stay fully playable.
         /// </summary>
         internal static void SetBlocking(bool mouse, bool keyboard)

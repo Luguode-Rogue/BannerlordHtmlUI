@@ -59,6 +59,7 @@ namespace BannerlordHtmlUI
                     HtmlUiLocalization.InitializeState();
                     State.Set("framework.lifecycle", _lifecycleState.ToString());
                     State.Set("framework.i18n.locale", HtmlUiLocalization.CurrentLanguage);
+                    Host.ActivateFramework();
                     HtmlUiHangWatchdog.Start(Dispatcher, host);
                     Ready?.Invoke();
                 }
@@ -96,6 +97,8 @@ namespace BannerlordHtmlUI
                 if (!string.IsNullOrWhiteSpace(value) && Enum.TryParse<HtmlUiInputMode>(value, true, out var parsed)) Host.SetInputMode(parsed);
             });
             Host.RegisterCommand("framework.ping", payload => SendEvent("framework:ping", new { received = true, utc = DateTime.UtcNow, payload = payload.ToString() }));
+            Host.RegisterCommand("framework.document.hello", payload => HtmlUiDiagnostics.RecordDocumentHello(payload, Host));
+            Host.RegisterCommand("framework.surface.ready", payload => HtmlUiDiagnostics.RecordSurfaceReady(payload, Host));
             Host.RegisterRequest("framework.i18n.getLocale", _ => Task.FromResult<object>(new { language = HtmlUiLocalization.CurrentLanguage }));
             Host.RegisterRequest("framework.i18n.getLanguages", _ => Task.FromResult<object>(new { language = HtmlUiLocalization.CurrentLanguage, languages = HtmlUiLocalization.GetLanguages() }));
             Host.RegisterRequest("framework.i18n.translate", payload => Task.FromResult<object>(HtmlUiLocalization.Translate(payload?["key"]?.Value<string>(), payload?["variables"] as JObject, payload?["fallbackLanguage"]?.Value<string>())));
@@ -138,11 +141,12 @@ namespace BannerlordHtmlUI
                 if (!string.IsNullOrWhiteSpace(ownerId) && current != null && string.Equals(current.OwnerId, ownerId, StringComparison.OrdinalIgnoreCase)) Pages.CloseCurrent();
             });
             State.Set("framework.status", "ready");
-            State.Set("framework.snapshot", new { version = HtmlUiDiagnostics.FrameworkVersion, protocol = 1 });
+            State.Set("framework.snapshot", new { version = HtmlUiDiagnostics.FrameworkVersion, protocol = 1, stateProtocol = 2 });
             State.Set("framework.lifecycle", _lifecycleState.ToString());
             State.Set("framework.inputMode", Host.InputMode.ToString());
             Host.WindowStateChanged += OnWindowStateChanged;
             Host.RegisterRequest("framework.getStateSnapshot", _ => Task.FromResult<object>(State.GetSnapshot()));
+            Host.RegisterRequest("framework.getStateSnapshotV2", _ => Task.FromResult(State.GetVersionedSnapshot()));
             Host.RegisterRequest("framework.getDiagnostics", _ => Task.FromResult<object>(HtmlUiDiagnostics.Snapshot()));
         }
 

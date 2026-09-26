@@ -50,7 +50,14 @@ is exposed as:
 ```js
 app.state.get("counter");
 app.state.subscribe("counter", value => {});
+app.state.watch("counter", value => {}); // retained initial value + later updates
 ```
+
+`subscribe` observes only future notifications. Prefer `watch` for rendered state because it
+waits for the single `game.ready()` hydration and closes the subscribe/snapshot race window.
+
+Retained state notifications are coalesced by key within one browser UI flush. Code that must
+observe every intermediate value must use an event (`scope.SendEvent`), not state.
 
 The raw global API is still available as `game.state` for Framework-level state.
 

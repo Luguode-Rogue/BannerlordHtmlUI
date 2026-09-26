@@ -17,6 +17,8 @@ namespace BannerlordHtmlUI
         private static FieldInfo _environmentField;
         private static FieldInfo _formField;
         private static FieldInfo _pendingPageField;
+        private static FieldInfo _pendingPageGenerationField;
+        private static FieldInfo _navigationGenerationField;
         private static FieldInfo _pendingShellField;
         private static FieldInfo _readyEventField;
         private static MethodInfo _configureMethod;
@@ -41,12 +43,14 @@ namespace BannerlordHtmlUI
                 _environmentField = typeof(HtmlUiHost).GetField("_environment", BindingFlags.Instance | BindingFlags.NonPublic);
                 _formField = typeof(HtmlUiHost).GetField("_form", BindingFlags.Instance | BindingFlags.NonPublic);
                 _pendingPageField = typeof(HtmlUiHost).GetField("_pendingPage", BindingFlags.Instance | BindingFlags.NonPublic);
+                _pendingPageGenerationField = typeof(HtmlUiHost).GetField("_pendingPageGeneration", BindingFlags.Instance | BindingFlags.NonPublic);
+                _navigationGenerationField = typeof(HtmlUiHost).GetField("_navigationGeneration", BindingFlags.Instance | BindingFlags.NonPublic);
                 _pendingShellField = typeof(HtmlUiHost).GetField("_pendingShell", BindingFlags.Instance | BindingFlags.NonPublic);
                 _readyEventField = typeof(HtmlUiHost).GetField("Ready", BindingFlags.Instance | BindingFlags.NonPublic);
                 _configureMethod = AccessToolsCompat.Method(typeof(HtmlUiHost), "ConfigureAfterWebViewReady");
 
                 if (_webField == null || _environmentField == null || _formField == null ||
-                    _pendingPageField == null || _configureMethod == null)
+                    _pendingPageField == null || _pendingPageGenerationField == null || _navigationGenerationField == null || _configureMethod == null)
                 {
                     throw new MissingMemberException("HtmlUiHost WebView2 recovery members are incomplete.");
                 }
@@ -68,6 +72,8 @@ namespace BannerlordHtmlUI
                 _environmentField = null;
                 _formField = null;
                 _pendingPageField = null;
+                _pendingPageGenerationField = null;
+                _navigationGenerationField = null;
                 _pendingShellField = null;
                 _readyEventField = null;
                 _configureMethod = null;
@@ -143,12 +149,16 @@ namespace BannerlordHtmlUI
 
                 if (currentPage != null)
                 {
+                    long recoveryGeneration = (long)_navigationGenerationField.GetValue(host) + 1L;
+                    _navigationGenerationField.SetValue(host, recoveryGeneration);
                     _pendingPageField.SetValue(host, currentPage);
+                    _pendingPageGenerationField.SetValue(host, recoveryGeneration);
                     if (_pendingShellField != null) _pendingShellField.SetValue(host, false);
                 }
                 else
                 {
                     _pendingPageField.SetValue(host, null);
+                    _pendingPageGenerationField.SetValue(host, 0L);
 
                     // Surfaces live in the shell, not in a page. Re-arm the shell so every
                     // visible surface is re-mounted after the WebView2 instance is rebuilt.
@@ -210,7 +220,10 @@ namespace BannerlordHtmlUI
 
                 try
                 {
-                    _configureMethod.Invoke(host, null);
+                    var configureTask = _configureMethod.Invoke(host, null) as Task;
+                    if (configureTask == null)
+                        throw new InvalidOperationException("HtmlUiHost asynchronous reconfiguration did not return a Task.");
+                    await configureTask;
                 }
                 finally
                 {
@@ -232,14 +245,14 @@ namespace BannerlordHtmlUI
                 HtmlUiDiagnostics.RecordBrowserError("WebView2 recovery failed: " + ex.GetBaseException().Message);
                 HtmlUiLogger.Error("WebView2 process recovery failed; entering safe close.", ex);
 
-                try
+                host.DispatchToGameThread(() =>
                 {
-                    host.Pages.CloseCurrent();
-                }
-                catch (Exception closeEx)
-                {
-                    HtmlUiLogger.Error("Failed to safely close page after WebView2 recovery failure.", closeEx);
-                }
+                    try { host.Pages.CloseCurrent(); }
+                    catch (Exception closeEx)
+                    {
+                        HtmlUiLogger.Error("Failed to safely close page after WebView2 recovery failure.", closeEx);
+                    }
+                });
             }
             finally
             {

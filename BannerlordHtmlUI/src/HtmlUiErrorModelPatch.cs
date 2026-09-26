@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using System.Threading.Tasks;
 using Microsoft.Web.WebView2.WinForms;
 
 namespace BannerlordHtmlUI
@@ -112,22 +113,14 @@ namespace BannerlordHtmlUI
   setTimeout(retry, 0);
 })();";
 
-        public static void Install(HtmlUiHost host)
+        public static async Task InstallAsync(HtmlUiHost host)
         {
-            if (host == null) return;
-            try
-            {
-                var field = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
-                var web = field?.GetValue(host) as WebView2;
-                var core = web?.CoreWebView2;
-                if (core == null) return;
-                _ = core.AddScriptToExecuteOnDocumentCreatedAsync(Script);
-                HtmlUiLogger.Info("bridge error model patch installed.");
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("Failed to install bridge error model patch.", ex);
-            }
+            if (host == null) throw new ArgumentNullException(nameof(host));
+            var field = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
+            var web = field?.GetValue(host) as WebView2;
+            var core = web?.CoreWebView2 ?? throw new InvalidOperationException("CoreWebView2 is not ready for error model patch installation.");
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(Script);
+            HtmlUiLogger.Info("bridge error model patch installed.");
         }
     }
 }

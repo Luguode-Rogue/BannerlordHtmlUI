@@ -213,28 +213,34 @@ WebView2 始终加载 Framework Shell，Surface 由 JS Runtime 动态挂载：
 
 ### 8.2 为什么是同域 iframe
 
-在"同 DOM / Shadow DOM / 跨 origin iframe / 同域 iframe"四个选项中，v1 选**同域 iframe**：
+在“同 DOM / Shadow DOM / iframe”方案中，当前实现选择**独立完整 iframe 文档**：
 
 | 方案 | CSS/JS 隔离 | 崩溃隔离 | 通信 | Consumer 心智 |
 |---|---|---|---|---|
 | 同 DOM | ✗ | ✗ | 最好 | 需写"片段"而非完整页面 |
 | Shadow DOM | 部分 | ✗ | 好 | 需写片段 |
 | 跨 origin iframe | ✓ | ✓ | postMessage，复杂 | 完整页面 |
-| **同域 iframe** | ✓ | ✓ | 直接 `parent.game` | **完整页面** |
+| **独立 iframe** | ✓ | ✓ | 每个文档注入 runtime，经 WebView2 bridge 通信 | **完整页面** |
 
-**同域如何实现**：`CoreWebView2.WebResourceRequested` 目前是空实现。用它把
+**资源如何实现（当前实现）**：Surface 与 Page 一样使用已注册 ContentRoot 的
+虚拟主机，例如：
 
 ```
-https://bannerlord-htmlui.local/__surface/<owner>/<relativePath>
+https://bannerlord-htmlui-<content-root>.local/<relativePath>?__bannerlord_htmlui_owner=...&__bannerlord_htmlui_surface=...
 ```
 
-映射到对应 Consumer 的磁盘目录。于是所有 Surface 资源都在 shell 的同域下，iframe 不跨 origin，无需 postMessage。
+这会直接映射到对应 Consumer 的磁盘目录。不得恢复已废弃的 `__surface/`
+`WebResourceRequested` 通道：WebView2 不保证对子框架导航触发该拦截，实际会产生
+iframe 错误页。Page 共存时，Framework 为 Surface 选择与当前 Page 相同的 ContentRoot
+虚拟主机 URI，因此共存 iframe 保持同源。
 
-**附带收益**：`AddScriptToExecuteOnDocumentCreated` 对 iframe 同样生效，`runtime.js` 自动注入每个 Surface，`window.game` 开箱可用。
+**关键机制**：`AddScriptToExecuteOnDocumentCreated` 对 iframe 同样生效，`runtime.js`
+自动注入每个 Surface，`window.game` 开箱可用；状态和响应不依赖 `parent.game`。
 
 ### 8.3 与现有 ContentRoot 的关系
 
-现有的"每 ContentRoot 一个虚拟域名"映射**保留**（Page 继续使用）。`__surface/` 前缀是新增的**并行**通道，不影响现有 Page。两者在 `WebResourceRequested` 中按前缀分发。
+Page 与 Surface 统一使用“每 ContentRoot 一个虚拟域名”的映射。进程恢复创建新
+CoreWebView2 后，Framework 必须重放所有已注册 ContentRoot 映射。
 
 ---
 
@@ -243,7 +249,7 @@ https://bannerlord-htmlui.local/__surface/<owner>/<relativePath>
 WebView2 进程崩溃、页面刷新、HotReload 后：
 
 1. Host 重新加载 Shell；
-2. Shell `game.ready()` 拉取 `framework.getStateSnapshot()` 恢复全部 state；
+2. Shell 的单例 `game.ready()` 拉取带 revision 的状态快照，恢复全部 state；
 3. Framework 按内部维护的 Surface 集合重放挂载（顺序按 ZIndex），恢复可见性与 `InputDemand`；
 4. 重算 `EffectiveInputMode`。
 

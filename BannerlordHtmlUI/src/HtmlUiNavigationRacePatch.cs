@@ -37,7 +37,10 @@ namespace BannerlordHtmlUI
 
                     var starting = AccessTools.Method(typeof(HtmlUiHost), "OnNavigationStarting");
                     var completed = AccessTools.Method(typeof(HtmlUiHost), "OnNavigationCompleted");
-                    _navigateOnUiThread = AccessTools.Method(typeof(HtmlUiHost), "NavigateOnUiThread");
+                    _navigateOnUiThread = AccessTools.Method(
+                        typeof(HtmlUiHost),
+                        "NavigateOnUiThread",
+                        new[] { typeof(HtmlUiPage), typeof(long) });
                     if (starting == null || completed == null || _navigateOnUiThread == null)
                         throw new MissingMethodException("HtmlUiHost navigation handlers were not found.");
 
@@ -86,7 +89,7 @@ namespace BannerlordHtmlUI
                         HarmonyPatchType.Prefix,
                         _harmony.Id);
                     _harmony.Unpatch(
-                        AccessTools.Method(typeof(HtmlUiHost), "NavigateOnUiThread"),
+                        AccessTools.Method(typeof(HtmlUiHost), "NavigateOnUiThread", new[] { typeof(HtmlUiPage), typeof(long) }),
                         HarmonyPatchType.Prefix,
                         _harmony.Id);
                 }
@@ -127,7 +130,7 @@ namespace BannerlordHtmlUI
             }
         }
 
-        private static bool OnNavigateOnUiThreadPrefix(HtmlUiHost __instance, HtmlUiPage page)
+        private static bool OnNavigateOnUiThreadPrefix(HtmlUiHost __instance, HtmlUiPage page, long generation)
         {
             if (__instance == null || page == null) return true;
 
@@ -144,12 +147,12 @@ namespace BannerlordHtmlUI
             if (!RuntimeRegistrationBarriers.TryGetValue(__instance, out var barrier) || barrier == null || barrier.IsCompleted)
                 return true;
 
-            _ = ContinueNavigationAfterRuntimeRegistrationAsync(__instance, page, barrier);
+            _ = ContinueNavigationAfterRuntimeRegistrationAsync(__instance, page, generation, barrier);
             HtmlUiLogger.Info("Navigation deferred until WebView2 runtime registration completed: " + page.Id);
             return false;
         }
 
-        private static async Task ContinueNavigationAfterRuntimeRegistrationAsync(HtmlUiHost host, HtmlUiPage page, Task<string> barrier)
+        private static async Task ContinueNavigationAfterRuntimeRegistrationAsync(HtmlUiHost host, HtmlUiPage page, long generation, Task<string> barrier)
         {
             try
             {
@@ -177,7 +180,7 @@ namespace BannerlordHtmlUI
                     return;
                 }
 
-                navigate.Invoke(host, new object[] { page });
+                navigate.Invoke(host, new object[] { page, generation });
             }
             catch (Exception ex)
             {

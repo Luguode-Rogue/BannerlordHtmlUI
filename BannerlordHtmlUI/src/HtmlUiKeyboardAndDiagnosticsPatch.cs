@@ -27,6 +27,7 @@ namespace BannerlordHtmlUI
         private static object _controller;
         private static EventInfo _acceleratorEvent;
         private static Delegate _acceleratorHandler;
+        private static int _escapeClosePending;
 
         public static void Install(HtmlUiHost host)
         {
@@ -85,6 +86,7 @@ namespace BannerlordHtmlUI
                 catch { }
             }
             if (ReferenceEquals(_host, host)) _host = null;
+            System.Threading.Interlocked.Exchange(ref _escapeClosePending, 0);
         }
 
         internal static bool TryCloseFromEscape(HtmlUiHost host, string source)
@@ -99,12 +101,32 @@ namespace BannerlordHtmlUI
             {
                 HtmlUiInputTraceLogger.Event("ESC_CLOSE_ATTEMPT source=" + source + " page=" + page.Id + " inputMode=" + host.InputMode);
                 HtmlUiLogger.Info("ESC close requested from " + source + ": page=" + page.Id);
-                host.Pages.CloseCurrent();
-                HtmlUiInputTraceLogger.Event("ESC_CLOSE_RESULT source=" + source + " current=" + (host.Pages.CurrentId ?? "<null>") + " inputMode=" + host.InputMode);
+                if (System.Threading.Interlocked.CompareExchange(ref _escapeClosePending, 1, 0) != 0)
+                    return true;
+                string pageId = page.Id;
+                host.DispatchToGameThread(() =>
+                {
+                    try
+                    {
+                        if (string.Equals(host.Pages.CurrentId, pageId, StringComparison.OrdinalIgnoreCase))
+                            host.Pages.CloseCurrent();
+                        HtmlUiInputTraceLogger.Event("ESC_CLOSE_RESULT source=" + source + " current=" + (host.Pages.CurrentId ?? "<null>") + " inputMode=" + host.InputMode);
+                    }
+                    catch (Exception ex)
+                    {
+                        HtmlUiLogger.Error("ESC page close failed.", ex);
+                        HtmlUiInputTraceLogger.Event("ESC_CLOSE_ERROR source=" + source + " " + ex.GetBaseException().Message);
+                    }
+                    finally
+                    {
+                        System.Threading.Interlocked.Exchange(ref _escapeClosePending, 0);
+                    }
+                });
                 return true;
             }
             catch (Exception ex)
             {
+                System.Threading.Interlocked.Exchange(ref _escapeClosePending, 0);
                 HtmlUiLogger.Error("ESC page close failed.", ex);
                 HtmlUiInputTraceLogger.Event("ESC_CLOSE_ERROR source=" + source + " " + ex.GetBaseException().Message);
                 return false;

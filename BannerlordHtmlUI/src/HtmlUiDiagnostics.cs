@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 
 namespace BannerlordHtmlUI
 {
@@ -39,19 +41,127 @@ namespace BannerlordHtmlUI
         public bool BlockingGameMouse { get; set; }
         public bool BlockingGameKeyboard { get; set; }
         public string SurfaceSummary { get; set; }
+        public int RuntimeDocumentCount { get; set; }
+        public string RuntimeDocumentSummary { get; set; }
+        public long StateDispatchFlushCount { get; set; }
+        public long StateUpdateCount { get; set; }
+        public long StateCoalescedCount { get; set; }
+        public int PendingStateCount { get; set; }
+        public int LiveFrameCount { get; set; }
     }
 
     public static class HtmlUiDiagnostics
     {
-        public const string FrameworkVersion = "0.44.0";
+        public const string FrameworkVersion = "0.45.0";
         public const int ProtocolVersion = 1;
 
         private static readonly object Sync = new object();
         private static string _lastBrowserError;
+        private static readonly Dictionary<string, RuntimeDocumentRecord> RuntimeDocuments =
+            new Dictionary<string, RuntimeDocumentRecord>(StringComparer.OrdinalIgnoreCase);
+        private const int MaxRuntimeDocumentRecords = 128;
+
+        private sealed class RuntimeDocumentRecord
+        {
+            public string DocumentId;
+            public string OwnerId;
+            public string PageId;
+            public string SurfaceId;
+            public string Url;
+            public string RuntimeVersion;
+            public DateTime RuntimeReadyUtc;
+            public DateTime? BusinessReadyUtc;
+            public string Component;
+            public string Validation;
+        }
 
         internal static void RecordBrowserError(string message)
         {
             lock (Sync) _lastBrowserError = message;
+        }
+
+        internal static void RecordDocumentHello(JToken payload, HtmlUiHost host)
+        {
+            if (payload == null) return;
+            var documentId = payload["documentId"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(documentId)) return;
+            var ownerId = payload["ownerId"]?.Value<string>();
+            var surfaceId = payload["surfaceId"]?.Value<string>();
+            var validation = ValidateSurfaceIdentity(host, surfaceId, ownerId);
+            lock (Sync)
+            {
+                TrimRuntimeDocumentsIfNeeded(documentId);
+                RuntimeDocuments[documentId] = new RuntimeDocumentRecord
+                {
+                    DocumentId = documentId,
+                    OwnerId = ownerId,
+                    PageId = payload["pageId"]?.Value<string>(),
+                    SurfaceId = surfaceId,
+                    Url = payload["url"]?.Value<string>(),
+                    RuntimeVersion = payload["runtimeVersion"]?.Value<string>(),
+                    RuntimeReadyUtc = DateTime.UtcNow,
+                    Validation = validation
+                };
+            }
+            if (!string.Equals(validation, "ok", StringComparison.OrdinalIgnoreCase))
+                HtmlUiLogger.Warn("Runtime document identity mismatch: " + validation + " document=" + documentId);
+        }
+
+        internal static void RecordSurfaceReady(JToken payload, HtmlUiHost host)
+        {
+            if (payload == null) return;
+            var documentId = payload["documentId"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(documentId)) return;
+            var ownerId = payload["ownerId"]?.Value<string>();
+            var surfaceId = payload["surfaceId"]?.Value<string>();
+            var validation = ValidateSurfaceIdentity(host, surfaceId, ownerId);
+            lock (Sync)
+            {
+                if (!RuntimeDocuments.TryGetValue(documentId, out var record))
+                {
+                    TrimRuntimeDocumentsIfNeeded(documentId);
+                    record = new RuntimeDocumentRecord
+                    {
+                        DocumentId = documentId,
+                        OwnerId = ownerId,
+                        SurfaceId = surfaceId,
+                        RuntimeReadyUtc = DateTime.UtcNow,
+                        Validation = validation
+                    };
+                    RuntimeDocuments[documentId] = record;
+                }
+                record.BusinessReadyUtc = DateTime.UtcNow;
+                record.Component = payload["component"]?.Value<string>();
+            }
+        }
+
+        private static void TrimRuntimeDocumentsIfNeeded(string incomingDocumentId)
+        {
+            if (RuntimeDocuments.ContainsKey(incomingDocumentId) || RuntimeDocuments.Count < MaxRuntimeDocumentRecords) return;
+            string oldestId = null;
+            var oldestUtc = DateTime.MaxValue;
+            foreach (var pair in RuntimeDocuments)
+            {
+                if (pair.Value.RuntimeReadyUtc >= oldestUtc) continue;
+                oldestUtc = pair.Value.RuntimeReadyUtc;
+                oldestId = pair.Key;
+            }
+            if (oldestId != null) RuntimeDocuments.Remove(oldestId);
+        }
+
+        private static string ValidateSurfaceIdentity(HtmlUiHost host, string surfaceId, string ownerId)
+        {
+            if (string.IsNullOrWhiteSpace(surfaceId)) return "ok";
+            var surfaces = host?.Surfaces;
+            if (surfaces == null) return "surface-manager-unavailable";
+            foreach (var surface in surfaces.All)
+            {
+                if (!string.Equals(surface.Id, surfaceId, StringComparison.OrdinalIgnoreCase)) continue;
+                return string.Equals(surface.OwnerId, ownerId, StringComparison.OrdinalIgnoreCase)
+                    ? "ok"
+                    : "owner expected=" + surface.OwnerId + " reported=" + (ownerId ?? "<null>");
+            }
+            return "surface-not-registered id=" + surfaceId;
         }
 
         public static HtmlUiDiagnosticsSnapshot Snapshot()
@@ -61,7 +171,26 @@ namespace BannerlordHtmlUI
             var page = host?.Pages.Current;
             var bridge = HtmlUiBridge.Current;
             string lastError;
-            lock (Sync) lastError = _lastBrowserError;
+            string runtimeDocumentSummary;
+            int runtimeDocumentCount;
+            lock (Sync)
+            {
+                lastError = _lastBrowserError;
+                runtimeDocumentCount = RuntimeDocuments.Count;
+                var runtimeLines = new System.Text.StringBuilder();
+                foreach (var record in RuntimeDocuments.Values)
+                {
+                    if (runtimeLines.Length > 0) runtimeLines.Append('\n');
+                    runtimeLines.Append(record.DocumentId)
+                        .Append(" | owner=").Append(record.OwnerId ?? "<none>")
+                        .Append(" | page=").Append(record.PageId ?? "<none>")
+                        .Append(" | surface=").Append(record.SurfaceId ?? "<none>")
+                        .Append(" | runtimeReady=").Append(record.RuntimeReadyUtc.ToString("o"))
+                        .Append(" | businessReady=").Append(record.BusinessReadyUtc?.ToString("o") ?? "<pending>")
+                        .Append(" | validation=").Append(record.Validation ?? "unknown");
+                }
+                runtimeDocumentSummary = runtimeLines.ToString();
+            }
 
             var surfaces = host?.Surfaces;
             var aggregate = surfaces?.Aggregate;
@@ -118,7 +247,14 @@ namespace BannerlordHtmlUI
                 SurfaceInputOwner = aggregate?.InputOwnerId ?? string.Empty,
                 BlockingGameMouse = HtmlUiInputBlocker.IsBlockingMouse,
                 BlockingGameKeyboard = HtmlUiInputBlocker.IsBlockingKeyboard,
-                SurfaceSummary = surfaceSummary
+                SurfaceSummary = surfaceSummary,
+                RuntimeDocumentCount = runtimeDocumentCount,
+                RuntimeDocumentSummary = runtimeDocumentSummary,
+                StateDispatchFlushCount = host?.StateFlushCount ?? 0,
+                StateUpdateCount = host?.StateUpdateCount ?? 0,
+                StateCoalescedCount = host?.StateCoalescedCount ?? 0,
+                PendingStateCount = host?.PendingStateCount ?? 0,
+                LiveFrameCount = host?.LiveFrameCount ?? 0
             };
         }
     }

@@ -32,8 +32,21 @@ namespace BannerlordHtmlUI
 
         internal void OnPageClosed()
         {
-            lock (_sync) _pageActive = false;
+            // Page callbacks run synchronously and may open the next page before the
+            // previous close notification unwinds. That newer page owns suppression.
+            if (_host.Pages.CurrentId != null) return;
+            bool wasPageActive;
+            lock (_sync)
+            {
+                wasPageActive = _pageActive;
+                _pageActive = false;
+            }
+            // Hiding the overlay does not unload its document. Retire the closed
+            // page now, even with no visible surfaces, so its scripts/watchers do
+            // not survive until the first battle HUD state arrives.
+            if (wasPageActive) _host.NavigateToShell();
             _host.Surfaces.SetSuppressedByPage(false);
+            if (_host.Pages.CurrentId != null) return;
             ApplySurfaceMode("page-closed");
         }
 
@@ -47,6 +60,7 @@ namespace BannerlordHtmlUI
         {
             try
             {
+                if (_host.Pages.CurrentId != null) return;
                 var aggregate = _host.Surfaces.Aggregate;
                 var mode = aggregate.HasVisible ? aggregate.EffectiveInputMode : HtmlUiInputMode.Hidden;
 

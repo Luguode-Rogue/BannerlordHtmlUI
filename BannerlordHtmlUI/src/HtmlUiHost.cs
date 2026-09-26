@@ -57,14 +57,32 @@ namespace BannerlordHtmlUI
         private string _currentRelativePath;
         private volatile HtmlUiPage _pendingPage;
         private volatile bool _pendingShell;
+        private long _navigationGeneration;
+        private long _pendingPageGeneration;
         private bool _navigationInProgress;
         private bool _disposed;
         private volatile bool _webViewReady;
+        private volatile bool _frameworkActivated;
         private HtmlUiInputMode _inputMode = HtmlUiInputMode.Hidden;
         private bool _requestedVisible;
         private System.Windows.Forms.Timer _followTimer;
         private readonly Dictionary<string, string> _contentRoots = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, string> _contentHosts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly object _pendingStateSync = new object();
+        private readonly Dictionary<string, PendingStateUpdate> _pendingStateUpdates =
+            new Dictionary<string, PendingStateUpdate>(StringComparer.OrdinalIgnoreCase);
+        private bool _stateFlushScheduled;
+        private long _stateFlushCount;
+        private long _stateUpdateCount;
+        private long _stateCoalescedCount;
+
+        private sealed class PendingStateUpdate
+        {
+            public string Key;
+            public object Value;
+            public long Revision;
+            public bool Removed;
+        }
 
         public HtmlUiStateStore State { get; }
         public HtmlUiPageManager Pages { get; }
@@ -78,6 +96,11 @@ namespace BannerlordHtmlUI
         public bool IsWebViewReady => _webViewReady;
         public bool IsInputCaptured => _inputMode == HtmlUiInputMode.Captured || _inputMode == HtmlUiInputMode.MouseCaptured;
         public HtmlUiInputMode InputMode => _inputMode;
+        internal long StateFlushCount => Interlocked.Read(ref _stateFlushCount);
+        internal long StateUpdateCount => Interlocked.Read(ref _stateUpdateCount);
+        internal long StateCoalescedCount => Interlocked.Read(ref _stateCoalescedCount);
+        internal int PendingStateCount { get { lock (_pendingStateSync) return _pendingStateUpdates.Count; } }
+        internal int LiveFrameCount { get { lock (_liveFrames) return _liveFrames.Count; } }
         public string CurrentPagePath => _currentRelativePath;
         public int ContentRootCount => _contentRoots.Count;
         public bool NavigationInProgress => _navigationInProgress;
@@ -171,7 +194,7 @@ namespace BannerlordHtmlUI
                 HtmlUiLogger.Info("Creating WebView2 environment. Cache=" + cache);
                 _environment = await CoreWebView2Environment.CreateAsync(null, cache);
                 await _web.EnsureCoreWebView2Async(_environment);
-                ConfigureAfterWebViewReady();
+                await ConfigureAfterWebViewReady();
             }
             catch (Exception ex)
             {
@@ -182,7 +205,11 @@ namespace BannerlordHtmlUI
             }
         }
 
-        private void ConfigureAfterWebViewReady()
+        // Kept as the stable Harmony/recovery target. Returning Task lets both initial startup
+        // and process recovery await every document-created script registration.
+        private Task ConfigureAfterWebViewReady() => ConfigureAfterWebViewReadyAsync();
+
+        private async Task ConfigureAfterWebViewReadyAsync()
         {
             if (_web?.CoreWebView2 == null)
             {
@@ -211,7 +238,7 @@ namespace BannerlordHtmlUI
             // Track live iframes so scripts (state events, responses) can be delivered into
             // surface/coexist frames. WebView2 exposes no frame enumeration API; frames are
             // only observable through these events. Cleared on recovery re-configuration.
-            lock (_liveFrames) _liveFrames.Clear();
+            ClearTrackedFrames();
             _web.CoreWebView2.FrameCreated += OnCoreFrameCreated;
             _web.CoreWebView2.SourceChanged += (s, e2) => HtmlUiLogger.Info("WebView2 source changed: " + (_web.Source == null ? "<null>" : _web.Source.ToString()));
             _web.CoreWebView2.ContentLoading += (s, e2) => HtmlUiLogger.Info("WebView2 content loading: " + e2.NavigationId);
@@ -223,34 +250,41 @@ namespace BannerlordHtmlUI
                 HtmlUiLogger.Error(message);
             };
 
-            _bridge = new HtmlUiBridge(this);
+            if (_bridge == null) _bridge = new HtmlUiBridge(this);
             _bridge.Attach(_web.CoreWebView2);
             ConfigureLocalHost();
-            InstallFrameworkRuntime();
-            InstallRuntimeErrorForwarder();
-            InstallRuntimePatchesOnUiThread();
+            await InstallFrameworkRuntimeAsync();
+            await InstallRuntimePatchesOnUiThreadAsync();
 
             _webViewReady = true;
+            SchedulePendingStateFlush();
             _ready.TrySetResult(true);
             HtmlUiLogger.Info("WebView2 ready. Host is operational.");
             Ready?.Invoke();
-            FlushPendingPage();
+            if (_frameworkActivated) FlushPendingPage();
         }
 
-        private void InstallRuntimePatchesOnUiThread()
+        internal void ActivateFramework()
+        {
+            _frameworkActivated = true;
+            SchedulePendingStateFlush();
+            if (_webViewReady) FlushPendingPage();
+        }
+
+        private async Task InstallRuntimePatchesOnUiThreadAsync()
         {
             try { HtmlUiKeyboardAndDiagnosticsPatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install keyboard/diagnostics patch.", ex); }
-            try { HtmlUiBindingLifecyclePatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install binding lifecycle patch.", ex); }
-            try { HtmlUiI18nBindingPatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install i18n binding lifecycle patch.", ex); }
+            await HtmlUiBindingLifecyclePatch.InstallAsync(this);
+            await HtmlUiI18nBindingPatch.InstallAsync(this);
             try { HtmlUiStateBootstrapPatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install state bootstrap patch.", ex); }
-            try { HtmlUiBindingSchedulerPatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install binding scheduler patch.", ex); }
-            try { HtmlUiErrorModelPatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install bridge error model patch.", ex); }
-            try { HtmlUiRequestCancellationPatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install request cancellation patch.", ex); }
+            await HtmlUiBindingSchedulerPatch.InstallAsync(this);
+            await HtmlUiErrorModelPatch.InstallAsync(this);
+            await HtmlUiRequestCancellationPatch.InstallAsync(this);
             // Document-script patches must ALL live here: recovery re-runs this method on a
             // rebuilt CoreWebView2, and anything registered only at SubModule-ready time is
             // silently lost for every document created after a WebView2 process recovery.
-            try { HtmlUiStateRemovalPatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install state removal compatibility patch.", ex); }
-            try { HtmlUiCoexistHost.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install coexist surface host.", ex); }
+            await HtmlUiStateRemovalPatch.InstallAsync(this);
+            await HtmlUiCoexistHost.InstallAsync(this);
             try { HtmlUiNavigationRacePatch.Install(this); } catch (Exception ex) { HtmlUiLogger.Error("Failed to install navigation race guard.", ex); }
         }
 
@@ -301,7 +335,15 @@ namespace BannerlordHtmlUI
             try { Win32.ReleaseMouseCapture(); } catch { }
         }
 
-        private void ConfigureLocalHost() => MapContentRoot("framework", _webRoot);
+        private void ConfigureLocalHost()
+        {
+            // CoreWebView2 virtual-host mappings belong to the Core instance. Process recovery
+            // creates a new Core, so every retained consumer content root must be replayed.
+            var roots = new List<KeyValuePair<string, string>>(_contentRoots);
+            if (!roots.Exists(pair => string.Equals(pair.Key, "framework", StringComparison.OrdinalIgnoreCase)))
+                roots.Insert(0, new KeyValuePair<string, string>("framework", _webRoot));
+            foreach (var pair in roots) MapContentRoot(pair.Key, pair.Value);
+        }
 
         internal bool UnregisterContentRoot(string id)
         {
@@ -399,17 +441,12 @@ namespace BannerlordHtmlUI
             return File.Exists(full) ? full : null;
         }
 
-        private void InstallFrameworkRuntime()
+        private async Task InstallFrameworkRuntimeAsync()
         {
             var runtimePath = Path.Combine(_webRoot, "runtime.js");
-            if (!File.Exists(runtimePath)) { HtmlUiLogger.Warn("runtime.js not found in framework web root."); return; }
-            _web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(runtimePath));
-        }
-
-        private void InstallRuntimeErrorForwarder()
-        {
-            var js = @"(() => { const send=(kind,error)=>{ try { chrome.webview.postMessage({version:1,type:'command',id:null,name:'runtime.error',payload:{kind,message:String(error)}}); } catch(_){} }; window.addEventListener('error',e=>send('error',e.error||e.message)); window.addEventListener('unhandledrejection',e=>send('unhandledrejection',e.reason)); })();";
-            _web.ExecuteScriptAsync(js);
+            if (!File.Exists(runtimePath)) throw new FileNotFoundException("runtime.js not found in framework web root.", runtimePath);
+            await _web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(File.ReadAllText(runtimePath));
+            HtmlUiLogger.Info("Framework runtime document script registered.");
         }
 
         /// <summary>
@@ -606,12 +643,14 @@ namespace BannerlordHtmlUI
         {
             if (page == null) throw new ArgumentNullException(nameof(page));
             if (_disposed) throw new ObjectDisposedException(nameof(HtmlUiHost));
-            if (!IsWebViewReady) { _pendingPage = page; return; }
-            NavigateOnUiThread(page);
+            var generation = Interlocked.Increment(ref _navigationGeneration);
+            if (!IsWebViewReady) { _pendingPage = page; _pendingPageGeneration = generation; return; }
+            NavigateOnUiThread(page, generation);
         }
 
         internal void ClearPendingNavigation()
         {
+            Interlocked.Increment(ref _navigationGeneration);
             _pendingPage = null;
             _pendingShell = false;
         }
@@ -642,12 +681,20 @@ namespace BannerlordHtmlUI
             {
                 try
                 {
+                    // A page can open after this work was queued by a close or
+                    // surface change. Never replace that page with a stale shell
+                    // request, or reload the shell for duplicate close callbacks.
+                    if (_disposed || _pendingPage != null || Pages.CurrentId != null) return;
                     if (_web?.CoreWebView2 == null) { _pendingShell = true; return; }
+                    // Check the actual WebView too: after process recovery the path
+                    // field still says shell, but the replacement browser is blank.
+                    var shellUri = new Uri("https://" + FrameworkHostName + "/" + ShellFileName);
+                    if (IsShellActive && shellUri.Equals(_web.Source)) return;
                     if (_watcher != null) { _watcher.Dispose(); _watcher = null; }
-                    lock (_liveFrames) _liveFrames.Clear();
+                    ClearTrackedFrames();
                     _currentRelativePath = ShellRelativePath;
                     _navigationInProgress = true;
-                    _web.Source = new Uri("https://" + FrameworkHostName + "/" + ShellFileName);
+                    _web.Source = shellUri;
                 }
                 catch (Exception ex)
                 {
@@ -673,21 +720,26 @@ namespace BannerlordHtmlUI
 
             var page = _pendingPage;
             if (page == null) return;
+            var generation = _pendingPageGeneration;
             _pendingPage = null;
-            NavigateOnUiThread(page);
+            if (generation != Interlocked.Read(ref _navigationGeneration) ||
+                !string.Equals(Pages.CurrentId, page.Id, StringComparison.OrdinalIgnoreCase)) return;
+            NavigateOnUiThread(page, generation);
         }
 
-        private void NavigateOnUiThread(HtmlUiPage page)
+        private void NavigateOnUiThread(HtmlUiPage page, long generation)
         {
             EnsureUiThread(() =>
             {
                 try
                 {
-                    if (_web?.CoreWebView2 == null) { _pendingPage = page; return; }
+                    if (generation != Interlocked.Read(ref _navigationGeneration) ||
+                        !string.Equals(Pages.CurrentId, page.Id, StringComparison.OrdinalIgnoreCase)) return;
+                    if (_web?.CoreWebView2 == null) { _pendingPage = page; _pendingPageGeneration = generation; return; }
                     // 导航即丢弃旧文档的全部 frame 追踪：Destroyed 事件在导航销毁路径上
                     // 并不总是触发，残留引用会让每次状态事件对死 frame 做跨进程调用
                     // （多次进战斗逐场变卡的累积来源）。新文档的 frame 会重新经 FrameCreated 登记。
-                    lock (_liveFrames) _liveFrames.Clear();
+                    ClearTrackedFrames();
                     _currentRelativePath = page.ContentRootId + ":/" + page.RelativePath;
                     EnableWatcherIfNeeded(page);
                     var host = GetContentHost(page.ContentRootId);
@@ -855,6 +907,136 @@ namespace BannerlordHtmlUI
             ExecuteScriptInAllDocuments(js);
         }
 
+        /// <summary>
+        /// Retained state is latest-value data, not an event stream. Store updates immediately,
+        /// then coalesce browser delivery by key until the next UI-loop flush so one game frame
+        /// cannot fan out into many cross-process ExecuteScriptAsync calls.
+        /// </summary>
+        internal void QueueStateUpdate(string key, object value, long revision, bool removed)
+        {
+            if (_disposed || string.IsNullOrWhiteSpace(key)) return;
+
+            bool schedule = false;
+            lock (_pendingStateSync)
+            {
+                if (_pendingStateUpdates.TryGetValue(key, out var existing))
+                {
+                    Interlocked.Increment(ref _stateCoalescedCount);
+                    if (existing.Revision < revision)
+                    {
+                        _pendingStateUpdates[key] = new PendingStateUpdate
+                        {
+                            Key = key,
+                            Value = value,
+                            Revision = revision,
+                            Removed = removed
+                        };
+                        Interlocked.Increment(ref _stateUpdateCount);
+                    }
+                }
+                else
+                {
+                    _pendingStateUpdates[key] = new PendingStateUpdate
+                    {
+                        Key = key,
+                        Value = value,
+                        Revision = revision,
+                        Removed = removed
+                    };
+                    Interlocked.Increment(ref _stateUpdateCount);
+                }
+                if (!_stateFlushScheduled && _pendingStateUpdates.Count > 0)
+                {
+                    _stateFlushScheduled = true;
+                    schedule = true;
+                }
+            }
+
+            if (!schedule) return;
+            PostPendingStateFlush();
+        }
+
+        private void SchedulePendingStateFlush()
+        {
+            lock (_pendingStateSync)
+            {
+                if (_pendingStateUpdates.Count == 0) { _stateFlushScheduled = false; return; }
+                if (_stateFlushScheduled) return;
+                _stateFlushScheduled = true;
+            }
+            PostPendingStateFlush();
+        }
+
+        private void PostPendingStateFlush()
+        {
+            var form = _form;
+            if (form == null || form.IsDisposed)
+            {
+                lock (_pendingStateSync) _stateFlushScheduled = false;
+                return;
+            }
+
+            try { form.BeginInvoke((Action)FlushPendingStateUpdatesCore); }
+            catch (ObjectDisposedException) { lock (_pendingStateSync) _stateFlushScheduled = false; }
+            catch (InvalidOperationException) { lock (_pendingStateSync) _stateFlushScheduled = false; }
+        }
+
+        private void FlushPendingStateUpdatesCore()
+        {
+            PendingStateUpdate[] updates;
+            lock (_pendingStateSync)
+            {
+                // State may be published while WebView2 is still starting or while its process
+                // is being rebuilt. Keep the latest values queued; ConfigureAfterWebViewReady
+                // schedules the flush after the new CoreWebView2 is usable.
+                if (!_webViewReady || _web?.CoreWebView2 == null)
+                {
+                    _stateFlushScheduled = false;
+                    return;
+                }
+                updates = new PendingStateUpdate[_pendingStateUpdates.Count];
+                _pendingStateUpdates.Values.CopyTo(updates, 0);
+                _pendingStateUpdates.Clear();
+                _stateFlushScheduled = false;
+            }
+
+            if (updates.Length == 0 || _disposed) return;
+            Array.Sort(updates, (a, b) => a.Revision.CompareTo(b.Revision));
+            var wire = new object[updates.Length];
+            for (var i = 0; i < updates.Length; i++)
+            {
+                var update = updates[i];
+                wire[i] = new
+                {
+                    key = update.Key,
+                    value = update.Value,
+                    revision = update.Revision,
+                    removed = update.Removed
+                };
+            }
+
+            try
+            {
+                var msg = JsonConvert.SerializeObject(new { version = 1, type = "stateBatch", updates = wire });
+                var js = $"window.game&&window.game.__receive({JsonConvert.SerializeObject(msg)})";
+                ExecuteScriptInAllDocumentsCore(js);
+                Interlocked.Increment(ref _stateFlushCount);
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Debug("State batch dispatch failed: " + ex.GetBaseException().Message);
+                lock (_pendingStateSync)
+                {
+                    foreach (var update in updates)
+                    {
+                        if (!_pendingStateUpdates.TryGetValue(update.Key, out var pending) || pending.Revision < update.Revision)
+                            _pendingStateUpdates[update.Key] = update;
+                    }
+                    _stateFlushScheduled = false;
+                }
+            }
+        }
+
         internal Task SendResponseAsync(string id, object payload, string error)
         {
             if (_disposed) return Task.CompletedTask;
@@ -898,8 +1080,11 @@ namespace BannerlordHtmlUI
             if (core == null) return;
             _ = core.ExecuteScriptAsync(js);
             CoreWebView2Frame[] frames;
-            lock (_liveFrames) frames = new CoreWebView2Frame[_liveFrames.Count];
-            lock (_liveFrames) _liveFrames.CopyTo(frames);
+            lock (_liveFrames)
+            {
+                frames = new CoreWebView2Frame[_liveFrames.Count];
+                _liveFrames.CopyTo(frames);
+            }
             foreach (var frame in frames)
             {
                 try { _ = frame.ExecuteScriptAsync(js); }
@@ -908,8 +1093,7 @@ namespace BannerlordHtmlUI
                     // the frame may be mid-destroy; skip it AND drop the dead reference —
                     // otherwise it stays in _liveFrames forever and every state event pays
                     // a doomed cross-process call for it (accumulates per navigation).
-                    lock (_liveFrames) _liveFrames.Remove(frame);
-                    try { frame.Destroyed -= OnTrackedFrameDestroyed; } catch { }
+                    UntrackFrame(frame);
                 }
             }
         }
@@ -917,24 +1101,76 @@ namespace BannerlordHtmlUI
         private readonly System.Collections.Generic.HashSet<CoreWebView2Frame> _liveFrames =
             new System.Collections.Generic.HashSet<CoreWebView2Frame>();
 
+        private bool IsTrackedFrame(CoreWebView2Frame frame)
+        {
+            lock (_liveFrames) return _liveFrames.Contains(frame);
+        }
+
+        private void UntrackFrame(CoreWebView2Frame frame)
+        {
+            if (frame == null) return;
+            lock (_liveFrames) _liveFrames.Remove(frame);
+            _bridge?.DetachFrame(frame);
+            try { frame.Destroyed -= OnTrackedFrameDestroyed; } catch { }
+            try { frame.NavigationCompleted -= OnTrackedFrameNavigationCompleted; } catch { }
+        }
+
+        private void ClearTrackedFrames()
+        {
+            CoreWebView2Frame[] frames;
+            lock (_liveFrames)
+            {
+                frames = new CoreWebView2Frame[_liveFrames.Count];
+                _liveFrames.CopyTo(frames);
+                _liveFrames.Clear();
+            }
+            foreach (var frame in frames)
+            {
+                _bridge?.DetachFrame(frame);
+                try { frame.Destroyed -= OnTrackedFrameDestroyed; } catch { }
+                try { frame.NavigationCompleted -= OnTrackedFrameNavigationCompleted; } catch { }
+            }
+        }
+
         private void OnCoreFrameCreated(object sender, CoreWebView2FrameCreatedEventArgs e)
         {
             if (e?.Frame == null) return;
             try
             {
                 lock (_liveFrames) _liveFrames.Add(e.Frame);
+                _bridge?.AttachFrame(e.Frame);
                 e.Frame.Destroyed += OnTrackedFrameDestroyed;
+                e.Frame.NavigationCompleted += OnTrackedFrameNavigationCompleted;
                 HtmlUiLogger.Info("Frame created: name=" + (e.Frame.Name ?? "<unnamed>"));
             }
             catch (Exception ex) { HtmlUiLogger.Debug("Frame tracking failed: " + ex.GetBaseException().Message); }
+        }
+
+        private async void OnTrackedFrameNavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            if (!(sender is CoreWebView2Frame frame) || e == null || !e.IsSuccess || _disposed || !IsTrackedFrame(frame)) return;
+            try
+            {
+                // A surface is commonly created by the very batch that also contains its first
+                // business state. It cannot observe that already-dispatched batch, so hydrate the
+                // newly navigated document from the retained store exactly once here.
+                var snapshotJson = State.GetVersionedSnapshotJson();
+                var script = "window.game&&window.game.__hydrateState&&window.game.__hydrateState(" + snapshotJson + ")";
+                if (_disposed || !IsTrackedFrame(frame)) return;
+                await frame.ExecuteScriptAsync(script);
+                HtmlUiLogger.Info("Frame retained-state hydration completed: name=" + (frame.Name ?? "<unnamed>"));
+            }
+            catch (Exception ex)
+            {
+                HtmlUiLogger.Debug("Frame retained-state hydration failed: " + ex.GetBaseException().Message);
+            }
         }
 
         private void OnTrackedFrameDestroyed(object sender, object e)
         {
             if (sender is CoreWebView2Frame frame)
             {
-                lock (_liveFrames) _liveFrames.Remove(frame);
-                try { frame.Destroyed -= OnTrackedFrameDestroyed; } catch { }
+                UntrackFrame(frame);
             }
         }
 
@@ -968,7 +1204,16 @@ namespace BannerlordHtmlUI
             _bridge = null;
             if (_form != null && !_form.IsDisposed)
             {
-                try { if (_form.InvokeRequired) _form.BeginInvoke(new Action(() => { try { _form.Close(); } catch { } })); else _form.Close(); } catch { }
+                try
+                {
+                    Action close = () =>
+                    {
+                        ClearTrackedFrames();
+                        try { _form.Close(); } catch { }
+                    };
+                    if (_form.InvokeRequired) _form.BeginInvoke(close); else close();
+                }
+                catch { }
             }
             _webViewReady = false;
         }

@@ -7,30 +7,15 @@ namespace BannerlordHtmlUI
 {
     internal sealed class HtmlUiWindowTracker : IDisposable
     {
-        private const uint EventSystemForeground = 0x0003;
-        private const uint EventSystemMinimizeStart = 0x0016;
-        private const uint EventSystemMinimizeEnd = 0x0017;
-        private const uint EventObjectLocationChange = 0x800B;
-        private const uint EventObjectShow = 0x8002;
-        private const uint EventObjectHide = 0x8003;
-        private const uint WineventOutOfContext = 0x0000;
-        private delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint idEventThread, uint msEventTime);
-
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr hmodWinEventProc, WinEventDelegate lpfnWinEventProc, uint idProcess, uint idThread, uint flags);
-
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
-        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-        private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
-
         private static readonly object SyncLock = new object();
         private static readonly ConditionalWeakTable<HtmlUiHost, HtmlUiWindowTracker> Instances = new ConditionalWeakTable<HtmlUiHost, HtmlUiWindowTracker>();
 
         private readonly HtmlUiHost _host;
-        private readonly WinEventDelegate _callback;
-        private IntPtr _hook;
+        private Timer _pollTimer;
         private HtmlUiOverlayForm _form;
         private bool _disposed;
+        private bool _inputSuspended;
+        private IntPtr _ownerHwnd;
         private bool _hasState;
         private HtmlUiWindowState _lastState;
         private FieldInfo _timerField;
@@ -39,7 +24,6 @@ namespace BannerlordHtmlUI
         private HtmlUiWindowTracker(HtmlUiHost host)
         {
             _host = host ?? throw new ArgumentNullException(nameof(host));
-            _callback = OnWinEvent;
         }
 
         public static void Install(HtmlUiHost host)
@@ -50,7 +34,7 @@ namespace BannerlordHtmlUI
                 HtmlUiWindowTracker existing;
                 if (Instances.TryGetValue(host, out existing))
                 {
-                    existing.SyncNow();
+                    existing.PostToUi(existing.SyncNow);
                     return;
                 }
 
@@ -99,14 +83,18 @@ namespace BannerlordHtmlUI
             if (_form == null || _form.IsDisposed || !_form.IsHandleCreated)
                 throw new InvalidOperationException("HtmlUi overlay form is not ready.");
 
-            StopLegacyFollowTimer();
-            _hook = SetWinEventHook(EventSystemForeground, EventObjectHide, IntPtr.Zero, _callback, 0, 0, WineventOutOfContext);
-            if (_hook == IntPtr.Zero) throw new InvalidOperationException("Failed to install WinEvent window tracking hook.");
-
-            // Install can be called from a thread-pool continuation (HtmlUiService.OnReady).
-            // SyncNow touches form handles, so it must run on the WebView2 UI thread.
-            PostToUi(SyncNow);
-            HtmlUiLogger.Info("Event-driven Bannerlord window tracker started; legacy 100ms follow timer disabled.");
+            // OnReady may run on a pool thread. Windows Forms timers and window state must
+            // stay on the overlay UI thread. Polling also recovers missed Alt+Tab transitions.
+            PostToUi(() =>
+            {
+                if (_disposed) return;
+                StopLegacyFollowTimer();
+                _pollTimer = new Timer { Interval = 250 };
+                _pollTimer.Tick += OnPoll;
+                _pollTimer.Start();
+                SyncNow();
+                HtmlUiLogger.Info("Bannerlord window tracker started with 250ms focus recovery.");
+            });
         }
 
         private void StopLegacyFollowTimer()
@@ -123,29 +111,10 @@ namespace BannerlordHtmlUI
             catch (Exception ex) { HtmlUiLogger.Debug("Failed to disable legacy 100ms follow timer: " + ex.GetBaseException().Message); }
         }
 
-        private void OnWinEvent(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint idEventThread, uint msEventTime)
+        private void OnPoll(object sender, EventArgs e)
         {
-            if (_disposed || idObject != 0 || idChild != 0) return;
-            if (eventType != EventSystemForeground && eventType != EventSystemMinimizeStart && eventType != EventSystemMinimizeEnd && eventType != EventObjectLocationChange && eventType != EventObjectShow && eventType != EventObjectHide) return;
-
-            if (eventType == EventSystemForeground)
-            {
-                PostToUi(SyncNow);
-                return;
-            }
-
-            if (hwnd == IntPtr.Zero || !IsRelevantGameWindow(hwnd)) return;
-            PostToUi(SyncNow);
-        }
-
-        private bool IsRelevantGameWindow(IntPtr hwnd)
-        {
-            try
-            {
-                IntPtr gameHwnd;
-                return Win32.TryGetGameWindowHandle(_form == null ? IntPtr.Zero : _form.Handle, out gameHwnd) && hwnd == gameHwnd;
-            }
-            catch { return false; }
+            try { SyncNow(); }
+            catch (Exception ex) { HtmlUiLogger.Debug("Window tracker poll failed: " + ex.GetBaseException().Message); }
         }
 
         private void PostToUi(Action action)
@@ -166,11 +135,24 @@ namespace BannerlordHtmlUI
             if (_disposed) return;
             var form = _form ?? GetForm();
             if (form == null || form.IsDisposed || !form.IsHandleCreated) return;
+            if (_host.InputMode == HtmlUiInputMode.Hidden || _host.InputMode == HtmlUiInputMode.Passive)
+                HtmlUiInputBlocker.SetBlocking(false, false);
+            if (_host.InputMode == HtmlUiInputMode.Hidden)
+            {
+                _inputSuspended = false;
+                _pollTimer?.Stop();
+            }
+            else if (_pollTimer != null && !_pollTimer.Enabled)
+            {
+                _pollTimer.Start();
+            }
 
             IntPtr gameHwnd;
             if (!Win32.TryGetGameWindowHandle(form.Handle, out gameHwnd) || gameHwnd == IntPtr.Zero)
             {
                 if (form.Visible) form.Hide();
+                SuspendInputWhileOverlayUnavailable();
+                _ownerHwnd = IntPtr.Zero;
                 PublishState(new HtmlUiWindowState(false, false, false, 0, 0, 0, 0));
                 return;
             }
@@ -179,35 +161,58 @@ namespace BannerlordHtmlUI
             Win32.GetWindowRect(gameHwnd, out rect);
             var minimized = Win32.IsIconic(gameHwnd);
             var gameVisible = Win32.IsWindowVisible(gameHwnd) && !minimized;
-            var foreground = Win32.GetForegroundWindow() == gameHwnd;
-            var overlayForeground = form.IsHandleCreated && Win32.GetForegroundWindow() == form.Handle;
-            var requestedVisible = _host.IsVisible;
+            var foregroundHwnd = Win32.GetForegroundWindow();
+            var foreground = foregroundHwnd == gameHwnd ||
+                (foregroundHwnd != IntPtr.Zero && Win32.IsChild(gameHwnd, foregroundHwnd));
+            var overlayForeground = foregroundHwnd == form.Handle ||
+                (foregroundHwnd != IntPtr.Zero && Win32.IsChild(form.Handle, foregroundHwnd));
+            // IsVisible includes form.Visible and becomes false after Windows hides an owned
+            // overlay during Alt+Tab. The requested mode is the source of truth for recovery.
+            var requestedVisible = _host.InputMode != HtmlUiInputMode.Hidden;
             var showOverlay = requestedVisible && gameVisible && (foreground || overlayForeground);
             var windowWidth = Math.Max(0, rect.Right - rect.Left);
             var windowHeight = Math.Max(0, rect.Bottom - rect.Top);
 
-            if (gameVisible && showOverlay)
+            if (showOverlay)
             {
                 try
                 {
-                    form.SetOwner(gameHwnd);
+                    if (_ownerHwnd != gameHwnd)
+                    {
+                        form.SetOwner(gameHwnd);
+                        _ownerHwnd = gameHwnd;
+                    }
                     var bounds = HtmlUiOverlayLayoutRegistry.GetBounds(_host, rect.Left, rect.Top, windowWidth, windowHeight);
-                    form.Bounds = bounds;
+                    if (form.Bounds != bounds) form.Bounds = bounds;
                 }
                 catch (Exception ex) { HtmlUiLogger.Debug("Overlay placement update failed: " + ex.GetBaseException().Message); }
-            }
-
-            if (showOverlay)
-            {
                 if (!form.Visible)
                 {
                     try { form.Show(); } catch { }
                 }
+                if (!form.Visible)
+                {
+                    SuspendInputWhileOverlayUnavailable();
+                }
+                else if (_inputSuspended)
+                {
+                    _inputSuspended = false;
+                    var mode = _host.InputMode;
+                    // Defer until any active input transition has finished; nested mode
+                    // changes would invalidate its generation and leave input unowned.
+                    try { form.BeginInvoke(new Action(() => { if (!_disposed && _host.InputMode == mode) _host.SetInputMode(mode); })); }
+                    catch (ObjectDisposedException) { }
+                    catch (InvalidOperationException) { }
+                }
             }
-            else if (form.Visible)
+            else if (!requestedVisible || !gameVisible)
             {
-                try { form.Hide(); } catch { }
+                if (form.Visible) form.Hide();
+                if (!gameVisible) SuspendInputWhileOverlayUnavailable();
             }
+
+            // While another application owns the foreground, leave the overlay's requested
+            // visibility alone. Hiding it here can strand Captured input when Bannerlord returns.
 
             // MouseCaptured intentionally lets the WebView2 child keep the foreground while the
             // user interacts with it: Chromium drops mouse input when its window is inactive.
@@ -223,6 +228,23 @@ namespace BannerlordHtmlUI
                 actualBounds.Top,
                 Math.Max(0, actualBounds.Width),
                 Math.Max(0, actualBounds.Height)));
+        }
+
+        private void SuspendInputWhileOverlayUnavailable()
+        {
+            HtmlUiInputBlocker.SetBlocking(false, false);
+            if (_host.InputMode == HtmlUiInputMode.Hidden || _host.InputMode == HtmlUiInputMode.Passive)
+            {
+                _inputSuspended = false;
+                HtmlUiNativeMouseDispatcher.Stop();
+                HtmlUiCursorController.SetOwned(_host, false);
+                return;
+            }
+            if (_inputSuspended) return;
+            _inputSuspended = true;
+            HtmlUiNativeMouseDispatcher.Stop();
+            HtmlUiCursorController.SetOwned(_host, false);
+            HtmlUiInputTraceLogger.Event("WINDOW_TRACKER_INPUT_SUSPENDED mode=" + _host.InputMode);
         }
 
         private void PublishState(HtmlUiWindowState state)
@@ -255,11 +277,9 @@ namespace BannerlordHtmlUI
         {
             if (_disposed) return;
             _disposed = true;
-            if (_hook != IntPtr.Zero)
-            {
-                try { UnhookWinEvent(_hook); } catch { }
-                _hook = IntPtr.Zero;
-            }
+            var timer = _pollTimer;
+            _pollTimer = null;
+            if (timer != null) PostToUi(() => { timer.Stop(); timer.Tick -= OnPoll; timer.Dispose(); });
             _form = null;
         }
     }

@@ -88,26 +88,34 @@ namespace BannerlordHtmlUI
             var elapsedSinceTickStart = TicksToMilliseconds(System.Diagnostics.Stopwatch.GetTimestamp() - tickStart);
             if (elapsedSinceTickStart < GameStallThresholdMs) return;
 
+            var tickCompleted = HtmlUiInputTraceLogger.LastTickCompletedTimestamp;
+            bool tickInProgress = tickCompleted < tickStart;
+            var afterBase = HtmlUiInputTraceLogger.LastTickAfterBaseTimestamp;
             var afterInput = HtmlUiInputTraceLogger.LastTickAfterInputTimestamp;
             var afterService = HtmlUiInputTraceLogger.LastTickAfterServiceTimestamp;
-            var lastDrain = dispatcher.LastDrainTimestamp;
+            var afterF10 = HtmlUiInputTraceLogger.LastTickAfterF10Timestamp;
             var now = MonotonicMilliseconds();
             if (now - Interlocked.Read(ref _lastGameHangLog) < LogCooldownMs) return;
             Interlocked.Exchange(ref _lastGameHangLog, now);
 
             string phase;
-            if (afterInput < tickStart)
+            if (!tickInProgress)
+                phase = "Outside HtmlUI OnApplicationTick";
+            else if (afterBase < tickStart)
+                phase = "Bannerlord base.OnApplicationTick";
+            else if (afterInput < tickStart)
                 phase = "BannerlordInputTrace";
-            else if (afterService < afterInput)
+            else if (afterService < tickStart)
                 phase = "HtmlUiService.Tick";
-            else if (lastDrain < afterService)
-                phase = "Dispatcher.Drain/after-Tick bookkeeping";
+            else if (afterF10 < tickStart)
+                phase = "F10 diagnostics";
             else
-                phase = "OnApplicationTick after HtmlUiService.Tick";
+                phase = "HtmlUI tick finalization";
 
             HtmlUiLogger.Warn(
-                "HANG WATCHDOG: SubModule OnApplicationTick stall detected. " +
+                "HANG WATCHDOG: Game-thread progress stall detected. " +
                 "elapsedMs=" + elapsedSinceTickStart +
+                ", tickInProgress=" + tickInProgress +
                 ", phase=" + phase +
                 ", tickCount=" + HtmlUiInputTraceLogger.TickCount +
                 ", queueCount=" + dispatcher.QueueCount +

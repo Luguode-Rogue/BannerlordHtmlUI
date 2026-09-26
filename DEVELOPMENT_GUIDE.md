@@ -39,6 +39,17 @@ Consumer 必须遵守以下规则：
 5. 动态集合必须设置数量上限、使用紧凑表示，并按实际显示需求限频；前端用 `requestAnimationFrame` 合并绘制，避免每个事件触发重复布局或整棵 DOM 重建。
 6. `State.Set` 的非标量相等比较会产生 `JToken` 转换成本；高频且已自行去重的数据应使用轻量事件，完整 state 仅用于首次水合或低频结构变化。
 
+Framework 侧保证：
+
+- document-created runtime 与关键补丁全部注册完成后，Host 才进入 Ready 并允许首次导航；
+- `game.ready()` 单例化，版本化快照不会覆盖并发到达的新状态；
+- retained state 在同一个浏览器 UI flush 内按 key 合并，只投递最终值；
+- 每个文档使用独立 `documentId`，广播响应不会被其他 iframe 误消费；
+- `state.watch(key, handler)` 提供可靠的“首值 + 后续更新”入口。
+- 新建或重新导航的 Surface iframe 会在导航完成后由 Framework 主动注入一次 retained-state 快照，避免“创建 iframe 的批次同时携带首个业务状态”时丢失首屏状态。
+
+注意：state 是 latest-value 语义，不保证交付同一 flush 内的全部中间值。必须逐条处理的业务变化使用 event。倒计时、长按进度、平滑条等连续视觉过程仍应由 Consumer 在浏览器侧推进。
+
 ### 1.2 唯一 Owner 清单
 
 | 职责 | Owner | 说明 |
@@ -113,8 +124,8 @@ game.state.subscribe('myKey', render);  // 与 Page 相同
 
 ### 2.3 共存策略（Framework 级，不可协商）
 
-- **Page 打开** → 所有 Surface 进入 `Suppressed`（`Closed` 回调触发），定义与 state 保留；
-- **Page 关闭** → Surface 自动恢复（`Opened` 回调触发），Consumer 零参与；
+- **Page 打开** → 普通 Surface 进入 `Suppressed`（实际显示状态翻转时触发 `Closed`），定义与 state 保留；设置 `CoexistWithPage = true` 的 Passive Surface 是例外，由 Coexist 宿主挂入 Page 顶层文档；
+- **Page 关闭** → 普通 Surface 自动恢复（实际显示状态翻转时触发 `Opened`）；Coexist Surface 随文档导航回 Shell 后由 shell.js 接管；
 - **无 Page** → Host 可见性与输入完全由 Surface 集合决定；
 - **无 Page 且无可见 Surface** → `Hidden`。
 
@@ -130,6 +141,16 @@ game.state.subscribe('myKey', render);  // 与 Page 相同
 **v1 限制（必读）**：输入是整窗的，不是分区的。任一 Surface 请求 `MouseCaptured/Captured` 时整窗不穿透；shell 中只有 inputOwner 的 iframe 是 `pointer-events:auto`。可交互 Surface 应设计为短暂状态。
 
 **v2 Coexist（已实现）**：`CoexistWithPage = true` 的 Passive Surface 在 Page 打开期间不被抑制。由于 Page 打开时 WebView 加载的是页面文档而非 Shell，框架通过 `HtmlUiCoexistHost`（document-created 脚本）把这类 Surface 以透明 `pointer-events:none` iframe 直接挂载进页面文档；回到 Shell 后由 shell.js 正常接管。桥接响应与 state 事件已广播到所有存活 frame（`HtmlUiHost.ExecuteScriptInAllDocuments`），iframe 内 runtime 收发消息与顶层文档一致。首个消费示例：`New_ZZZF.BattleHud`。
+
+Coexist document-created 脚本只允许顶层 Page 文档挂载 Surface（`window !== window.top` 的子 frame 立即退出），防止某个 HUD iframe 再次嵌套挂载其他 HUD。战术地图属于 **Page**，不是 Surface；不要据此把它记入 Page/Shell 的并行 Surface 策略。
+
+**2026-09-24 生命周期修复记录**：复现序列为 Page A 的同步 `Closed` 回调打开 Page B（或同一 Page 再开），旧关闭尾部继续发布 `closed`、恢复 Surface 或设置输入模式，可能覆盖新 Page；同时 A 的 UI 线程排队导航可能在快速切换后迟到执行。PageManager 现在先发布旧 Page 的 `closed` 再调用 Consumer 回调，按 transition revision 复核回调前后仍由本次打开拥有页面；同 id 已打开时 `Open` 幂等返回。Surface 恢复回调如打开了新 Page，Coordinator 后续跳过旧的 Surface 输入裁决。Host 的排队导航按 generation 和当前 Page 所有权复核，旧 Page 导航失效；WebView2 进程恢复重新建立 pending page generation，避免恢复页被旧导航检查误丢弃。Page/Shell 导航、Core 重配和 Dispose 会解绑已追踪 Frame 的 `Destroyed` 与 `NavigationCompleted` 事件；广播失败也移除追踪，迟到的状态水合会先确认 Frame 仍受追踪。
+
+业务 Consumer 的暂停必须按来源管理，不能用一个共享 `bool`。战术地图和战斗 HUD 现在分别维护暂停 owner 集合；换装页、地形拍照、单张照片验证使用不同稳定 owner，只有集合从空变非空时隐藏，且全部 owner 释放后才允许 MissionTick 恢复。新增暂停来源时必须使用成对且相同的 owner 标识；兼容旧调用的无参重载只能作为单一 legacy 来源，不能混用来抵消具名来源。这样可避免“换装结束先释放暂停，但照片捕获仍在进行”时提前恢复 HUD/地图并重新进入输入或状态发布。
+
+本轮还清理了 Consumer 的临时 retained state：M 技能页关闭时移除 `customSkill`，换装页结束时移除 `equipmentSession`；关闭页不应把大列表或会话对象留在全局快照中。HUD 的倒计时在 Surface 隐藏或页面失活时停止，重新显示时按原性能时间戳立即刷新 DOM；战术地图在隐藏时停止周期性 canvas 矩形上报。
+
+以上 2026-09-24 生命周期和业务 UI 改动目前经过静态检查与脚本模拟，**尚未在游戏内完成本轮实机回归**。用户已验证上一轮 M 键打开后出现战场装备提示及技能状态变化卡顿的修复，该序列不再复现；这不代表下表中的其他页面已经验证。
 
 **⚠️ Surface 文档强制约束**：根元素**禁止声明 `color-scheme:dark`**（或任何依赖 UA 默认画布色的写法）。规范规定根背景透明时画布使用"当前配色方案的 UA 默认色"——顶层文档有 WebView2 透明环境变量兜底不受影响，但 **iframe 子框架没有这层兜底**，画布会被填充为不透明深色，整个 Surface 变成一块盖住游戏的全屏色块（2026-09-06 实测踩坑）。所有颜色显式声明，不依赖 UA 控件样式。
 
@@ -188,15 +209,24 @@ game.state.subscribe('myKey', render);  // 与 Page 相同
 
 ### 5.1 已实现待实机验证
 
-- [ ] 双 Surface（TacticalMap + HUD）并行显示，互不关闭
-- [ ] Page 打开/关闭时 Surface 抑制与自动恢复（含回调各触发一次）
 - [ ] Passive 下游戏输入完全正常（底线）
-- [ ] MouseCaptured 下点地图：地图响应、游戏不响应；切回 Passive 后鼠标立即恢复
 - [ ] 强制打断（Alt+Tab / 关页面 / 杀 WebView2）后输入不卡死
 - [ ] WebView2 重载后 Surface 自动重挂载、state 不丢
 - [ ] `Hide→Show` 同一 Surface，其 JS/DOM 状态保留
 
-### 5.2 v2 路线
+### 5.2 2026-09-24 业务 UI 回归矩阵（本轮待实机）
+
+| 业务 UI | 代码侧处理 / 预期行为 | 游戏内回归步骤与通过条件 |
+|---|---|---|
+| M 技能 Page | 关闭只由当前技能 Page 所有者处理；战场提示或技能状态变化不应让关闭后的技能任务继续发布状态 | 战场按 M 打开/关闭技能页，再触发装备提示与技能状态变化；UI 响应持续正常，关闭后技能状态停止更新 |
+| 战术地图 Page | `Closed` 检查当前 Page 所有权；停止 native/cursor 资源；恢复等待无其他 Page 的 Tick，避免嵌套导航 | 打开战术地图、关闭，再立即打开另一 Page；地图不会错误隐藏新 Page，游标/输入恢复，关闭后地图不再上报 |
+| 战斗 HUD Surface | 隐藏时暂停 cooldown/GCD interval；重新显示时依据原性能时间戳刷新剩余时间；Page 关闭后的恢复等待 MissionTick，任务结束清 capture | Page 覆盖/恢复 HUD，检查倒计时文字即时更新；任务结束后确认无残留捕获输入 |
+| 战场换装 Page | 打开失败时关闭本页、清理 session state 并恢复其他 UI；关闭时移除临时 retained state | 正常打开/关闭及强制资源错误；不残留空白 Page、旧换装状态或覆盖层 |
+| 技能提示 | 关闭时清理 `customSkill` retained state，避免旧提示状态持续进入后续完整快照 | 触发并关闭技能提示，再打开其他 UI；旧提示状态不重现，其他 state 正常 |
+
+本矩阵中的实现目前仅静态审阅/脚本模拟；所有格都须在游戏内逐项确认后再标记通过。HUD 的隐藏后到期再显示需即时刷新 DOM，前端修正完成后再执行该项回归。
+
+### 5.3 v2 路线
 
 1. 区域级命中路由（解除整窗输入限制，API 不变）；
 2. 鼠标移动（视角）屏蔽；

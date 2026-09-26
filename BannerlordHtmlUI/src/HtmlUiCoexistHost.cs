@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using System.Threading.Tasks;
 using Microsoft.Web.WebView2.WinForms;
 
 namespace BannerlordHtmlUI
@@ -16,6 +17,10 @@ namespace BannerlordHtmlUI
     {
         private const string Script = @"
 (() => {
+  // Document-created scripts also run in every child frame. Only the top-level
+  // page may host surfaces; otherwise each HUD can mount the other HUDs again.
+  if (window !== window.top) return;
+
   const MARK = '__bannerlordHtmlUiCoexistHost';
   if (window[MARK]) return;
 
@@ -63,9 +68,10 @@ namespace BannerlordHtmlUI
         iframe.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;border:0;background:transparent;pointer-events:none;';
         iframe.src = uri;
         host.appendChild(iframe);
-        rec = { iframe, uri };
+        rec = { iframe, uri, surface: s };
         mounted.set(key, rec);
       }
+      rec.surface = s;
       if (rec.uri !== uri) { rec.uri = uri; rec.iframe.src = uri; }
       rec.iframe.style.zIndex = String(Number(s.zIndex) || 100);
     }
@@ -78,11 +84,16 @@ namespace BannerlordHtmlUI
           let info;
           try {
             const doc = rec.iframe.contentDocument;
-            const frameGame = !!(doc && doc.defaultView && doc.defaultView.game);
+            const frameWindow = doc && doc.defaultView;
+            const frameGame = frameWindow && frameWindow.game;
             info = 'src=' + String(rec.uri).split('?')[0] +
               ' sameOrigin=' + (doc ? 'yes' : 'no') +
               ' readyState=' + (doc ? doc.readyState : 'n/a') +
-              ' hasGame=' + frameGame +
+              ' hasGame=' + (!!frameGame) +
+              ' expectedOwner=' + (rec.surface.ownerId || '<none>') +
+              ' reportedOwner=' + (frameGame ? (frameGame.ownerId || '<none>') : '<none>') +
+              ' expectedSurface=' + (rec.surface.id || '<none>') +
+              ' reportedSurface=' + (frameGame && frameGame.surface ? (frameGame.surface.id || '<none>') : '<none>') +
               ' bg=' + (doc ? getComputedStyle(doc.body).backgroundColor : 'n/a');
           } catch (e) { info = 'probe failed: ' + e; }
           try {
@@ -106,15 +117,14 @@ namespace BannerlordHtmlUI
     if (isShellDocument()) return true; // shell.js owns mounting in the shell document
 
     try {
-      game.on('state:framework.surfaces', payload => apply(payload));
+      if (typeof game.state.watch === 'function') game.state.watch('framework.surfaces', apply);
+      else {
+        game.on('state:framework.surfaces', payload => apply(payload));
+        const hydrate = () => { try { apply(game.state.get('framework.surfaces')); } catch (_) {} };
+        if (typeof game.ready === 'function') game.ready().then(hydrate).catch(hydrate);
+        else hydrate();
+      }
     } catch (_) {}
-
-    // Hydrate from the snapshot once ready (state hydration does not emit events).
-    const hydrate = () => {
-      try { apply(game.state.get('framework.surfaces')); } catch (_) {}
-    };
-    if (typeof game.ready === 'function') game.ready().then(hydrate).catch(hydrate);
-    else hydrate();
 
     window[MARK] = true;
     return true;
@@ -127,23 +137,14 @@ namespace BannerlordHtmlUI
   }
 })();";
 
-        public static void Install(HtmlUiHost host)
+        public static async Task InstallAsync(HtmlUiHost host)
         {
-            if (host == null) return;
-            try
-            {
-                var field = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
-                var web = field?.GetValue(host) as WebView2;
-                var core = web?.CoreWebView2;
-                if (core == null) return;
-
-                _ = core.AddScriptToExecuteOnDocumentCreatedAsync(Script);
-                HtmlUiLogger.Info("coexist surface host installed.");
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("Failed to install coexist surface host.", ex);
-            }
+            if (host == null) throw new ArgumentNullException(nameof(host));
+            var field = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
+            var web = field?.GetValue(host) as WebView2;
+            var core = web?.CoreWebView2 ?? throw new InvalidOperationException("CoreWebView2 is not ready for coexist host installation.");
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(Script);
+            HtmlUiLogger.Info("coexist surface host installed.");
         }
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using System.Threading.Tasks;
 using Microsoft.Web.WebView2.WinForms;
 
 namespace BannerlordHtmlUI
@@ -59,7 +60,7 @@ namespace BannerlordHtmlUI
       if (!item || item.cancelSent) return;
       item.cancelSent = true;
       try {
-        window.chrome.webview.postMessage({ version: 1, type: 'cancel', id, name: '', payload: null });
+        window.chrome.webview.postMessage({ version: 1, type: 'cancel', id, name: '', payload: null, documentId: game.documentId || null });
       } catch (_) {}
     };
 
@@ -67,7 +68,8 @@ namespace BannerlordHtmlUI
       if (signal?.aborted) return Promise.reject(makeAbortError('Request aborted: ' + name, name));
       if (!name) return Promise.reject(new Error('Request name is required.'));
 
-      const id = `c${Date.now()}_${nextCancellableId++}`;
+      const runtimeDocumentId = game.documentId || `doc_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const id = `${runtimeDocumentId}:c:${nextCancellableId++}`;
       return new Promise((resolve, reject) => {
         const item = {
           resolve,
@@ -103,7 +105,7 @@ namespace BannerlordHtmlUI
         }
 
         try {
-          window.chrome.webview.postMessage({ version: 1, type: 'request', id, name, payload });
+          window.chrome.webview.postMessage({ version: 1, type: 'request', id, name, payload, documentId: runtimeDocumentId });
         } catch (e) {
           settleCancellable(id, false, null, e);
         }
@@ -154,22 +156,14 @@ namespace BannerlordHtmlUI
   setTimeout(retry, 0);
 })();";
 
-        public static void Install(HtmlUiHost host)
+        public static async Task InstallAsync(HtmlUiHost host)
         {
-            if (host == null) return;
-            try
-            {
-                var field = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
-                var web = field?.GetValue(host) as WebView2;
-                var core = web?.CoreWebView2;
-                if (core == null) return;
-                _ = core.AddScriptToExecuteOnDocumentCreatedAsync(Script);
-                HtmlUiLogger.Info("request cancellation patch installed.");
-            }
-            catch (Exception ex)
-            {
-                HtmlUiLogger.Error("Failed to install request cancellation patch.", ex);
-            }
+            if (host == null) throw new ArgumentNullException(nameof(host));
+            var field = typeof(HtmlUiHost).GetField("_web", BindingFlags.Instance | BindingFlags.NonPublic);
+            var web = field?.GetValue(host) as WebView2;
+            var core = web?.CoreWebView2 ?? throw new InvalidOperationException("CoreWebView2 is not ready for request cancellation patch installation.");
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(Script);
+            HtmlUiLogger.Info("request cancellation patch installed.");
         }
     }
 }

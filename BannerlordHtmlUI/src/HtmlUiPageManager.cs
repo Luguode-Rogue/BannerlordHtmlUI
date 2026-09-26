@@ -10,6 +10,7 @@ namespace BannerlordHtmlUI
         private readonly object _transitionSync = new object();
         private HtmlUiHost _host;
         private string _openId;
+        private long _transitionRevision;
 
         internal void Attach(HtmlUiHost host) => _host = host;
         public int Count { get { lock (_sync) return _pages.Count; } }
@@ -43,14 +44,14 @@ namespace BannerlordHtmlUI
                     if (!_pages.TryGetValue(id, out page)) return false;
                     wasOpen = string.Equals(_openId, id, StringComparison.OrdinalIgnoreCase);
                     _pages.Remove(id);
-                    if (wasOpen) _openId = null;
+                    if (wasOpen) { _openId = null; _transitionRevision++; }
                 }
 
                 if (wasOpen)
                 {
                     _host.ClearPendingNavigation();
-                    InvokeClosed(page, id);
                     PublishClosed(id, page);
+                    InvokeClosed(page, id);
                     try { _host.NotifyPageClosed(); }
                     catch (Exception ex) { HtmlUiLogger.Error("Page unregister notification failed: " + id, ex); }
                 }
@@ -81,6 +82,7 @@ namespace BannerlordHtmlUI
 
             lock (_transitionSync)
             {
+                if (string.Equals(CurrentId, id, StringComparison.OrdinalIgnoreCase)) return true;
                 HtmlUiPage page;
                 lock (_sync)
                 {
@@ -96,9 +98,13 @@ namespace BannerlordHtmlUI
 
                 HtmlUiLogger.Info("Page open requested: " + id + ", hostReady=" + _host.IsWebViewReady + ", currentBefore=" + (CurrentId ?? "<null>"));
                 CloseCurrentInternal();
+                // Closed callbacks are allowed to open a replacement page. Since
+                // Monitor locks are reentrant, preserve that newer owner's transition.
+                if (CurrentId != null) return false;
                 _host.ClearPendingNavigation();
 
-                lock (_sync) _openId = page.Id;
+                long openRevision;
+                lock (_sync) { _openId = page.Id; openRevision = ++_transitionRevision; }
                 try
                 {
                     PublishOpening(page);
@@ -106,14 +112,22 @@ namespace BannerlordHtmlUI
                     _host.SetInputMode(page.DefaultInputMode);
                     try { _host.NotifyPageOpened(); }
                     catch (Exception ex) { HtmlUiLogger.Error("Page open notification failed: " + page.Id, ex); }
+                    lock (_sync)
+                    {
+                        if (!string.Equals(_openId, page.Id, StringComparison.OrdinalIgnoreCase) || _transitionRevision != openRevision) return false;
+                    }
                     try { page.Opened?.Invoke(); }
                     catch (Exception ex) { HtmlUiLogger.Error("Page open callback failed: " + page.Id, ex); }
+                    lock (_sync)
+                    {
+                        if (!string.Equals(_openId, page.Id, StringComparison.OrdinalIgnoreCase) || _transitionRevision != openRevision) return false;
+                    }
                 }
                 catch (Exception ex)
                 {
                     lock (_sync)
                     {
-                        if (string.Equals(_openId, page.Id, StringComparison.OrdinalIgnoreCase)) _openId = null;
+                        if (string.Equals(_openId, page.Id, StringComparison.OrdinalIgnoreCase)) { _openId = null; _transitionRevision++; }
                     }
                     _host.ClearPendingNavigation();
                     PublishClosed(page.Id, page);
@@ -151,18 +165,19 @@ namespace BannerlordHtmlUI
                 if (openId == null)
                 {
                     HtmlUiLogger.Info("Page CloseCurrent ignored: no open page.");
-                    try { _host.NotifyPageClosed(); } catch { }
                     _host.ClearPendingNavigation();
+                    try { _host.NotifyPageClosed(); } catch { }
                     return;
                 }
                 _pages.TryGetValue(openId, out page);
                 _openId = null;
+                _transitionRevision++;
             }
 
             HtmlUiLogger.Info("Page CloseCurrent executing: page=" + openId + ", resolvedPage=" + (page == null ? "<null>" : page.Id));
             _host.ClearPendingNavigation();
-            InvokeClosed(page, openId);
             PublishClosed(openId, page);
+            InvokeClosed(page, openId);
             // The input coordinator owns the post-page host state. With no visible surfaces it
             // resolves to Hidden (the legacy behavior); with visible surfaces it restores them.
             try { _host.NotifyPageClosed(); }

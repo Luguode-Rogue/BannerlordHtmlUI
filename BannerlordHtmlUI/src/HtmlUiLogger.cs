@@ -56,7 +56,7 @@ namespace BannerlordHtmlUI
                 }
             }
             catch { }
-            try { TaleWorlds.Library.Debug.Print("[BannerlordHtmlUI] " + line); } catch { }
+            try { /* 此代码看不到log：Debug.Print 不会写入可查看的日志文件，已禁用。 */; } catch { }
         }
     }
 }

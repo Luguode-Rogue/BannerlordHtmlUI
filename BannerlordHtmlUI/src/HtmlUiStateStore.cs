@@ -10,6 +10,7 @@ namespace BannerlordHtmlUI
         private readonly Dictionary<string, object> _values = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
         private readonly HtmlUiHost _host;
         private readonly object _sync = new object();
+        private long _revision;
 
         internal HtmlUiStateStore(HtmlUiHost host) => _host = host;
 
@@ -21,22 +22,26 @@ namespace BannerlordHtmlUI
             }
         }
 
+        public long Revision
+        {
+            get { lock (_sync) return _revision; }
+        }
+
         public void Set(string key, object value)
         {
             if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("State key is required.", nameof(key));
 
-            bool changed;
+            long revision;
             lock (_sync)
             {
                 if (_values.TryGetValue(key, out var existing) && AreEqual(existing, value))
                     return;
 
                 _values[key] = value;
-                changed = true;
+                revision = ++_revision;
             }
 
-            if (changed)
-                _host.SendEvent("state:" + key, value);
+            _host.QueueStateUpdate(key, value, revision, removed: false);
         }
 
         public bool TryGet(string key, out object value)
@@ -49,17 +54,44 @@ namespace BannerlordHtmlUI
             if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("State key is required.", nameof(key));
 
             bool removed;
-            lock (_sync) removed = _values.Remove(key);
+            long revision;
+            lock (_sync)
+            {
+                removed = _values.Remove(key);
+                revision = removed ? ++_revision : _revision;
+            }
             if (!removed) return;
 
-            // Null is a legitimate state value, so removal must not reuse state:<key>.
-            // The runtime patch consumes state-remove:<key> and deletes the JS Map entry.
-            _host.SendEvent("state-remove:" + key, null);
+            _host.QueueStateUpdate(key, null, revision, removed: true);
         }
 
         public IReadOnlyDictionary<string, object> GetSnapshot()
         {
             lock (_sync) return new Dictionary<string, object>(_values, StringComparer.OrdinalIgnoreCase);
+        }
+
+        public object GetVersionedSnapshot()
+        {
+            lock (_sync)
+            {
+                return new
+                {
+                    revision = _revision,
+                    values = new Dictionary<string, object>(_values, StringComparer.OrdinalIgnoreCase)
+                };
+            }
+        }
+
+        internal string GetVersionedSnapshotJson()
+        {
+            lock (_sync)
+            {
+                return JsonConvert.SerializeObject(new
+                {
+                    revision = _revision,
+                    values = new Dictionary<string, object>(_values, StringComparer.OrdinalIgnoreCase)
+                });
+            }
         }
 
         public string SnapshotJson()
