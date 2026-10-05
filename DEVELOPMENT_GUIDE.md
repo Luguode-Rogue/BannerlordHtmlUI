@@ -200,6 +200,7 @@ Coexist document-created 脚本只允许顶层 Page 文档挂载 Surface（`wind
 | 点 HUD 时游戏同时响应 | Bannerlord 轮询输入而非消费消息 | 已修：`HtmlUiInputBlocker`。教训：**让窗口不透明只解决了一半输入问题** |
 | Surface 全部不挂载（曾有） | C# 属性 PascalCase 序列化 vs JS camelCase 读取 | 已修：state 载荷统一小写匿名对象。教训：**跨语言契约没有编译器兜底，序列化形状必须显式声明** |
 | Page 关闭后 Surface 消失（曾有） | PageManager 关闭路径无条件 `Hidden+Hide` 覆盖协调器 | 已修：Host 状态唯一归协调器。教训：**两个 Owner 写同一状态必然漂移** |
+| 战场换装 Page 反复按 Esc 退出后卡顿、卡死（2026-09-27 实机确认修复） | 框架通用 Esc 直接调用 `Pages.CloseCurrent()`；Consumer 的 `Closed` 回调在框架完成 Page 关闭通知和 Shell/Surface 恢复前同步执行，提前恢复战斗 HUD。取消按钮则调用 Consumer 自己的 `Close()`，在框架关闭流程返回后才恢复 HUD | 已修：`HtmlUiPage.EscapeRequested` 提供可选的游戏线程 Esc 处理入口，经 `HtmlUiConsumerScope.RegisterPage` 保留；战场换装页将其绑定到 `Close()`，使 Esc 与取消走同一清理顺序。未设置该回调的 Page 仍由框架直接关闭。教训：**需要在关闭后恢复其他 UI 或释放输入的 Consumer，应让 Esc 进入自己的完整关闭流程，不要只依赖 `Closed` 回调做同步恢复** |
 | request handler await 后线程错误 | 游戏线程无 SyncContext | 已修：结果处理回投游戏线程 + `SwitchToGameThread()`。教训：**线程契约不能只靠文档** |
 | Surface iframe 全屏错误页 → 全屏色块（2026-09-06 三连坑） | ① `WebResourceRequested` **不对 iframe 子框架导航触发**，`__surface/` 资源通道在 iframe 内必然漏掉 → 错误页；② 桥接 `ExecuteScriptAsync` 只达顶层文档，iframe runtime 收不到任何响应/事件；③ iframe 文档 `color-scheme:dark` 时画布按配色方案被 UA 填充为不透明深色（顶层有透明环境变量兜底，iframe 没有） | 已修：① Surface URI 改走 content root 虚拟主机（与 Page 同机制）；② 响应/事件经 `FrameCreated` 追踪广播到全部存活 frame，各 runtime 按 pending-map 幂等结算；③ Surface 文档禁止 `color-scheme`，颜色全部显式声明。教训：**iframe 不是"小号顶层文档"——平台对子框架的资源拦截、消息投递、画布默认色都有独立行为，每个都要实测** |
 

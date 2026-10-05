@@ -109,7 +109,10 @@ namespace BannerlordHtmlUI
                     try
                     {
                         if (string.Equals(host.Pages.CurrentId, pageId, StringComparison.OrdinalIgnoreCase))
-                            host.Pages.CloseCurrent();
+                        {
+                            if (page.EscapeRequested != null) page.EscapeRequested();
+                            else host.Pages.CloseCurrent();
+                        }
                         HtmlUiInputTraceLogger.Event("ESC_CLOSE_RESULT source=" + source + " current=" + (host.Pages.CurrentId ?? "<null>") + " inputMode=" + host.InputMode);
                     }
                     catch (Exception ex)

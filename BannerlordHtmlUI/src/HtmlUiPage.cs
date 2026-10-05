@@ -12,6 +12,8 @@ namespace BannerlordHtmlUI
         public bool HotReload { get; set; }
         public HtmlUiInputMode DefaultInputMode { get; set; } = HtmlUiInputMode.Passive;
         public bool CloseOnEscape { get; set; } = true;
+        /// <summary>Optional game-thread Escape handler; when absent, the framework closes the page.</summary>
+        public Action EscapeRequested { get; set; }
         public Action Opened { get; set; }
         public Action Closed { get; set; }
 

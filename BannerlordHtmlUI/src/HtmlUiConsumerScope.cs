@@ -65,6 +65,7 @@ namespace BannerlordHtmlUI
                     HotReload = page.HotReload,
                     DefaultInputMode = page.DefaultInputMode,
                     CloseOnEscape = page.CloseOnEscape,
+                    EscapeRequested = page.EscapeRequested,
                     Opened = page.Opened,
                     Closed = page.Closed
                 };

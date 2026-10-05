@@ -306,8 +306,10 @@ namespace BannerlordHtmlUI
             var foreground = Win32.GetForegroundWindow();
             bool overlayOwnsForeground = foreground == form.Handle ||
                                          (foreground != IntPtr.Zero && Win32.IsChild(form.Handle, foreground));
-            if (overlayOwnsForeground && (web == null || web.Focused)) return;
-            bool webWasFocused = web != null && web.Focused;
+            // Chromium puts keyboard/IME focus on a child HWND. Focused only checks the
+            // WinForms wrapper and would repeatedly steal focus from an active editor.
+            if (overlayOwnsForeground && (web == null || web.ContainsFocus)) return;
+            bool webWasFocused = web != null && web.ContainsFocus;
 
             // Captured may remain active while the user Alt+Tabs. Only recover from Bannerlord
             // reclaiming focus; never pull an unrelated foreground application back to the game.
@@ -322,8 +324,8 @@ namespace BannerlordHtmlUI
                     Win32.SetForegroundWindow(form.Handle);
                     form.Activate();
                 }
-                if (web != null && !web.Focused) web.Focus();
-                bool webIsFocused = web != null && web.Focused;
+                if (web != null && !web.ContainsFocus) web.Focus();
+                bool webIsFocused = web != null && web.ContainsFocus;
                 if (!overlayOwnsForeground || (!webWasFocused && webIsFocused))
                 {
                     HtmlUiInputTraceLogger.Event(
